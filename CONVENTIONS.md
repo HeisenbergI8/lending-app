@@ -1,0 +1,126 @@
+<!-- harness:scaffold — delete this line when you have filled the file in. The selftest warns while it
+     is here, because a half-filled scaffold is worse than no file: the agents follow whatever it says.
+     Features (docs/FEATURES.md) and stack (docs/STACK.md) ARE decided. Commands and "Where things
+     live" are not, because nothing has been scaffolded yet — those placeholders are deliberate and
+     the marker stays until the project actually exists. -->
+
+# Conventions — Lending App
+
+**What this file is for:** the agents in `.claude/agents/` know how to plan, verify and audit, but
+nothing about *this* project. This is where you tell them. Delete any section you cannot fill honestly.
+
+---
+
+## What this project is
+
+A private lending ledger for a single admin. The admin records loans made to borrowers using money
+supplied by several lenders, and tracks what each lender has idle ("floating funds") versus out on
+loan. Nobody else logs in — lenders and borrowers exist only as records the admin manages.
+
+The borrower is charged 7% per week on the capital; the funding lender earns 5% and the admin keeps
+2%. Interest is simple, charged on the original capital, and computed **once when the loan is
+created** — there is no recurring job and the total never changes afterwards.
+
+**Features are fully specified in [docs/FEATURES.md](docs/FEATURES.md) — read it before planning any
+feature work.** Every rule there was confirmed with the owner and there are no open feature
+questions. Its section 12 lists what was deliberately EXCLUDED from MVP — partial payments, early
+payoff, penalties, extensions, reminders, SMS. Do not treat anything in section 12 as a missing
+feature or raise it as a finding.
+
+**Stack:** Next.js (App Router) + TypeScript, PostgreSQL via Prisma, hosted on Supabase (database
+*and* payment-screenshot storage), Tailwind + shadcn/ui, password auth, deployed to Vercel. Installable
+as a PWA. Full reasoning and the free-tier traps are in [docs/STACK.md](docs/STACK.md).
+
+> **Money is stored as whole centavos (integers), never decimals or floats.** ₱30,000.00 is `3000000`.
+> Conversion to pesos happens only at display time, rounding goes through one shared function, and the
+> remainder from a lender split is assigned deliberately — never dropped. This is the single easiest
+> way to silently shortchange a lender; see docs/STACK.md.
+
+---
+
+## Commands
+
+<!-- The first two MUST match harness.config.json. If they drift, the gates check something different
+     from what you run by hand, and the disagreement will not be obvious. -->
+
+| Purpose | Command |
+| --- | --- |
+| Full check (the closing gate) | `` |
+| Fast check (runs every turn) | `` |
+| Tests, one file | `` |
+| Run the app locally | `` |
+
+> **PLACEHOLDER — empty until the project is scaffolded.** The stack is chosen, but no `package.json`
+> exists yet, so there are no scripts to point at. `commands.verify` and `commands.verifyFast` in
+> `harness.config.json` are `null` for the same reason — a verify command naming a script that does
+> not exist fails for a reason that has nothing to do with the code. Fill all of these in the same
+> change that creates `package.json`.
+
+---
+
+## Where things live
+
+> **PLANNED, NOT YET REAL.** The layout is designed in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> but nothing is scaffolded — none of these paths exist on disk yet. Do not assume a file is there;
+> check. Delete this warning once the project is created.
+
+| Layer | Path | Owns |
+| --- | --- | --- |
+| Domain | `src/lib/money/` | every peso decision — interest, splits, the whole-weeks rule. Pure functions, no database, no React. Fully tested. |
+| Server | `src/server/` | database access, auth, Supabase storage, PDF reports. Server-only. |
+| UI | `src/app/`, `src/components/` | routes and screens. Never imports Prisma. |
+| Data model | `prisma/schema.prisma` | the nine tables, single source of truth |
+| Tests | `tests/money/` | mirrors `src/lib/money/` one-to-one |
+
+Dependencies point **one way only**: UI → Server → Domain. The domain layer imports nothing from the
+other two — that is what lets the money math be tested without a database.
+
+**Read this first:** `src/lib/money/split.ts` (once it exists). It carries the 7% = 5% + 2% invariant
+and the rule that a split's leftover centavos are assigned deliberately, never dropped. Model any new
+money code on it.
+
+---
+
+## Traps
+
+<!-- Things that are true, non-obvious, and have already cost someone time. Add the next one the day
+     it costs you. -->
+
+- **The admin is a lender row with `isSelf = true`.** Mixed funding (part the admin's money, part a
+  lender's) looks like a special case and is not one — the difference is carried by the rate columns
+  on `LoanFunding`, not by branching. If you find yourself writing `if (isAdminMoney)`, stop.
+- **Supabase pauses free projects after about a week idle.** The app's whole purpose is a clickable
+  CV link, so a paused project defeats it. See docs/STACK.md.
+
+---
+
+## Reporting rules
+
+<!-- These four hold in every project. They are about YOUR backlog, and an agent cannot infer any of
+     them from the code. -->
+
+- **A deferral is not a gap.** Work that was consciously postponed must not be reported as a defect, a
+  finding, or a hand-off item — by a person or by an agent. From inside any single module a deliberate
+  absence looks exactly like an oversight, so it will be re-raised on every audit until it is written
+  down. List the deferrals here: <!-- none recorded yet -->
+- **A claim that ages carries the date it was measured.** Any count, or any "every / all / none"
+  statement, written into something durable — a doc, a status field, a user-visible string — says when it
+  was measured: `measured NULL on 25 of 25 rows on 2026-08-06`. Not to prove the measurement happened,
+  but because writing a date for a measurement you did not take is a deliberate act rather than an
+  accident of momentum. It also makes the claim checkable later; `NULL on all rows` reads as eternally
+  true.
+- **Red is not automatically yours.** A failing typecheck, lint or test in code this turn did not touch
+  is evidence about the tree, not a defect to fix. Where more than one session or person has uncommitted
+  work in the same checkout, it is usually theirs — and "fixing" it overwrites work in progress that
+  looks, from inside a single session, exactly like a mistake. Establish provenance first, and never by
+  stashing: `git show HEAD:<path> | diff - <path>` compares against the committed version and changes
+  nothing. `git stash && <check> && git stash pop` is refused by `guard-destructive` for that reason —
+  a `pop` that conflicts buries whatever was uncommitted.
+- **A priority label is not permission to start.** "Critical" or "P1" in a spec or a ticket says what
+  matters, not what is next, and not what has already been decided against. Check whatever records
+  decisions in this project before planning from a label.
+
+---
+
+<!-- Keep this file tracked in git and keep it SHORT. Everything here is read on most planning tasks,
+     so it competes with the code for the same attention. -->
