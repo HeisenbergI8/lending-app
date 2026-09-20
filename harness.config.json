@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/HeisenbergI8/provenly/main/harness.schema.json",
+  "commands": {
+    "verify": null,
+    "verifyFast": null
+  },
+  "source": {
+    "include": [
+      "src/**",
+      "lib/**",
+      "tests/**"
+    ],
+    "exclude": [
+      "**/*.md"
+    ]
+  }
+}
