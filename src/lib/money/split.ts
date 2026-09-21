@@ -53,6 +53,18 @@ export type LenderShare = {
   lenderId: string
   principal: Centavos
   earnings: Centavos
+  /**
+   * The admin's cut taken on THIS row's principal. Zero when the funder is the
+   * admin themselves, who pays no cut to anyone.
+   *
+   * Worked out here rather than by the caller, and that is the whole point.
+   * Rounding each row independently — principal x cut x weeks, rounded — gives a
+   * set of numbers that need not add up to `adminEarnings`, and the loan then
+   * fails to reconcile by a centavo or two with nothing to show why. These are
+   * carved out of the admin's total by the same largest-remainder rule, so they
+   * sum to it exactly, always.
+   */
+  adminCut: Centavos
 }
 
 export type Split = {
@@ -161,6 +173,25 @@ function distribute(shares: Share[], total: Centavos): Map<string, Centavos> {
 
 const ADMIN_SHARE_KEY = '\u0000admin'
 
+/**
+ * Break the admin's total cut back down to the rows it was earned on.
+ *
+ * A second pass over the SAME total, never a fresh calculation: the figure being
+ * divided is the one already allocated, so the parts cannot add up to anything
+ * else. Rows the admin takes no cut on are left out of the draw entirely rather
+ * than given a weight of zero — a zero-weight row can still win a leftover
+ * centavo on a tie, and a centavo of cut on the admin's own capital is a cut
+ * they are charging themselves.
+ */
+function adminCutPerRow(fundings: Funding[], weeks: number, adminEarnings: Centavos): Map<string, Centavos> {
+  const chargeable = fundings
+    .map((f) => ({ key: f.lenderId, numerator: checkedProduct(f.principal, f.adminCutBps, weeks) }))
+    .filter((share) => share.numerator > 0)
+
+  if (chargeable.length === 0 || adminEarnings === 0) return new Map()
+  return distribute(chargeable, adminEarnings)
+}
+
 /** Work out what every party earns, or why the loan's funding does not add up. */
 export function splitLoan(terms: LoanTerms): Result<Split, SplitError> {
   const invalid = validate(terms)
@@ -182,6 +213,8 @@ export function splitLoan(terms: LoanTerms): Result<Split, SplitError> {
   shares.push({ key: ADMIN_SHARE_KEY, numerator: adminNumerator })
 
   const allocation = distribute(shares, totalInterest)
+  const adminEarnings = allocation.get(ADMIN_SHARE_KEY) as Centavos
+  const cuts = adminCutPerRow(fundings, weeks, adminEarnings)
 
   return ok({
     totalInterest,
@@ -190,8 +223,9 @@ export function splitLoan(terms: LoanTerms): Result<Split, SplitError> {
       lenderId: f.lenderId,
       principal: f.principal,
       earnings: allocation.get(f.lenderId) as Centavos,
+      adminCut: cuts.get(f.lenderId) ?? centavos(0),
     })),
-    adminEarnings: allocation.get(ADMIN_SHARE_KEY) as Centavos,
+    adminEarnings,
   })
 }
 

@@ -38,9 +38,29 @@ export function daysBetween(start: Date, due: Date): number {
   return Math.round((dueUtc - startUtc) / MS_PER_DAY)
 }
 
-/** Add whole days to a date, keeping it a calendar date. */
+/**
+ * The same calendar day, carried at local midday.
+ *
+ * EVERY Date that means a calendar day — a start date, a due date, the day a
+ * lender handed cash over — goes through this before it is stored.
+ *
+ * Postgres `date` columns hold no time and no zone, so the driver has to pick a
+ * calendar day out of the instant it is given, and it picks the UTC one. In
+ * Manila, local midnight on 5 January is 4 January 16:00 UTC, so a date built
+ * the obvious way is written as the day before and reads back as the day before
+ * — for every date in the app, shifting a due date and tipping a loan into
+ * overdue a day early.
+ *
+ * Midday is the fix because it is twelve hours from either edge: no time zone on
+ * earth is far enough from UTC to push it into a different day.
+ */
+export function calendarDate(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12)
+}
+
+/** Add whole days to a date, keeping it a calendar date — at midday, as above. */
 export function addDays(date: Date, days: number): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days)
+  return calendarDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() + days))
 }
 
 /**
@@ -73,4 +93,27 @@ export function dueDateAfterWeeks(start: Date, weeks: number): Date {
     throw new Error(`A loan runs a whole number of weeks, at least one. Got ${weeks}`)
   }
   return addDays(start, weeks * DAYS_PER_WEEK)
+}
+
+const dayMonth = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * Why two dates do not work, in words for the person who typed them.
+ *
+ * The whole-weeks refusal names the two dates that WOULD work, because "that is
+ * not a whole number of weeks" leaves the admin counting on their fingers.
+ *
+ * Here rather than in a component because the same sentence belongs in the live
+ * badge beside the due-date field AND in the server action's answer, and two
+ * copies of it would drift apart the first time one is reworded.
+ */
+export function describeWeeksError(error: WeeksError): string {
+  switch (error.kind) {
+    case 'due-before-start':
+      return 'The due date is before the start date.'
+    case 'same-day':
+      return 'A loan runs at least one week.'
+    case 'not-whole-weeks':
+      return `${error.days} days is not a whole number of weeks. Try ${dayMonth.format(error.previousValidDue)} or ${dayMonth.format(error.nextValidDue)}.`
+  }
 }

@@ -1,8 +1,10 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { weeksBetween, daysBetween, dueDateAfterWeeks } from '../../src/lib/money/weeks.ts'
+import { weeksBetween, daysBetween, dueDateAfterWeeks, calendarDate } from '../../src/lib/money/weeks.ts'
 
-const date = (y: number, m: number, d: number) => new Date(y, m - 1, d)
+// Midday, matching calendarDate: every date this module hands back is carried
+// at midday so no time zone can shift which calendar day it is. See weeks.ts.
+const date = (y: number, m: number, d: number) => calendarDate(new Date(y, m - 1, d))
 
 describe('weeksBetween — whole weeks only', () => {
   const valid: [string, Date, Date, number][] = [
@@ -85,5 +87,44 @@ describe('dueDateAfterWeeks', () => {
 
   test('refuses a zero-week loan', () => {
     assert.throws(() => dueDateAfterWeeks(date(2026, 2, 1), 0), /at least one/)
+  })
+})
+
+describe('calendarDate — the day survives the trip to the database', () => {
+  test('midnight becomes midday on the SAME calendar day', () => {
+    const normalised = calendarDate(new Date(2026, 0, 5, 0, 0))
+    assert.equal(normalised.getDate(), 5)
+    assert.equal(normalised.getHours(), 12)
+  })
+
+  test('late at night becomes midday on the same day, not the next', () => {
+    const normalised = calendarDate(new Date(2026, 0, 5, 23, 59))
+    assert.equal(normalised.getDate(), 5)
+    assert.equal(normalised.getHours(), 12)
+  })
+
+  test('twelve hours of clearance either side of the day boundary', () => {
+    // This is the whole point: a Postgres `date` column takes the UTC calendar
+    // day of the instant it is handed. At local midnight in Manila that is the
+    // day before. No zone on earth is 12 hours from UTC in a way that moves
+    // midday, so midday is the only hour that survives everywhere.
+    const noon = calendarDate(new Date(2026, 0, 5))
+    assert.ok(noon.getUTCHours() >= 0 && noon.getUTCHours() < 24)
+    assert.equal(Math.abs(noon.getTime() - new Date(2026, 0, 5).getTime()), 12 * 3_600_000)
+  })
+
+  test('applying it twice changes nothing', () => {
+    const once = calendarDate(new Date(2026, 0, 5, 3, 17))
+    assert.deepEqual(calendarDate(once), once)
+  })
+
+  test('dates derived from a due date are carried at midday too', () => {
+    assert.equal(dueDateAfterWeeks(new Date(2026, 1, 1), 4).getHours(), 12)
+    const slipped = weeksBetween(new Date(2026, 1, 1), new Date(2026, 2, 3))
+    assert.equal(slipped.ok, false)
+    if (!slipped.ok && slipped.error.kind === 'not-whole-weeks') {
+      assert.equal(slipped.error.previousValidDue.getHours(), 12)
+      assert.equal(slipped.error.nextValidDue.getHours(), 12)
+    }
   })
 })

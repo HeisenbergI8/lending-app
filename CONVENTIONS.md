@@ -71,8 +71,8 @@ bundler resolves those extensions fine — this was checked against a real build
 
 ## Where things live
 
-> **PARTLY REAL.** `src/app/`, `src/lib/money/` and `tests/money/` exist. `src/server/`,
-> `prisma/` and the domain components do not yet — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> **PARTLY REAL.** Everything below exists except `src/server/payments/`, `src/server/storage/`
+> and `src/server/reports/` — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 > Check before assuming a file is there.
 
 | Layer | Path | Owns |
@@ -82,7 +82,7 @@ bundler resolves those extensions fine — this was checked against a real build
 | Server | `src/server/` | database access, auth, Supabase storage, PDF reports. Server-only. |
 | UI | `src/app/`, `src/components/` | routes and screens. Never imports Prisma. |
 | Data model | `prisma/schema.prisma` | the nine tables, single source of truth |
-| Tests | `tests/money/` | mirrors `src/lib/money/` one-to-one |
+| Tests | `tests/` | `money/` mirrors `src/lib/money/` one-to-one; `server/`, `borrowers/`, `auth/`, `ui/` alongside |
 
 Dependencies point **one way only**: UI → Server → Domain. The domain layer imports nothing from the
 other two — that is what lets the money math be tested without a database.
@@ -107,6 +107,31 @@ the reconciliation test there is the one that matters.
   decimal points stack, which is what makes a ledger scannable. On a stat tile it gives every digit
   the width of a zero and `₱121` reads loose and gappy. `<Money variant="column" | "display">`
   encodes the distinction — use it rather than writing the class by hand.
+- **A client component must not import from `src/server/`.** The dependency rule runs UI → Server →
+  Domain, and `src/server/` is meant to be unreachable from the browser bundle. Anything both sides
+  need — the `FormState` shape, the sentence explaining a bad date — lives in `src/lib/`
+  (`form-state.ts`, `describeWeeksError` in `money/weeks.ts`). The live "= 4 weeks" badge and the
+  server action therefore run the SAME functions, so they cannot disagree about a set of dates.
+- **A loan's stored figures are never recomputed on read.** `weeks`, `interestCentavos`,
+  `totalCentavos` and every `LoanFunding` row are decided once by `server/loans/terms.ts` when the
+  loan is created, and read back verbatim afterwards. Changing a default rate next year must not
+  rewrite what a borrower already owes. Editing a loan recomputes everything *from the submitted
+  form* — which is why a PAID loan is refused: its `Payment` records a total that was handed over.
+- **Rounding a money split happens in ONE pass, never per row.** `LoanFunding.adminCutCentavos` is
+  carved out of the admin's already-allocated total by `split.ts`, not recomputed as
+  `principal × cut × weeks` per row. Independent rounding of each row produces numbers that need not
+  sum to the total, and the loan then fails to reconcile by a centavo with nothing to show why.
+- **A date meant as a calendar day is carried at local MIDDAY, never midnight.** Postgres `date`
+  columns hold no time and no zone, so the driver picks the UTC calendar day out of whatever instant
+  it is handed. In Manila, local midnight on 5 January is 4 January 16:00 UTC — every date was
+  written and read back a day early, which shifted due dates and tipped loans into overdue a day
+  ahead of time. `calendarDate()` in `src/lib/money/weeks.ts` is the one place that fixes it, and
+  `addDays` / `dueDateAfterWeeks` already return midday dates. Anything building a `Date` by hand
+  before a write goes through it.
+- **`new Date(2026, 1, 31)` is 3 March, not an error.** The constructor rolls a day that does not
+  exist into the next month, so an impossible date posted to a server action would be stored as a
+  real one a few days later. `date()` in `src/server/forms.ts` reads the parts back and compares
+  them rather than trusting the constructor.
 - **`src/components/*.tsx` cannot be imported by `node --test`.** Node strips types but does not
   compile JSX. Any rule that deserves a test therefore lives in `src/lib/`, not beside the component
   that renders it — `loan-state.ts` is the worked example.

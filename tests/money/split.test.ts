@@ -269,3 +269,105 @@ describe('funding that does not add up is refused', () => {
     if (!result.ok) assert.equal(result.error.kind, 'non-positive-principal')
   })
 })
+
+describe("the admin's cut, broken down to the rows it came from", () => {
+  const peso4 = (n: number) => centavos(n * 100)
+
+  test("the spec's split example: ₱2,400 over two lenders' shares", () => {
+    const result = splitLoan({
+      capital: peso4(30_000),
+      borrowerRateBps: 700,
+      weeks: 4,
+      fundings: [
+        { lenderId: 'maria', principal: peso4(20_000), lenderRateBps: 500, adminCutBps: 200 },
+        { lenderId: 'jun', principal: peso4(10_000), lenderRateBps: 500, adminCutBps: 200 },
+      ],
+    })
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+
+    const cuts = Object.fromEntries(result.value.lenders.map((l) => [l.lenderId, l.adminCut]))
+    assert.equal(cuts.maria, peso4(1_600))
+    assert.equal(cuts.jun, peso4(800))
+    assert.equal(cuts.maria + cuts.jun, result.value.adminEarnings)
+  })
+
+  test("the admin's own capital carries no cut — they charge themselves nothing", () => {
+    const result = splitLoan({
+      capital: peso4(30_000),
+      borrowerRateBps: 700,
+      weeks: 4,
+      fundings: [
+        { lenderId: 'admin', principal: peso4(10_000), lenderRateBps: 700, adminCutBps: 0 },
+        { lenderId: 'john', principal: peso4(20_000), lenderRateBps: 500, adminCutBps: 200 },
+      ],
+    })
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+
+    const byLender = Object.fromEntries(result.value.lenders.map((l) => [l.lenderId, l]))
+    assert.equal(byLender.admin.adminCut, 0)
+    assert.equal(byLender.john.adminCut, peso4(1_600))
+    assert.equal(result.value.adminEarnings, peso4(1_600))
+  })
+
+  test('a loan funded entirely by the admin leaves no cut anywhere', () => {
+    const result = splitLoan({
+      capital: peso4(25_000),
+      borrowerRateBps: 700,
+      weeks: 4,
+      fundings: [{ lenderId: 'admin', principal: peso4(25_000), lenderRateBps: 700, adminCutBps: 0 }],
+    })
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.value.adminEarnings, 0)
+    assert.equal(result.value.lenders[0].adminCut, 0)
+  })
+
+  test('the row cuts always sum to exactly the admin total — awkward numbers included', () => {
+    // Three-way splits of prime-ish amounts are where independent rounding of
+    // each row drifts away from the total. Nothing here is allowed to drift.
+    for (let capital = 1; capital <= 2_000; capital += 1) {
+      const a = Math.max(1, Math.floor(capital / 3))
+      const b = Math.max(1, Math.floor(capital / 3))
+      const c = capital - a - b
+      if (c <= 0) continue
+
+      const result = splitLoan({
+        capital: centavos(capital),
+        borrowerRateBps: 700,
+        weeks: 3,
+        fundings: [
+          { lenderId: 'a', principal: centavos(a), lenderRateBps: 500, adminCutBps: 200 },
+          { lenderId: 'b', principal: centavos(b), lenderRateBps: 500, adminCutBps: 200 },
+          { lenderId: 'c', principal: centavos(c), lenderRateBps: 700, adminCutBps: 0 },
+        ],
+      })
+      assert.equal(result.ok, true, `capital ${capital} should split`)
+      if (!result.ok) continue
+
+      const summed = result.value.lenders.reduce((sum, l) => sum + l.adminCut, 0)
+      assert.equal(summed, result.value.adminEarnings, `capital ${capital}: row cuts must sum to the admin total`)
+
+      const noCut = result.value.lenders.find((l) => l.lenderId === 'c')
+      assert.equal(noCut?.adminCut, 0, `capital ${capital}: the admin's own row must carry no cut`)
+    }
+  })
+
+  test('everything still reconciles: lender earnings + admin total = the interest charged', () => {
+    for (let capital = 1; capital <= 500; capital += 1) {
+      const result = splitLoan({
+        capital: centavos(capital),
+        borrowerRateBps: 700,
+        weeks: 5,
+        fundings: [
+          { lenderId: 'a', principal: centavos(Math.ceil(capital / 2)), lenderRateBps: 500, adminCutBps: 200 },
+          { lenderId: 'b', principal: centavos(Math.floor(capital / 2)), lenderRateBps: 500, adminCutBps: 200 },
+        ].filter((f) => f.principal > 0),
+      })
+      if (!result.ok) continue
+      const earned = result.value.lenders.reduce((sum, l) => sum + l.earnings, 0)
+      assert.equal(earned + result.value.adminEarnings, result.value.totalInterest, `capital ${capital}`)
+    }
+  })
+})

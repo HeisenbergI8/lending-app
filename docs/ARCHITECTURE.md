@@ -1,10 +1,12 @@
 # Lending App — Architecture
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
-**What exists:** steps 1-4 of the build order. `src/lib/money/`, `src/server/db.ts`,
-`src/server/auth/`, a live Supabase database with a seeded demo account, a working login
-and a placeholder dashboard. 116 tests pass.
-**Still to come:** the lender, borrower and loan screens.
+**What exists:** steps 1-6 of the build order. `src/lib/money/`, `src/server/db.ts`,
+`src/server/auth/`, `src/server/lenders/`, `src/server/borrowers/`, `src/server/loans/`, a live
+Supabase database with a seeded demo account, a working login, a dashboard, and the lender,
+borrower and loan screens — including creating, correcting and undoing a loan.
+215 tests pass (measured 2026-09-21).
+**Still to come:** payments and proof, search, reports, PWA and deploy.
 **Everything else below is still planned, not real** — check before assuming a file is there.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
@@ -67,9 +69,9 @@ lending-app/
 │   │   │   ├── actions.ts         # login / logout server actions
 │   │   │   ├── rate-limit.ts      # failed-login counters, in Postgres not memory
 │   │   │   └── request-ip.ts      # x-forwarded-for, first entry
-│   │   ├── lenders/
-│   │   ├── borrowers/
-│   │   ├── loans/
+│   │   ├── lenders/               # BUILT — queries.ts (derived floating), actions.ts
+│   │   ├── borrowers/             # BUILT — queries.ts (counted record), actions.ts
+│   │   ├── loans/                # BUILT — terms.ts (pure), actions.ts, queries.ts
 │   │   ├── payments/
 │   │   ├── storage/               # Supabase upload/download of proof files
 │   │   └── reports/               # data gathering + PDF rendering
@@ -84,8 +86,10 @@ lending-app/
 │   │   │   ├── page.tsx           # dashboard
 │   │   │   ├── lenders/[id]/page.tsx
 │   │   │   ├── borrowers/[id]/page.tsx
+│   │   │   ├── loans/page.tsx
 │   │   │   ├── loans/new/page.tsx
 │   │   │   ├── loans/[id]/page.tsx
+│   │   │   ├── loans/[id]/edit/page.tsx
 │   │   │   ├── reports/page.tsx
 │   │   │   └── archive/page.tsx
 │   │   └── api/
@@ -95,7 +99,7 @@ lending-app/
 │   ├── components/
 │   │   ├── ui/                    # shadcn/ui — generated, don't hand-edit
 │   │   ├── money-input.tsx        # types pesos, stores centavos
-│   │   ├── week-preview.tsx       # the live "= 4 weeks" badge
+│   │   ├── forms.tsx              # DisclosureForm / ActionForm / SubmitButton
 │   │   └── ...
 │   │
 │   └── types/
@@ -152,7 +156,10 @@ checked in `split.ts` and covered by tests.
 
 These are computed on read, so they can never drift out of date:
 
-- **Floating funds** = deposits − withdrawals − active principal + repaid principal + earnings
+- **Floating funds** = deposits − withdrawals − principal still out on loan + earnings realised.
+  Principal that came back is simply no longer out, so it is not added back separately — see
+  [src/lib/money/floating.ts](../src/lib/money/floating.ts). Earnings on a loan still running are
+  reported as *pending* and deliberately kept OUT of floating: the money has not arrived yet.
 - **Weeks** = (due − start) ÷ 7
 - **Track record** = counted from the borrower's loan history (the manual Good/Okay/Bad label *is*
   stored — it's a human opinion, not a fact)
@@ -198,7 +205,10 @@ the Archive screen shows only those. There is no purge job and no permanent dele
 | Rule | Lives in |
 | --- | --- |
 | Whole-weeks-only date rule | `lib/money/weeks.ts` + the form |
-| Interest computed once, at creation | `server/loans/create.ts` — writes the totals, never recomputes |
+| Floating funds, derived never stored | `lib/money/floating.ts` + `server/lenders/queries.ts` |
+| Counted track record, the label stored | `lib/track-record.ts` + `Borrower.manualLabel` |
+| A calendar date survives being stored | `calendarDate()` in `lib/money/weeks.ts` |
+| Interest computed once, at creation | `server/loans/terms.ts` + `actions.ts` — write the totals, never recompute |
 | 7% = 5% + 2% spread | `lib/money/split.ts` (invariant 2) |
 | Admin's own money earns 7% | the rate columns on `LoanFunding` — no special-casing |
 | Repayment returns capital + earnings to floating | the floating-funds derivation |
@@ -217,8 +227,8 @@ Each step leaves something that runs:
 
 3. ~~Prisma schema + migration + demo seed.~~ **Done** — applied to Supabase, demo account seeded.
 4. ~~Auth and `requireUser()`.~~ **Done** — server-side sessions, scrypt passwords.
-5. Lenders, borrowers, and their floating funds.
-6. Loan creation — the form with the live "= 4 weeks" badge.
+5. ~~Lenders, borrowers, and their floating funds.~~ **Done** — list and profile screens for both, money in/out, derived floating funds, counted track record.
+6. ~~Loan creation — the form with the live "= 4 weeks" badge.~~ **Done** — create, correct and undo; inline borrower and lender creation; the whole-weeks rule enforced in the badge and again in the action.
 7. Payments and proof upload.
 8. Dashboard and search.
 9. PDF reports.

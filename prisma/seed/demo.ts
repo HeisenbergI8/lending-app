@@ -18,7 +18,7 @@ import { scryptSync, randomBytes } from 'node:crypto'
 
 import { centavos } from '../../src/lib/money/centavos.ts'
 import { splitLoan } from '../../src/lib/money/split.ts'
-import { dueDateAfterWeeks } from '../../src/lib/money/weeks.ts'
+import { calendarDate, dueDateAfterWeeks } from '../../src/lib/money/weeks.ts'
 
 const DEMO_USERNAME = 'demo'
 const DEMO_PASSWORD = 'demo1234'
@@ -32,12 +32,17 @@ function hashPassword(password: string): string {
   return `scrypt:${salt}:${derived}`
 }
 
-/** A date N days before today, at midnight, so the demo always looks current. */
+/**
+ * A date N days before today, so the demo always looks current.
+ *
+ * Through calendarDate, like every other date the app stores — a Date built at
+ * local midnight is written to a Postgres `date` column as the day BEFORE from
+ * any zone east of Greenwich. See src/lib/money/weeks.ts.
+ */
 function daysAgo(days: number): Date {
   const d = new Date()
-  d.setHours(0, 0, 0, 0)
   d.setDate(d.getDate() - days)
-  return d
+  return calendarDate(d)
 }
 
 // Seeding does bulk writes; the session connection (DIRECT_URL) suits that better
@@ -206,9 +211,6 @@ async function main() {
     for (const funding of fundings) {
       const share = split.lenders.find((l) => l.lenderId === funding.lenderId)
       if (!share) throw new Error('split did not return a share for a funder')
-      const adminCutOnThisRow = Math.round(
-        (funding.principal * funding.adminCutBps * plan.weeks) / 10_000,
-      )
       await prisma.loanFunding.create({
         data: {
           userId,
@@ -218,7 +220,7 @@ async function main() {
           lenderRateBps: funding.lenderRateBps,
           adminCutBps: funding.adminCutBps,
           earningsCentavos: share.earnings,
-          adminCutCentavos: adminCutOnThisRow,
+          adminCutCentavos: share.adminCut,
         },
       })
     }
