@@ -255,13 +255,17 @@ The opening screen. Big numbers at a glance:
 
 ---
 
-## 11. Delete and archive
+## 11. Delete and Recently Deleted
 
-**Nothing is ever truly destroyed.**
+**Deleting is reversible for thirty days.**
 
-- One place, called **Archive**.
-- Any record can be removed for any reason, and always restored later.
-- There is no permanent-delete, and no 30-day auto-purge.
+- One place, called **Recently Deleted**.
+- Any record can be deleted for any reason, and restored whole within thirty days.
+- Every row shows how long it has left.
+- After thirty days a daily job destroys it permanently. There is no undo behind that.
+- There is still no manual permanent-delete button: the clock is the only way out.
+- A borrower or lender that live records still point at is kept past the thirty days
+  rather than destroyed, and says so.
 
 ---
 
@@ -281,7 +285,7 @@ not overlooked:
 - Warning prompts before lending to a poorly-rated borrower
 - Printing · spreadsheet/CSV export · sending reports from inside the app
 - Any borrower detail beyond first and last name
-- Permanent deletion
+- A manual "delete permanently now" button
 
 ---
 

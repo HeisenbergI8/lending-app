@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
@@ -13,7 +14,7 @@ import { type FormState, NO_ERROR, amount, date, failed, personName, text } from
  * server action is a public HTTP endpoint — anyone can post to it — so the check
  * belongs here, in the action, and not in the page that renders the button.
  *
- * Updates and archives go through updateMany/findFirst with the userId in the
+ * Updates and deletes go through updateMany/findFirst with the userId in the
  * WHERE clause rather than update({ where: { id } }). A bare id is supplied by
  * the caller; on its own it would let one account edit another's rows.
  */
@@ -60,28 +61,29 @@ export async function renameLender(_prev: FormState, form: FormData): Promise<Fo
 }
 
 /**
- * Archive, not delete.
+ * Delete — which here means "hide it and start a thirty-day clock".
  *
- * Nothing in this app is ever destroyed — the row keeps its loans and its history
- * and comes back intact from the Archive screen. A lender with money still out on
- * loan can be archived: that is the admin's call, and the loans keep pointing at
- * them either way.
+ * The row keeps its loans and its history and comes back intact from Recently
+ * Deleted for a month. A lender with money still out on loan can be deleted:
+ * that is the admin's call, and the loans keep pointing at them either way.
  *
- * The admin's own pot is the exception. Archiving it would leave mixed-funding
+ * The admin's own pot is the exception. Deleting it would leave mixed-funding
  * loans with nowhere to record the admin's own capital, and there is no way back
  * to it from the lenders list once it is hidden.
  */
-export async function archiveLender(_prev: FormState, form: FormData): Promise<FormState> {
+export async function deleteLender(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
   const id = text(form, 'lenderId')
 
   const lender = await db.lender.findFirst({ where: { id, userId: user.id } })
   if (!lender) return failed('That lender no longer exists.')
-  if (lender.isSelf) return failed('Your own pot cannot be archived.')
+  if (lender.isSelf) return failed('The Admin pot cannot be deleted.')
 
-  await db.lender.updateMany({ where: { id, userId: user.id }, data: { archivedAt: new Date() } })
+  await db.lender.updateMany({ where: { id, userId: user.id }, data: { deletedAt: new Date() } })
   refresh()
-  return NO_ERROR
+  // Ends on the lenders list. Staying on a profile that is no longer in any
+  // list reads as "nothing happened", which is the opposite of what happened.
+  redirect('/lenders')
 }
 
 export async function restoreLender(_prev: FormState, form: FormData): Promise<FormState> {
@@ -89,7 +91,7 @@ export async function restoreLender(_prev: FormState, form: FormData): Promise<F
 
   const { count } = await db.lender.updateMany({
     where: { id: text(form, 'lenderId'), userId: user.id },
-    data: { archivedAt: null },
+    data: { deletedAt: null },
   })
   if (count === 0) return failed('That lender no longer exists.')
 
@@ -138,13 +140,26 @@ export async function recordTransaction(_prev: FormState, form: FormData): Promi
   return NO_ERROR
 }
 
-/** Undo a transaction entered wrong. Archived, so the correction is itself a record. */
-export async function archiveTransaction(_prev: FormState, form: FormData): Promise<FormState> {
+/** Undo a transaction entered wrong. Kept for thirty days, so the correction is itself a record. */
+export async function deleteTransaction(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
   const { count } = await db.lenderTransaction.updateMany({
     where: { id: text(form, 'transactionId'), userId: user.id },
-    data: { archivedAt: new Date() },
+    data: { deletedAt: new Date() },
+  })
+  if (count === 0) return failed('That entry no longer exists.')
+
+  refresh()
+  return NO_ERROR
+}
+
+export async function restoreTransaction(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+
+  const { count } = await db.lenderTransaction.updateMany({
+    where: { id: text(form, 'transactionId'), userId: user.id },
+    data: { deletedAt: null },
   })
   if (count === 0) return failed('That entry no longer exists.')
 

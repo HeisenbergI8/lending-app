@@ -37,7 +37,7 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Main"
-      className="bg-background/80 supports-[backdrop-filter]:bg-background/65 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur-lg md:hidden"
+      className="bg-background/85 supports-[backdrop-filter]:bg-background/70 border-border/70 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur-xl md:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       <ul className="flex items-stretch">
@@ -50,13 +50,13 @@ export function MobileNav() {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'relative flex flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors',
-                  active ? 'text-primary' : 'text-muted-foreground active:text-foreground',
+                  active ? 'text-brand' : 'text-muted-foreground active:text-foreground',
                 )}
               >
                 <span
                   className={cn(
                     'flex items-center justify-center rounded-full px-4 py-1 transition-all duration-300 ease-out',
-                    active ? 'bg-primary/10' : 'bg-transparent',
+                    active ? 'bg-brand-bg' : 'bg-transparent',
                   )}
                 >
                   <item.icon className="size-5" aria-hidden />
@@ -72,13 +72,13 @@ export function MobileNav() {
             <DropdownMenuTrigger
               className={cn(
                 'flex w-full flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors',
-                overflowActive ? 'text-primary' : 'text-muted-foreground',
+                overflowActive ? 'text-brand' : 'text-muted-foreground',
               )}
             >
               <span
                 className={cn(
                   'flex items-center justify-center rounded-full px-4 py-1 transition-all duration-300 ease-out',
-                  overflowActive ? 'bg-primary/10' : 'bg-transparent',
+                  overflowActive ? 'bg-brand-bg' : 'bg-transparent',
                 )}
               >
                 <MoreHorizontal className="size-5" aria-hidden />

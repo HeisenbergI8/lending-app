@@ -1,7 +1,7 @@
 import {
-  Archive,
   FileText,
   LayoutDashboard,
+  Trash2,
   Users,
   Wallet,
   HandCoins,
@@ -29,7 +29,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/borrowers', label: 'Borrowers', short: 'People', icon: Users, primary: true },
   { href: '/lenders', label: 'Lenders', short: 'Funds', icon: Wallet, primary: true },
   { href: '/reports', label: 'Reports', short: 'Reports', icon: FileText, primary: false },
-  { href: '/archive', label: 'Archive', short: 'Archive', icon: Archive, primary: false },
+  { href: '/deleted', label: 'Recently Deleted', short: 'Deleted', icon: Trash2, primary: false },
 ]
 
 /** A tab is active for its own route and anything beneath it — but "/" only exactly. */

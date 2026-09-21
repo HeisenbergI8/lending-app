@@ -89,14 +89,27 @@ export function isFiltered(filter: LoanFilter): boolean {
   )
 }
 
-/** The filter as a query string, for links that change one part of it and keep the rest. */
-export function loanFilterHref(filter: LoanFilter, change: Partial<LoanFilter> = {}): string {
+/**
+ * The filter as a query string, for links that change one part of it and keep the rest.
+ *
+ * `page` defaults to 1 and is left out at 1, so CHANGING the filter resets the
+ * paging by simply not carrying it: tapping a chip while on page 4 of the old
+ * search would otherwise land on page 4 of a shorter list, which is usually
+ * empty and always confusing. Only the pager itself passes a page, because it
+ * is the one caller that means to keep the search and move within it.
+ */
+export function loanFilterHref(
+  filter: LoanFilter,
+  change: Partial<LoanFilter> = {},
+  page: number = 1,
+): string {
   const next = { ...filter, ...change }
   const params = new URLSearchParams()
   if (next.query) params.set('q', next.query)
   if (next.from) params.set('from', toDateInput(next.from))
   if (next.to) params.set('to', toDateInput(next.to))
   if (next.status) params.set('status', next.status)
+  if (page > 1) params.set('page', String(page))
   const query = params.toString()
   return query ? `/loans?${query}` : '/loans'
 }

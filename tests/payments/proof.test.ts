@@ -52,7 +52,7 @@ describe('what counts as proof', () => {
     assert.equal(result.ok, false)
     if (!result.ok) {
       assert.match(result.error, /4\.0 MB/)
-      assert.match(result.error, /the limit is/)
+      assert.match(result.error, /The limit is/)
     }
   })
 

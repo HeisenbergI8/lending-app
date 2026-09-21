@@ -61,9 +61,9 @@ export function MarkPaidPanel({ loanId, total }: { loanId: string; total: string
   const [state, formAction] = useActionState(markPaid, NO_ERROR)
 
   return (
-    <section className="bg-card space-y-3 rounded-xl border p-4">
+    <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
       <div>
-        <h2 className="text-sm font-semibold">Mark as paid</h2>
+        <h2 className="text-base font-semibold tracking-tight">Mark as paid</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">
           Records the full {total}. There are no partial payments.
         </p>
@@ -79,7 +79,7 @@ export function MarkPaidPanel({ loanId, total }: { loanId: string; total: string
 
         <ProofInput
           label="Proof of payment"
-          hint="Optional — the screenshot, the chat, or both. You can add them later."
+          hint="Optional. The screenshot, the chat, or both. They can be added later."
         />
 
         {state.error ? (

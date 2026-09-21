@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/reports': ['src/server/reports/fonts/**'],
   },
+  /**
+   * The Archive screen became Recently Deleted. Anything pointing at the old
+   * path — a bookmark, a pinned tab on the admin's phone — lands on the new one
+   * rather than a 404 that looks like the feature was dropped.
+   */
+  async redirects() {
+    return [{ source: '/archive', destination: '/deleted', permanent: true }]
+  },
   experimental: {
     serverActions: {
       /**

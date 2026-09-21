@@ -16,8 +16,8 @@ const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'sh
 export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
   const borrower = await getBorrower(user.id, (await params).id)
-  if (!borrower) return { title: 'Borrower · Lending App' }
-  return { title: `${borrower.firstName} ${borrower.lastName} · Lending App` }
+  if (!borrower) return { title: 'Borrower · Consignment Kush' }
+  return { title: `${borrower.firstName} ${borrower.lastName} · Consignment Kush` }
 }
 
 /**
@@ -43,7 +43,7 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
       <div>
         <Link
           href="/borrowers"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
+          className="text-muted-foreground hover:text-foreground -my-2 inline-flex min-h-11 items-center gap-1 py-2 text-sm pointer-fine:my-0 pointer-fine:min-h-0 pointer-fine:py-0"
         >
           <ArrowLeft className="size-4" aria-hidden />
           Borrowers
@@ -52,7 +52,7 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">
+              <h1 className="text-[1.75rem] font-semibold tracking-tight">
                 {borrower.firstName} {borrower.lastName}
               </h1>
               {borrower.label ? <BorrowerLabelBadge label={borrower.label} /> : null}
@@ -73,6 +73,7 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
 
       <StatTile
         hero
+        icon={HandCoins}
         label="Owes right now"
         value={<Money amount={borrower.outstanding} variant="display" />}
         note={record.active === 1 ? 'across 1 active loan' : `across ${record.active} active loans`}
@@ -92,10 +93,10 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
       <LabelPicker borrowerId={borrower.id} current={borrower.label} />
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Loans</h2>
+        <h2 className="text-base font-semibold tracking-tight">Loans</h2>
 
         {borrower.loans.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-10 text-center">
+          <div className="bg-card/60 border-border rounded-2xl border border-dashed p-10 text-center">
             <HandCoins className="text-muted-foreground mx-auto size-7" aria-hidden />
             <p className="mt-3 text-sm font-medium">No loans yet</p>
             <p className="text-muted-foreground mx-auto mt-1 max-w-xs text-sm">
@@ -105,7 +106,7 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
         ) : (
           <ul className="space-y-2">
             {borrower.loans.map((loan) => (
-              <li key={loan.id} className="bg-card rounded-xl border p-4">
+              <li key={loan.id} className="bg-card rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <Money amount={loan.total} variant="display" className="text-base font-semibold" />

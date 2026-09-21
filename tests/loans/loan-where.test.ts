@@ -19,17 +19,17 @@ const today = calendarDate(new Date())
 const where = (params: Record<string, string> = {}) => loanWhere('user-1', parseLoanFilter(params))
 
 describe('loanWhere — a search as a query', () => {
-  test('always scopes to the account and hides archived loans', () => {
+  test('always scopes to the account and hides deleted loans', () => {
     const cases: Record<string, string>[] = [{}, { q: 'angel' }, { status: 'paid' }, { from: '2026-01-01' }]
     for (const params of cases) {
       const clause = where(params)
       assert.equal(clause.userId, 'user-1')
-      assert.equal(clause.archivedAt, null)
+      assert.equal(clause.deletedAt, null)
     }
   })
 
   test('an empty search asks for nothing else', () => {
-    assert.deepEqual(loanWhere('user-1', NO_FILTER), { userId: 'user-1', archivedAt: null })
+    assert.deepEqual(loanWhere('user-1', NO_FILTER), { userId: 'user-1', deletedAt: null })
   })
 
   test('paid is the stored status', () => {

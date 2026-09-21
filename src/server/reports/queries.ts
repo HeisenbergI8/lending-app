@@ -39,6 +39,31 @@ export type ReportHeader = {
   generatedAt: Date
 }
 
+/** One month of a report's period, for the columns on the preview. */
+export type ReportMonth = { label: string; capital: Centavos; interest: Centavos }
+
+/**
+ * The three figures every report boils down to, and their shape over the period.
+ *
+ * This is what the admin sees BEFORE the PDF is made. It is not a fifth report:
+ * every figure in it is taken from the rows the report itself already carries,
+ * so a preview can never say something the file it precedes does not.
+ */
+export type ReportPreview = {
+  capital: Centavos
+  interest: Centavos
+  total: Centavos
+  /** Oldest first, at most the last twelve months of the range. */
+  months: ReportMonth[]
+  /**
+   * True when the range held more than twelve months and earlier ones were cut.
+   * The figures above the chart cover the WHOLE range, so without this the two
+   * disagree with nothing on the page to say why — a 2025-06 month worth
+   * ₱20,000 vanished from the columns while the total still counted it.
+   */
+  monthsTruncated: boolean
+}
+
 export type OverdueRow = {
   borrowerName: string
   total: Centavos
@@ -63,6 +88,7 @@ export type SummaryReport = {
   floating: Centavos
   /** As of today, worst first. */
   overdue: OverdueRow[]
+  preview: ReportPreview
 }
 
 export type LenderLoanRow = {
@@ -102,8 +128,15 @@ export type LenderReport = {
   /** Loans of theirs repaid during the period, and what those earned them. */
   repaid: LenderLoanRow[]
   earnedInPeriod: Centavos
+  /**
+   * The slice of `earnedInPeriod` that is the admin's 2% cut on OTHER funders'
+   * principal. Always 0 on a plain lender's statement, and 0 on the admin pot's
+   * own statement until the pot lends alongside somebody else.
+   */
+  adminCutInPeriod: Centavos
   putIn: Centavos
   tookOut: Centavos
+  preview: ReportPreview
 }
 
 export type ProofRow = {
@@ -140,6 +173,7 @@ export type BorrowerReport = {
   paidInPeriod: Centavos
   /** As of today, across every loan — not only the ones in this range. */
   owedToday: Centavos
+  preview: ReportPreview
 }
 
 export type Report = SummaryReport | LenderReport | BorrowerReport
@@ -151,6 +185,57 @@ const fullName = (person: { firstName: string; lastName: string }) =>
 
 const DAY_MS = 86_400_000
 
+const MONTH_LABEL = new Intl.DateTimeFormat('en-PH', { month: 'short' })
+
+/**
+ * Boil a report down to capital, interest and a shape over time.
+ *
+ * Fed the rows the report is already built from, never a fresh query — so the
+ * preview cannot disagree with the PDF that follows it.
+ *
+ * Every month in the range gets a column, empty ones included: a gap where
+ * nothing happened is part of the picture, and dropping it would make two busy
+ * months either side look consecutive. A range longer than a year is cut to its
+ * last twelve columns, because past that they are too thin to read.
+ */
+function buildPreview(
+  rows: { on: Date; capital: number; interest: number }[],
+  range: ReportRange,
+): ReportPreview {
+  const buckets = new Map<string, ReportMonth>()
+  const cursor = new Date(range.from.getFullYear(), range.from.getMonth(), 1)
+  const last = new Date(range.to.getFullYear(), range.to.getMonth(), 1)
+
+  while (cursor <= last) {
+    buckets.set(`${cursor.getFullYear()}-${cursor.getMonth()}`, {
+      label: MONTH_LABEL.format(cursor),
+      capital: centavos(0),
+      interest: centavos(0),
+    })
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+
+  for (const row of rows) {
+    const bucket = buckets.get(`${row.on.getFullYear()}-${row.on.getMonth()}`)
+    if (!bucket) continue
+    bucket.capital = centavos(bucket.capital + row.capital)
+    bucket.interest = centavos(bucket.interest + row.interest)
+  }
+
+  const capital = sum(rows.map((row) => row.capital))
+  const interest = sum(rows.map((row) => row.interest))
+
+  return {
+    capital,
+    interest,
+    total: centavos(capital + interest),
+    months: [...buckets.values()].slice(-12),
+    // The cap is deliberate — past twelve the columns are too thin to read — so
+    // the honest form is to PRINT the bound, not to drop it. See the chart title.
+    monthsTruncated: buckets.size > 12,
+  }
+}
+
 /** Everything the admin needs to see the month at a glance. */
 export async function summaryReport(userId: string, range: ReportRange): Promise<SummaryReport> {
   const period = rangeFilter(range)
@@ -158,16 +243,16 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
 
   const [made, paid, active, lenders] = await Promise.all([
     db.loan.findMany({
-      where: { userId, archivedAt: null, startOn: period },
-      select: { capitalCentavos: true },
+      where: { userId, deletedAt: null, startOn: period },
+      select: { capitalCentavos: true, interestCentavos: true, startOn: true },
     }),
     // Loans repaid in the period, with the funding rows that say who earned what.
     db.loan.findMany({
       where: {
         userId,
-        archivedAt: null,
+        deletedAt: null,
         status: 'PAID',
-        payment: { archivedAt: null, paidOn: period },
+        payment: { deletedAt: null, paidOn: period },
       },
       select: {
         totalCentavos: true,
@@ -181,7 +266,7 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
       },
     }),
     db.loan.findMany({
-      where: { userId, archivedAt: null, status: 'ACTIVE' },
+      where: { userId, deletedAt: null, status: 'ACTIVE' },
       select: {
         totalCentavos: true,
         dueOn: true,
@@ -231,6 +316,14 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
     outOnLoan: sum(lenders.map((lender) => lender.position.outOnLoan)),
     floating: sum(lenders.map((lender) => lender.position.floating)),
     overdue,
+    preview: buildPreview(
+      made.map((loan) => ({
+        on: loan.startOn,
+        capital: loan.capitalCentavos,
+        interest: loan.interestCentavos,
+      })),
+      range,
+    ),
   }
 }
 
@@ -243,19 +336,19 @@ export async function lenderReport(
   const period = rangeFilter(range)
 
   // getLender rather than listLenders: it carries where the money is TODAY, and
-  // it finds an archived lender too — somebody who has been archived is exactly
-  // who needs a closing statement.
-  const [lender, fundings] = await Promise.all([
+  // it finds a deleted lender too — somebody who has just been deleted is
+  // exactly who needs a closing statement.
+  const [lender, fundings, cutRows] = await Promise.all([
     getLender(userId, lenderId),
     db.loanFunding.findMany({
       where: {
         userId,
         lenderId,
         loan: {
-          archivedAt: null,
+          deletedAt: null,
           // Either the loan started in the period, or it was repaid in it. One
           // query for both, so a loan that did both is fetched once.
-          OR: [{ startOn: period }, { payment: { archivedAt: null, paidOn: period } }],
+          OR: [{ startOn: period }, { payment: { deletedAt: null, paidOn: period } }],
         },
       },
       select: {
@@ -266,12 +359,24 @@ export async function lenderReport(
             startOn: true,
             dueOn: true,
             status: true,
-            payment: { select: { paidOn: true, archivedAt: true } },
+            payment: { select: { paidOn: true, deletedAt: true } },
             borrower: { select: { firstName: true, lastName: true } },
           },
         },
       },
       orderBy: { loan: { startOn: 'asc' } },
+    }),
+    // EVERY funder's rows on loans repaid in the period, not just this lender's,
+    // because the admin's cut is charged on money that is not theirs and so
+    // appears on nobody's funding row but the other lender's. Only the admin pot
+    // is ever credited with it — see the isSelf guard below. A plain lender's
+    // statement discards this list untouched.
+    db.loanFunding.findMany({
+      where: {
+        userId,
+        loan: { deletedAt: null, payment: { deletedAt: null, paidOn: period } },
+      },
+      select: { adminCutCentavos: true },
     }),
   ])
   if (!lender) return null
@@ -291,17 +396,25 @@ export async function lenderReport(
     state: loanState(funding.loan.status, funding.loan.dueOn),
   })
 
-  // An undone payment is archived, not destroyed, so it is dropped rather than
+  // An undone payment is soft-deleted, not destroyed, so it is dropped rather than
   // read as a repayment — the loan is running again.
   const paidOn = (funding: (typeof fundings)[number]) =>
-    funding.loan.payment?.archivedAt === null ? funding.loan.payment.paidOn : null
+    funding.loan.payment?.deletedAt === null ? funding.loan.payment.paidOn : null
 
   const repaid = fundings.filter((funding) => inRange(paidOn(funding), range))
+  const funded = fundings.filter((funding) => inRange(funding.loan.startOn, range)).map(row)
+
+  // The cut belongs to the admin pot and to nobody else. `adminCutCentavos` is
+  // already 0 on the admin's own funding rows, so this never double-counts the
+  // loans the pot funded itself.
+  const adminCutInPeriod = lender.isSelf
+    ? sum(cutRows.map((funding) => funding.adminCutCentavos))
+    : centavos(0)
 
   return {
     kind: 'lender',
     header: {
-      title: lender.isSelf ? 'Your own pot' : 'Lender statement',
+      title: lender.isSelf ? 'Admin pot' : 'Lender statement',
       subject: fullName(lender),
       range,
       generatedAt: new Date(),
@@ -323,11 +436,26 @@ export async function lenderReport(
       dueOn: funding.dueOn,
       state: funding.state,
     })),
-    funded: fundings.filter((funding) => inRange(funding.loan.startOn, range)).map(row),
+    funded,
     repaid: repaid.map(row),
-    earnedInPeriod: sum(repaid.map((funding) => funding.earningsCentavos)),
+    // "Earned on loans repaid in this period" is everything the pot took from
+    // those repayments. For the admin that is their own earnings PLUS their cut
+    // on the other funders' share, and the cut is the larger half whenever the
+    // pot's own capital was not in the loan. Summing only this lender's funding
+    // rows reported a statement short by exactly SUM("adminCutCentavos"), with
+    // no line anywhere admitting the gap.
+    earnedInPeriod: centavos(
+      sum(repaid.map((funding) => funding.earningsCentavos)) + adminCutInPeriod,
+    ),
+    adminCutInPeriod,
     putIn: sum(moves.filter((move) => move.type === 'DEPOSIT').map((move) => move.amount)),
     tookOut: sum(moves.filter((move) => move.type === 'WITHDRAWAL').map((move) => move.amount)),
+    // On a lender's statement the interest IS their earnings: their share of
+    // what the borrower paid on the capital they put up.
+    preview: buildPreview(
+      funded.map((loan) => ({ on: loan.startOn, capital: loan.principal, interest: loan.earnings })),
+      range,
+    ),
   }
 }
 
@@ -354,7 +482,7 @@ export async function borrowerReport(
       lastName: true,
       manualLabel: true,
       loans: {
-        where: { archivedAt: null },
+        where: { deletedAt: null },
         orderBy: { startOn: 'asc' },
         select: {
           capitalCentavos: true,
@@ -367,9 +495,9 @@ export async function borrowerReport(
           payment: {
             select: {
               paidOn: true,
-              archivedAt: true,
+              deletedAt: true,
               proofFiles: {
-                where: { archivedAt: null },
+                where: { deletedAt: null },
                 orderBy: { uploadedAt: 'asc' },
                 select: { storagePath: true, mimeType: true, sizeBytes: true, uploadedAt: true },
               },
@@ -385,7 +513,7 @@ export async function borrowerReport(
   if (!borrower) return null
 
   const livePayment = (loan: (typeof borrower.loans)[number]) =>
-    loan.payment?.archivedAt === null ? loan.payment : null
+    loan.payment?.deletedAt === null ? loan.payment : null
 
   // The record and what is owed are counted across EVERY loan, not only the ones
   // in the range: a track record that changed with the dates on a report would
@@ -412,7 +540,7 @@ export async function borrowerReport(
         state: loanState(loan.status, loan.dueOn),
         paidOn: payment?.paidOn ?? null,
         funders: loan.fundings.map((funding) =>
-          funding.lender.isSelf ? 'You' : fullName(funding.lender),
+          funding.lender.isSelf ? 'Admin' : fullName(funding.lender),
         ),
         proofs:
           withProof && payment
@@ -444,6 +572,15 @@ export async function borrowerReport(
     paidInPeriod: sum(loans.filter((loan) => inRange(loan.paidOn, range)).map((loan) => loan.total)),
     owedToday: sum(
       borrower.loans.filter((loan) => loan.status === 'ACTIVE').map((loan) => loan.totalCentavos),
+    ),
+    // Only loans that STARTED in the range. A loan listed because it was repaid
+    // in the range had its capital handed over earlier, and counting it here
+    // would say the admin lent money in a month they did not.
+    preview: buildPreview(
+      loans
+        .filter((loan) => inRange(loan.startOn, range))
+        .map((loan) => ({ on: loan.startOn, capital: loan.capital, interest: loan.interest })),
+      range,
     ),
   }
 }

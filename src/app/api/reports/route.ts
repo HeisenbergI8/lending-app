@@ -4,7 +4,7 @@ import { renderReport } from '@/server/reports/document.tsx'
 import { borrowerReport, lenderReport, summaryReport } from '@/server/reports/queries.ts'
 
 /**
- * A report, as a PDF the browser saves.
+ * A report, as a PDF the browser saves — or shows, with `inline=1`.
  *
  * A route handler rather than a server action because the answer IS the file:
  * the admin taps Download and the browser does what it does with an attachment,
@@ -61,11 +61,17 @@ export async function GET(request: Request) {
   const pdf = await renderReport(report)
   const { from, to } = rangeParams(range)
 
+  // INLINE IS THE PREVIEW. Same bytes, same route, one header apart: the file
+  // the admin is about to print is the file they are looking at, because there
+  // is only one of them. A preview built any other way is a second opinion
+  // about what the document says.
+  const inline = params.get('inline') === '1'
+
   return new Response(new Uint8Array(pdf), {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Length': String(pdf.length),
-      'Content-Disposition': `attachment; filename="${fileName(report.header.title, report.header.subject, from, to)}"`,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${fileName(report.header.title, report.header.subject, from, to)}"`,
       // A report is a snapshot of a moving ledger. Serving yesterday's from a
       // cache would be worse than making it again.
       'Cache-Control': 'no-store',

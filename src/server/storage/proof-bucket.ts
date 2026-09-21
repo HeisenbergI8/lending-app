@@ -31,7 +31,7 @@ function config(): BucketConfig {
 
   if (!url || !key || !bucket) {
     throw new StorageUnavailable(
-      'File storage is not configured. Set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_STORAGE_BUCKET — see .env.example.',
+      'File storage is not configured. Set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_STORAGE_BUCKET. See .env.example.',
     )
   }
 
@@ -92,10 +92,10 @@ export async function signProof(path: string, expiresInSeconds = 300): Promise<s
 /**
  * Remove a file from the bucket.
  *
- * The only place in this app where something is really destroyed, and only ever
- * as the tail of archiving its database row — the row is what the Archive screen
- * restores, and a restored row pointing at a deleted file would be worse than
- * either. So this is called on purpose, not as cleanup.
+ * Where a file is really destroyed. Called as the tail of the thirty-day purge,
+ * once its database row is past recovery — never when the row is merely
+ * soft-deleted, because Recently Deleted restores that row and a restored row
+ * pointing at a missing file would be worse than the storage it saved.
  */
 export async function removeProof(path: string): Promise<void> {
   const { url, key, bucket } = config()
@@ -140,7 +140,7 @@ async function describeFailure(response: Response, what: 'upload' | 'delete'): P
   const lowered = reason.toLowerCase()
 
   if (response.status === 401 || response.status === 403 || lowered.includes('jws') || lowered.includes('unauthorized')) {
-    return 'file storage rejected the key. Check SUPABASE_SERVICE_ROLE_KEY in .env — it is the service_role key from Supabase → Project Settings → API.'
+    return 'file storage rejected the key. Check SUPABASE_SERVICE_ROLE_KEY in .env. It is the service_role key from Supabase → Project Settings → API.'
   }
   if (response.status === 404 || lowered.includes('bucket not found')) {
     return `the storage bucket "${process.env.SUPABASE_STORAGE_BUCKET}" does not exist. Create it in Supabase → Storage, and keep it private.`

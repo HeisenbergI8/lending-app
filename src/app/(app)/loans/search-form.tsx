@@ -28,7 +28,10 @@ const CHIPS: { value: LoanStatusFilter; label: string }[] = [
 
 export function LoanSearch({ filter }: { filter: LoanFilter }) {
   return (
-    <div className="space-y-3">
+    // The search and the chips live on ONE surface. Loose on the page they read
+    // as four unrelated controls floating above the list — the clutter was the
+    // lack of a container, not the number of fields.
+    <div className="bg-card ring-border/70 shadow-rest space-y-3 rounded-2xl p-3 ring-1 sm:p-4">
       <form method="get" action="/loans" className="flex flex-col gap-2 sm:flex-row sm:items-end">
         {/* The status chips live outside the form, so their value has to ride
             along or submitting the box would silently drop the chip. */}
@@ -80,7 +83,8 @@ export function LoanSearch({ filter }: { filter: LoanFilter }) {
         </Button>
       </form>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="border-border/70 flex flex-wrap items-center gap-2 border-t pt-3">
+        <span className="text-muted-foreground mr-0.5 text-xs font-medium">Show</span>
         {CHIPS.map((chip) => {
           const on = filter.status === chip.value
           return (
@@ -89,8 +93,13 @@ export function LoanSearch({ filter }: { filter: LoanFilter }) {
               href={loanFilterHref(filter, { status: on ? null : chip.value })}
               aria-pressed={on}
               className={cn(
-                'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                on ? 'bg-foreground text-background border-foreground' : 'hover:bg-muted',
+                // py-2 on a touch device: at py-1 these chips were 26px tall,
+                // and they are the fastest way to filter the list, so they are
+                // the last thing that should need an accurate tap.
+                'inline-flex min-h-11 items-center rounded-full border px-3 text-xs font-medium transition-colors pointer-fine:min-h-0 pointer-fine:py-1',
+                on
+                  ? 'bg-brand text-brand-foreground border-brand shadow-rest'
+                  : 'border-border hover:bg-muted hover:border-brand-line',
               )}
             >
               {chip.label}
@@ -101,7 +110,7 @@ export function LoanSearch({ filter }: { filter: LoanFilter }) {
         {isFiltered(filter) ? (
           <Link
             href="/loans"
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 px-1 text-xs"
+            className="text-muted-foreground hover:text-foreground inline-flex min-h-11 items-center gap-1 px-2 text-xs pointer-fine:min-h-0 pointer-fine:px-1"
           >
             <X className="size-3" aria-hidden />
             Clear

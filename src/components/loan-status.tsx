@@ -22,27 +22,30 @@ const PRESENTATION: Record<
   paid: {
     label: 'Paid',
     icon: CheckCircle2,
-    className: 'text-status-good bg-status-good-bg border-status-good/25',
+    className: 'text-status-good bg-status-good-bg',
   },
   overdue: {
     label: 'Overdue',
     icon: AlertTriangle,
-    className: 'text-status-critical bg-status-critical-bg border-status-critical/30',
+    className: 'text-status-critical bg-status-critical-bg',
   },
   'due-today': {
     label: 'Due today',
     icon: CalendarClock,
-    className: 'text-status-serious bg-status-serious-bg border-status-serious/30',
+    className: 'text-status-serious bg-status-serious-bg',
   },
   'due-soon': {
     label: 'Due soon',
     icon: Clock,
-    className: 'text-status-warning bg-status-warning-bg border-status-warning/35',
+    className: 'text-status-warning bg-status-warning-bg',
   },
   active: {
     label: 'Active',
     icon: Clock,
-    className: 'text-muted-foreground bg-muted border-transparent',
+    // Brand rather than grey. Active is a loan that is running, and grey reads
+    // as switched off — the one impression this badge must not give. It borrows
+    // the app's colour so it stays clear of the four due/overdue hues.
+    className: 'text-brand-strong bg-brand-bg',
   },
 }
 
@@ -57,7 +60,9 @@ export function LoanStatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        // A soft filled pill with no outline. The border was doing the same job
+        // as the tint and only made the badge louder than the figure beside it.
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap',
         tone,
         className,
       )}

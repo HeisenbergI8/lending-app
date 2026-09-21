@@ -1,6 +1,6 @@
 'use client'
 
-import { DisclosureForm } from '@/components/forms.tsx'
+import { FormDialog } from '@/components/forms.tsx'
 import { MoneyInput } from '@/components/money-input.tsx'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,7 +19,7 @@ import { recordTransaction } from '@/server/lenders/actions.ts'
  */
 export function TransactionForm({ lenderId, today }: { lenderId: string; today: string }) {
   return (
-    <DisclosureForm
+    <FormDialog
       action={recordTransaction}
       openLabel="Record money in or out"
       title="Money in or out"
@@ -70,6 +70,6 @@ export function TransactionForm({ lenderId, today }: { lenderId: string; today: 
         </Label>
         <Input id="note" name="note" autoComplete="off" placeholder="Initial capital" />
       </div>
-    </DisclosureForm>
+    </FormDialog>
   )
 }

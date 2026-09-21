@@ -131,7 +131,7 @@ export function ProofInput({
         multiple
         accept={PROOF_ACCEPT_ATTRIBUTE}
         onChange={onChange}
-        className="file:bg-muted file:text-foreground hover:file:bg-muted/70 block w-full cursor-pointer text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:px-3 file:py-1.5 file:text-sm file:font-medium"
+        className="file:bg-muted file:text-foreground hover:file:bg-muted/70 block min-h-11 w-full cursor-pointer text-sm file:mr-3 file:h-9 file:cursor-pointer file:rounded-lg file:border-0 file:px-3 file:text-sm file:font-medium pointer-fine:min-h-0 pointer-fine:file:h-auto pointer-fine:file:py-1.5"
       />
 
       {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
@@ -145,7 +145,13 @@ export function ProofInput({
               <Paperclip className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
               <span className="text-muted-foreground shrink-0">{describeBytes(file.size)}</span>
-              <Button type="button" variant="ghost" size="sm" className="h-6 px-1" onClick={() => removeAt(index)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-9 p-0 pointer-fine:h-6 pointer-fine:w-auto pointer-fine:px-1"
+                onClick={() => removeAt(index)}
+              >
                 <X className="size-3.5" aria-hidden />
                 <span className="sr-only">Remove {file.name}</span>
               </Button>
