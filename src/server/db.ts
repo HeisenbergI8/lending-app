@@ -15,20 +15,17 @@ import { PrismaClient } from '@prisma/client'
  *    new connections and the dev server starts failing for no visible reason.
  *    Stashing it on globalThis in development is the standard fix.
  *
- * 2. THE POOLED URL. Serverless functions open a connection per invocation.
- *    Supabase's direct connection (port 5432) runs out of slots quickly under
- *    that pattern, so the app talks to the transaction pooler on 6543. The direct
- *    URL is reserved for the CLI, which needs it for migrations — see
- *    prisma.config.ts.
+ * 2. THE POOLED URL. Serverless functions open a connection per invocation, and
+ *    the session connection runs out of slots quickly under that pattern. So the
+ *    app uses DATABASE_URL — Supabase's transaction pooler on 6543 — while
+ *    DIRECT_URL (5432) is reserved for the CLI's migrations. The names follow
+ *    Supabase's own, so their dashboard strings drop straight into .env.
  */
 
 function connectionString(): string {
-  const url = process.env.DATABASE_POOL_URL ?? process.env.DATABASE_URL
+  const url = process.env.DATABASE_URL
   if (!url) {
-    throw new Error(
-      'No database URL. Set DATABASE_POOL_URL (preferred) or DATABASE_URL. ' +
-        'See .env.example.',
-    )
+    throw new Error('DATABASE_URL is not set. See .env.example.')
   }
   return url
 }

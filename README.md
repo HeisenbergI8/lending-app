@@ -3,7 +3,7 @@
 A private lending ledger for a one-person lending operation: track who borrowed what, whose money
 funded it, and what everyone is owed.
 
-> **Status: in progress.** The money module is built and tested; the screens and database are not.
+> **Status: in progress.** The money module and the database are built; the screens are not.
 > `npm run verify` runs a typecheck, lint and 92 tests. The roadmap below marks what exists.
 
 ---
@@ -103,7 +103,7 @@ Written before any code, and kept as the source of truth:
 - [x] Architecture and data model
 - [x] Project scaffold
 - [x] Money module and its tests
-- [ ] Database schema and migrations
+- [x] Database schema and migrations
 - [ ] Authentication and account isolation
 - [ ] Lenders, borrowers and floating funds
 - [ ] Loan creation

@@ -2,8 +2,9 @@
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
 **What exists:** `src/app/`, `src/lib/money/` with 92 passing tests, `src/server/db.ts`,
-`prisma/schema.prisma` with its initial migration, and `prisma/seed/demo.ts`.
-**The database has not been created yet** — the schema is written but nothing has been applied.
+`prisma/schema.prisma` applied to a live Supabase database, and a seeded demo account
+(4 lenders, 5 borrowers, 8 loans). Steps 1-3 of the build order are done.
+**No screens yet** — nothing reads this data in the UI.
 **Everything else below is still planned, not real** — check before assuming a file is there.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
@@ -207,8 +208,8 @@ Each step leaves something that runs:
 
 1. ~~Scaffold Next.js + Tailwind + shadcn; fill in `harness.config.json` verify commands.~~ **Done.**
 2. ~~`src/lib/money/` and its tests.~~ **Done** — 92 tests, wired into `npm run verify`.
-   Schema, migration and seed written; **awaiting a Supabase database to run against.**
-3. Prisma schema + migration + demo seed. **Written, not yet applied** — needs `DATABASE_URL`.
+
+3. ~~Prisma schema + migration + demo seed.~~ **Done** — applied to Supabase, demo account seeded.
 4. Auth and `requireUser()`.
 5. Lenders, borrowers, and their floating funds.
 6. Loan creation — the form with the live "= 4 weeks" badge.

@@ -16,14 +16,16 @@ try {
  * is read by the CLI only; the running application builds its own connection
  * through a driver adapter in src/server/db.ts.
  *
- * DATABASE_URL here must be Supabase's DIRECT connection (port 5432), not the
- * pooled one. Migrations take advisory locks and run DDL, which a transaction
- * pooler cannot carry.
+ * Naming follows Supabase's own convention, so a string copied from their
+ * dashboard drops straight in: DATABASE_URL is the POOLED connection used by the
+ * app, DIRECT_URL the SESSION one used here.
  */
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   datasource: {
-    url: env('DATABASE_URL'),
+    // DIRECT_URL is the session-mode connection (5432). Migrations take advisory
+    // locks and run DDL, which the transaction pooler on 6543 cannot carry.
+    url: env('DIRECT_URL'),
   },
   migrations: {
     seed: 'node prisma/seed/demo.ts',
