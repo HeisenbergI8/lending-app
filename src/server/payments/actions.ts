@@ -66,7 +66,7 @@ function filesFrom(form: FormData, field: string): File[] {
  * Mark a loan paid, with the proof attached in the same step.
  *
  * The payment row is upserted rather than created, because undoing a payment
- * archives the row instead of destroying it and `Payment.loanId` is unique — a
+ * soft-deletes the row instead of destroying it and `Payment.loanId` is unique — a
  * loan marked paid, undone and paid again must reuse the row it already has.
  */
 export async function markPaid(_prev: FormState, form: FormData): Promise<FormState> {
@@ -109,7 +109,7 @@ export async function markPaid(_prev: FormState, form: FormData): Promise<FormSt
           // Never typed. The total was fixed the day the loan was created.
           amountCentavos: loan.totalCentavos,
         },
-        update: { paidOn: paidOn.value, amountCentavos: loan.totalCentavos, archivedAt: null },
+        update: { paidOn: paidOn.value, amountCentavos: loan.totalCentavos, deletedAt: null },
       })
 
       if (uploads.length > 0) {
@@ -148,7 +148,7 @@ export async function addProof(_prev: FormState, form: FormData): Promise<FormSt
   if (!checked.ok) return failed(checked.error)
 
   const payment = await db.payment.findFirst({
-    where: { loanId, userId: user.id, archivedAt: null },
+    where: { loanId, userId: user.id, deletedAt: null },
     select: { id: true },
   })
   if (!payment) return failed('That payment no longer exists.')
@@ -184,16 +184,17 @@ export async function addProof(_prev: FormState, form: FormData): Promise<FormSt
 /**
  * Remove one file from a payment.
  *
- * Archived, not deleted — including the file itself, which stays in the bucket.
- * A restored row pointing at a file that was really deleted would be a record
- * that lies about what it has, which is worse than the storage it saves.
+ * The file itself stays in the bucket for the thirty days the row spends in
+ * Recently Deleted. A restored row pointing at a file that was really gone
+ * would be a record that lies about what it has, which is worse than the
+ * storage it costs. The purge takes the row and the file together, at the end.
  */
-export async function archiveProof(_prev: FormState, form: FormData): Promise<FormState> {
+export async function deleteProof(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
   const { count } = await db.proofFile.updateMany({
     where: { id: text(form, 'proofFileId'), userId: user.id },
-    data: { archivedAt: new Date() },
+    data: { deletedAt: new Date() },
   })
   if (count === 0) return failed('That file no longer exists.')
 
@@ -204,9 +205,9 @@ export async function archiveProof(_prev: FormState, form: FormData): Promise<Fo
 /**
  * Undo a payment recorded by mistake.
  *
- * The loan goes back to running and the payment row is archived, not destroyed,
- * so marking it paid again reuses the same row and the same proof files. The
- * files are left attached rather than archived alongside: if the payment was
+ * The loan goes back to running and the payment row is soft-deleted, not
+ * destroyed, so marking it paid again reuses the same row and the same proof
+ * files. The files are left attached rather than deleted alongside: if the payment was
  * recorded in error the screenshots usually still belong to it, and the admin
  * can remove them one at a time if they do not.
  */
@@ -220,7 +221,7 @@ export async function undoPayment(_prev: FormState, form: FormData): Promise<For
   await db.$transaction(async (tx) => {
     await tx.payment.updateMany({
       where: { loanId, userId: user.id },
-      data: { archivedAt: new Date() },
+      data: { deletedAt: new Date() },
     })
     await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE' } })
   })
@@ -236,5 +237,5 @@ export async function undoPayment(_prev: FormState, form: FormData): Promise<For
  * is written, so a failure here really does leave the loan exactly as it was.
  */
 function uploadFailure(error: StorageUnavailable): string {
-  return `Nothing was recorded — ${error.message}`
+  return `Nothing was recorded. ${error.message}`
 }

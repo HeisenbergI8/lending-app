@@ -98,10 +98,11 @@ lending-app/
 │   │   │   ├── loans/[id]/page.tsx
 │   │   │   ├── loans/[id]/edit/page.tsx
 │   │   │   ├── reports/page.tsx
-│   │   │   └── archive/page.tsx
+│   │   │   └── deleted/page.tsx      # Recently Deleted
 │   │   └── api/
 │   │       ├── uploads/route.ts
-│   │       └── reports/route.ts   # returns a PDF; the kind is a query parameter
+│   │       ├── reports/route.ts   # returns a PDF; the kind is a query parameter
+│   │       └── cron/purge/route.ts  # daily; the only endpoint that destroys data
 │   │
 │   ├── components/
 │   │   ├── ui/                    # shadcn/ui — generated, don't hand-edit
@@ -200,10 +201,28 @@ The demo account must never see real borrowers' names and debts.
 
 ---
 
-## Archive
+## Delete and Recently Deleted
 
-Nothing is ever hard-deleted. Every table has `archivedAt`. Default queries exclude non-null rows;
-the Archive screen shows only those. There is no purge job and no permanent delete.
+Deleting is soft. Every table has `deletedAt` (mapped to the column still named `archivedAt` —
+the word changed, the column was not worth a migration). Default queries exclude non-null rows;
+the **Recently Deleted** screen shows only those, each with a countdown.
+
+Thirty days later the row is destroyed for real. `server/deleted/window.ts` owns the number, so
+the countdown the admin reads and the cutoff the purge applies cannot disagree.
+`server/deleted/purge.ts` does the destroying, and Vercel Cron calls it once a day through
+`/api/cron/purge` (19:00 UTC, 3am Manila; see `vercel.json`).
+
+Two rules keep the purge safe:
+
+- **Files before rows.** A proof file lives half in Postgres and half in the bucket. The bucket
+  goes first; if it will not answer, the row stays and tomorrow's run retries. An orphaned
+  private screenshot is worse than a day's delay.
+- **Nothing live is taken down with it.** `Loan.borrower` and `LoanFunding.lender` are
+  `onDelete: Restrict`, so a person some loan still references is passed over — shown as *kept*
+  on the screen rather than counted down — until the last record pointing at them goes.
+
+The endpoint refuses to run without `CRON_SECRET` set. An unauthenticated door to permanent
+deletion is not a door worth having.
 
 ---
 
@@ -223,7 +242,7 @@ the Archive screen shows only those. There is no purge job and no permanent dele
 | Proof optional but flagged | `Payment` with zero `ProofFile` rows renders a warning |
 | Full payment only, amount never typed | `server/payments/actions.ts` reads the total off the loan |
 | Proof files are private | a private bucket + links signed per render in `payments/queries.ts` |
-| Nothing truly deleted | `archivedAt` on every table |
+| Deleted rows wait 30 days, then go | `deletedAt` on every table + `server/deleted/purge.ts` |
 
 ---
 

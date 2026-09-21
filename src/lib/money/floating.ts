@@ -50,6 +50,18 @@ export type LenderPosition = {
   earned: Centavos
   /** Profit owed on loans still running. Deliberately NOT part of `floating`. */
   pending: Centavos
+  /**
+   * The slice of `earned` that is the admin's cut on OTHER funders' principal.
+   * Zero for a plain lender, and zero for the admin pot until it funds a loan
+   * alongside somebody else.
+   *
+   * It is carried separately because the admin pot's own page itemises its loans
+   * underneath the tile, and the cut belongs to none of them. Without this the
+   * tile is larger than the rows beneath it by an amount with no row anywhere.
+   */
+  adminCutEarned: Centavos
+  /** The same cut on loans still running — the slice of `pending`. */
+  adminCutPending: Centavos
   deposits: Centavos
   withdrawals: Centavos
 }
@@ -81,6 +93,8 @@ export function lenderPosition(ledger: LenderLedger): LenderPosition {
     outOnLoan: ledger.activePrincipal,
     earned,
     pending,
+    adminCutEarned: ledger.settledAdminCuts,
+    adminCutPending: ledger.pendingAdminCuts,
     deposits: ledger.deposits,
     withdrawals: ledger.withdrawals,
   }

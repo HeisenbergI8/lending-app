@@ -18,12 +18,26 @@ describe('counting a borrower’s history', () => {
       dueOn: day(-30),
       paidOn: day(-30),
     }))
-    assert.equal(describeTrackRecord(trackRecord(loans, TODAY)), '5 loans · 5 paid on time · 0 late')
+    assert.equal(describeTrackRecord(trackRecord(loans, TODAY)), '5 loans · 5 paid on time · 0 paid late')
   })
 
   test('one loan is not pluralised', () => {
     const record = trackRecord([{ status: 'PAID', dueOn: day(-10), paidOn: day(-10) }], TODAY)
-    assert.equal(describeTrackRecord(record), '1 loan · 1 paid on time · 0 late')
+    assert.equal(describeTrackRecord(record), '1 loan · 1 paid on time · 0 paid late')
+  })
+})
+
+describe('an unpaid loan past its due date', () => {
+  test('is named, so "0 paid late" cannot be read as "not late"', () => {
+    const record = trackRecord([{ status: 'ACTIVE', dueOn: day(-42), paidOn: null }], TODAY)
+    assert.equal(record.paidLate, 0)
+    assert.equal(record.overdue, 1)
+    assert.equal(describeTrackRecord(record), '1 loan · 0 paid on time · 0 paid late · 1 overdue now')
+  })
+
+  test('a loan not yet due adds no overdue tail', () => {
+    const record = trackRecord([{ status: 'ACTIVE', dueOn: day(7), paidOn: null }], TODAY)
+    assert.equal(describeTrackRecord(record), '1 loan · 0 paid on time · 0 paid late')
   })
 })
 

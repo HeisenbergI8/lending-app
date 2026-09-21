@@ -42,7 +42,15 @@ export type LoanFormValues = {
   funders: { lenderId: string; amount: string }[]
 }
 
-type FunderRow = { key: number; lenderId: string; amount: string; firstName: string; lastName: string }
+type FunderRow = {
+  key: number
+  lenderId: string
+  amount: string
+  /** Whether the admin has typed an amount into this row. An untouched row mirrors what is left. */
+  touched: boolean
+  firstName: string
+  lastName: string
+}
 
 const NEW = 'new'
 
@@ -50,6 +58,9 @@ function readPesos(value: string): Centavos | null {
   const parsed = parsePesos(value)
   return parsed.ok ? parsed.value : null
 }
+
+/** "30,000.00" — what formatPesos gives, without the sign the field already prints. */
+const toAmountField = (amount: Centavos) => formatPesos(amount).replace('₱', '')
 
 /** A percentage as basis points — "7" is 700. Shares the peso parser's two-decimal rule. */
 function readRate(value: string, fallback: number): number | null {
@@ -81,12 +92,48 @@ export function LoanForm({
   const [adminCut, setAdminCut] = useState(initial.adminCut)
   const [rows, setRows] = useState<FunderRow[]>(
     initial.funders.length > 0
-      ? initial.funders.map((funder, index) => ({ key: index, lenderId: funder.lenderId, amount: funder.amount, firstName: '', lastName: '' }))
-      : [{ key: 0, lenderId: lenders[0]?.id ?? '', amount: '', firstName: '', lastName: '' }],
+      ? initial.funders.map((funder, index) => ({
+          key: index,
+          lenderId: funder.lenderId,
+          amount: funder.amount,
+          // An existing loan's split was decided by the admin, so every row it
+          // comes back with counts as typed. Editing must never re-spread it.
+          touched: funder.amount.trim() !== '',
+          firstName: '',
+          lastName: '',
+        }))
+      : [{ key: 0, lenderId: lenders[0]?.id ?? '', amount: '', touched: false, firstName: '', lastName: '' }],
   )
 
   const updateRow = (key: number, patch: Partial<FunderRow>) =>
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)))
+
+  /**
+   * WHAT EACH ROW SHOWS IN ITS AMOUNT BOX.
+   *
+   * A row the admin has not typed into mirrors what is still unfunded, so the
+   * ordinary case — one lender putting up the whole capital — fills itself in
+   * from the capital handed over and needs no second typing of the same figure.
+   * Add a second funder after typing ₱20,000 into the first and it arrives
+   * holding the remaining ₱10,000.
+   *
+   * Only the FIRST untouched row is given the remainder. Splitting it between
+   * several would be a guess at a decision that is the admin's to make, and the
+   * figure it guessed would be posted if they never looked.
+   */
+  const amounts = useMemo(() => {
+    const capitalValue = readPesos(capital)
+    const typed = rows.reduce((sum, row) => (row.touched ? sum + (readPesos(row.amount) ?? 0) : sum), 0)
+    const spare = capitalValue === null ? 0 : capitalValue - typed
+    const firstUntouched = rows.find((row) => !row.touched)?.key
+
+    return new Map(
+      rows.map((row) => [
+        row.key,
+        row.touched ? row.amount : row.key === firstUntouched && spare > 0 ? toAmountField(centavos(spare)) : '',
+      ]),
+    )
+  }, [capital, rows])
 
   const preview = useMemo(() => {
     const capitalValue = readPesos(capital)
@@ -95,7 +142,7 @@ export function LoanForm({
     const rateBps = readRate(borrowerRate, 700)
 
     const weeks = start && due ? weeksBetween(start, due) : null
-    const funded = rows.reduce((sum, row) => sum + (readPesos(row.amount) ?? 0), 0)
+    const funded = rows.reduce((sum, row) => sum + (readPesos(amounts.get(row.key) ?? '') ?? 0), 0)
 
     const interest =
       capitalValue && capitalValue > 0 && rateBps && rateBps > 0 && weeks?.ok
@@ -110,7 +157,7 @@ export function LoanForm({
       funded: centavos(funded),
       remaining: capitalValue !== null ? centavos(capitalValue - funded) : null,
     }
-  }, [capital, startOn, dueOn, borrowerRate, rows])
+  }, [capital, startOn, dueOn, borrowerRate, rows, amounts])
 
   const creatingBorrower = borrowerId === NEW || borrowers.length === 0
 
@@ -119,8 +166,8 @@ export function LoanForm({
       {initial.loanId ? <input type="hidden" name="loanId" value={initial.loanId} /> : null}
 
       {/* ── Who ───────────────────────────────────────────────────────────── */}
-      <section className="bg-card space-y-3 rounded-xl border p-4">
-        <h2 className="text-sm font-semibold">Who is borrowing</h2>
+      <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+        <h2 className="text-base font-semibold tracking-tight">Who is borrowing</h2>
 
         <div className="space-y-2">
           <Label htmlFor="borrowerId">Borrower</Label>
@@ -156,8 +203,8 @@ export function LoanForm({
       </section>
 
       {/* ── How much, and for how long ────────────────────────────────────── */}
-      <section className="bg-card space-y-3 rounded-xl border p-4">
-        <h2 className="text-sm font-semibold">The loan</h2>
+      <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+        <h2 className="text-base font-semibold tracking-tight">The loan</h2>
 
         <div className="space-y-2">
           {/* "Amount" and "Capital" are the same thing — one field, never two. */}
@@ -210,10 +257,14 @@ export function LoanForm({
           </div>
         </div>
 
-        <details className="text-sm">
-          <summary className="text-muted-foreground cursor-pointer text-xs">
-            Rates — 7% to the borrower, 2% to you. Change them for this loan only.
-          </summary>
+        {/* THE RATES ARE NOT HIDDEN. They were behind a collapsed <details> and a
+            loan went out at 5% instead of 7% without anyone seeing it: a field
+            you have to open is a field nobody checks. Both sit on the form now,
+            pre-filled with the usual figures and changeable per loan. */}
+        <div className="text-sm">
+          <p className="text-muted-foreground text-xs">
+            Rates. The usual 7% to the borrower, 2% to the Admin. Change them for this loan only.
+          </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="borrowerRate">Borrower pays, per week</Label>
@@ -233,7 +284,7 @@ export function LoanForm({
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="adminCut">Your cut, per week</Label>
+              <Label htmlFor="adminCut">Admin cut, per week</Label>
               <div className="relative">
                 <Input
                   id="adminCut"
@@ -249,66 +300,77 @@ export function LoanForm({
                 </span>
               </div>
               <p className="text-muted-foreground text-xs">
-                Your own money earns the whole {borrowerRate || '7'}% — there is no one to pay a share to.
+                The Admin pot earns the whole {borrowerRate || '7'}%, with no one to pay a share to.
               </p>
             </div>
           </div>
-        </details>
+        </div>
       </section>
 
       {/* ── Whose money ───────────────────────────────────────────────────── */}
-      <section className="bg-card space-y-3 rounded-xl border p-4">
+      <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">Whose money</h2>
+          <h2 className="text-base font-semibold tracking-tight">Whose money</h2>
           <FundedSoFar funded={preview.funded} remaining={preview.remaining} />
         </div>
 
         <ul className="space-y-3">
           {rows.map((row) => (
             <li key={row.key} className="space-y-2 rounded-lg border p-3">
-              <div className="flex gap-2">
+              {/* The lender and the amount STACK on a phone. Side by side, a
+                  fixed 9rem amount field left the name select about 100px on a
+                  narrow handset — "John Ross Santos" showed as "John Ross S…",
+                  which is exactly the field you must not have to guess at when
+                  you are assigning someone's money. */}
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <SelectNative
                   name="funderLenderId"
                   aria-label="Lender"
                   value={row.lenderId}
                   onChange={(event) => updateRow(row.key, { lenderId: event.target.value })}
-                  className="flex-1"
+                  className="sm:flex-1"
                 >
                   {lenders.map((lender) => (
                     <option key={lender.id} value={lender.id}>
-                      {lender.isSelf ? `${lender.name} (your pot)` : lender.name}
+                      {lender.isSelf ? `${lender.name} (Admin pot)` : lender.name}
                     </option>
                   ))}
                   <option value={NEW}>+ Someone new…</option>
                 </SelectNative>
 
-                <div className="relative w-36">
-                  <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm" aria-hidden>
-                    ₱
-                  </span>
-                  <Input
-                    name="funderAmount"
-                    aria-label="Amount from this lender"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    placeholder="0.00"
-                    className="money-column pl-6"
-                    value={row.amount}
-                    onChange={(event) => updateRow(row.key, { amount: event.target.value })}
-                  />
-                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1 sm:w-36 sm:flex-none">
+                    <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm" aria-hidden>
+                      ₱
+                    </span>
+                    <Input
+                      name="funderAmount"
+                      aria-label="Amount from this lender"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      placeholder="0.00"
+                      className="money-column pl-6"
+                      value={amounts.get(row.key) ?? ''}
+                      // Clearing the box hands the row back to the autofill rather
+                      // than leaving it stuck on an empty amount the admin has to
+                      // retype.
+                      onChange={(event) =>
+                        updateRow(row.key, { amount: event.target.value, touched: event.target.value.trim() !== '' })
+                      }
+                    />
+                  </div>
 
-                {rows.length > 1 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setRows((current) => current.filter((item) => item.key !== row.key))}
-                  >
-                    <X className="size-4" aria-hidden />
-                    <span className="sr-only">Remove this funder</span>
-                  </Button>
-                ) : null}
+                  {rows.length > 1 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setRows((current) => current.filter((item) => item.key !== row.key))}
+                    >
+                      <X className="size-4" aria-hidden />
+                      <span className="sr-only">Remove this funder</span>
+                    </Button>
+                  ) : null}
+                </div>
               </div>
 
               {/* Every row posts all four fields, empty or not, so the arrays the
@@ -342,7 +404,14 @@ export function LoanForm({
           onClick={() =>
             setRows((current) => [
               ...current,
-              { key: Math.max(0, ...current.map((row) => row.key)) + 1, lenderId: lenders[0]?.id ?? '', amount: '', firstName: '', lastName: '' },
+              {
+                key: Math.max(0, ...current.map((row) => row.key)) + 1,
+                lenderId: lenders[0]?.id ?? '',
+                amount: '',
+                touched: false,
+                firstName: '',
+                lastName: '',
+              },
             ])
           }
         >
@@ -431,14 +500,14 @@ function Preview({
 }) {
   if (capital === null || interest === null || total === null || !weeks?.ok) {
     return (
-      <div className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">
+      <div className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-4 text-center text-sm">
         Fill in the capital and both dates to see what is owed.
       </div>
     )
   }
 
   return (
-    <div className="bg-muted/40 rounded-xl border p-4">
+    <div className="bg-brand-bg ring-brand-line rounded-2xl p-4 ring-1">
       <dl className="grid grid-cols-3 gap-3 text-center">
         <div>
           <dt className="text-muted-foreground text-xs">Capital</dt>

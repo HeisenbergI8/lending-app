@@ -79,7 +79,7 @@ export function loanTerms(input: LoanInput): Result<LoanTermsResult, string> {
     return err('Enter a cut of zero or more.')
   }
   if (adminCutBps > borrowerRateBps) {
-    return err('Your cut cannot be larger than what the borrower is charged.')
+    return err('The Admin cut cannot be larger than what the borrower is charged.')
   }
 
   const weeks = weeksBetween(startOn, dueOn)
@@ -139,7 +139,7 @@ function describeSplitError(
     case 'non-positive-principal':
       return 'Every funder needs an amount greater than zero.'
     case 'rates-do-not-match-borrower-rate':
-      return 'The lender rate and your cut must add up to the borrower rate.'
+      return 'The lender rate and the Admin cut must add up to the borrower rate.'
   }
 }
 

@@ -1,14 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 
 import { type BorrowerLabelValue } from '@/components/borrower-rating.tsx'
-import { ActionForm, DisclosureForm } from '@/components/forms.tsx'
+import { ActionForm, FormDialog } from '@/components/forms.tsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { archiveBorrower, renameBorrower, setBorrowerLabel } from '@/server/borrowers/actions.ts'
+import { deleteBorrower, renameBorrower, setBorrowerLabel } from '@/server/borrowers/actions.ts'
 
 /**
  * The admin's own Good / Okay / Bad, and the housekeeping.
@@ -34,10 +34,10 @@ export function LabelPicker({
   current: BorrowerLabelValue | null
 }) {
   return (
-    <div className="bg-card rounded-xl border p-4">
-      <h2 className="text-sm font-semibold">Your rating</h2>
+    <div className="bg-card rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+      <h2 className="text-base font-semibold tracking-tight">Admin rating</h2>
       <p className="text-muted-foreground mt-0.5 text-xs">
-        Your own call, on top of the counted record. It blocks nothing.
+        The Admin’s own call, on top of the counted record. It blocks nothing.
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -73,47 +73,51 @@ export function BorrowerSettings({
 }) {
   const [renaming, setRenaming] = useState(false)
 
-  if (!renaming) {
-    return (
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
-          <Pencil className="size-4" aria-hidden />
-          Rename
-        </Button>
-        <ActionForm
-          action={archiveBorrower}
-          values={{ borrowerId }}
-          variant="ghost"
-          size="sm"
-          pendingLabel="Archiving…"
-        >
-          Archive
-        </ActionForm>
-      </div>
-    )
-  }
-
+  // The buttons stay put while the dialog is open. Swapping them out for the
+  // form was what put the form in the page header in the first place.
   return (
-    <DisclosureForm
-      action={renameBorrower}
-      open={renaming}
-      onOpenChange={setRenaming}
-      openLabel="Rename"
-      title="Rename borrower"
-      description="Their loans and history stay exactly where they are."
-      submitLabel="Save name"
-    >
-      <input type="hidden" name="borrowerId" value={borrowerId} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="firstName">First name</Label>
-          <Input id="firstName" name="firstName" defaultValue={firstName} required autoFocus />
+    <div className="flex items-center gap-2">
+      <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
+        <Pencil className="size-4" aria-hidden />
+        Rename
+      </Button>
+
+      <ActionForm
+        action={deleteBorrower}
+        values={{ borrowerId }}
+        variant="destructive"
+        size="sm"
+        pendingLabel="Deleting…"
+        confirm={{
+          title: 'Delete this borrower?',
+          body: 'They move to Recently Deleted with their whole loan history, and can be restored for thirty days.',
+          action: 'Delete borrower',
+        }}
+      >
+        <Trash2 className="size-4" aria-hidden />
+        Delete
+      </ActionForm>
+
+      <FormDialog
+        action={renameBorrower}
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename borrower"
+        description="Their loans and history stay exactly where they are."
+        submitLabel="Save name"
+      >
+        <input type="hidden" name="borrowerId" value={borrowerId} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="firstName">First name</Label>
+            <Input id="firstName" name="firstName" defaultValue={firstName} required autoFocus />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="lastName">Last name</Label>
+            <Input id="lastName" name="lastName" defaultValue={lastName} required />
+          </div>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="lastName">Last name</Label>
-          <Input id="lastName" name="lastName" defaultValue={lastName} required />
-        </div>
-      </div>
-    </DisclosureForm>
+      </FormDialog>
+    </div>
   )
 }

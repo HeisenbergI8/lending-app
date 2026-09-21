@@ -28,12 +28,12 @@ export type PaymentView = {
 
 export async function paymentForLoan(userId: string, loanId: string): Promise<PaymentView | null> {
   const payment = await db.payment.findFirst({
-    where: { loanId, userId, archivedAt: null },
+    where: { loanId, userId, deletedAt: null },
     select: {
       paidOn: true,
       amountCentavos: true,
       proofFiles: {
-        where: { archivedAt: null },
+        where: { deletedAt: null },
         orderBy: { uploadedAt: 'asc' },
         select: { id: true, mimeType: true, sizeBytes: true, storagePath: true },
       },

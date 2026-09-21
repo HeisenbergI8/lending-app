@@ -32,7 +32,7 @@ export function amount(form: FormData, key: string): Result<Centavos, string> {
     case 'negative':
       return err('Enter an amount greater than zero.')
     case 'too-many-decimals':
-      return err('Amounts go to centavos — two decimal places at most.')
+      return err('Amounts go to centavos, two decimal places at most.')
     case 'too-large':
       return err('That amount is too large to record.')
     default:

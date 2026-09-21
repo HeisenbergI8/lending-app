@@ -4,6 +4,11 @@
     "verify": "npm run verify",
     "verifyFast": "npm run typecheck"
   },
+  "agents": {
+    "write": {
+      "data-truth": [".claude/reconciliation/**"]
+    }
+  },
   "source": {
     "include": [
       "src/**",

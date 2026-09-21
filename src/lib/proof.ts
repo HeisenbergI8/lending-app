@@ -75,7 +75,7 @@ export function checkProofFile(file: ProofCandidate): Result<ProofCandidate, str
     return err(`"${file.name}" is not an image or a PDF.`)
   }
   if (file.size > MAX_PROOF_BYTES) {
-    return err(`"${file.name}" is ${describeBytes(file.size)} — the limit is ${describeBytes(MAX_PROOF_BYTES)}.`)
+    return err(`"${file.name}" is ${describeBytes(file.size)}. The limit is ${describeBytes(MAX_PROOF_BYTES)}.`)
   }
   return ok(file)
 }

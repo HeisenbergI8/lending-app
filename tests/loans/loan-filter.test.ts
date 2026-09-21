@@ -52,7 +52,7 @@ describe('parseLoanFilter — reading a search out of the URL', () => {
     assert.equal(parseLoanFilter({ status: 'active' }).status, 'active')
     assert.equal(parseLoanFilter({ status: 'paid' }).status, 'paid')
     assert.equal(parseLoanFilter({ status: 'ACTIVE' }).status, null)
-    assert.equal(parseLoanFilter({ status: 'archived' }).status, null)
+    assert.equal(parseLoanFilter({ status: 'deleted' }).status, null)
   })
 
   // A hand-edited or stale link should show the list, not an error page.

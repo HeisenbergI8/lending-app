@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
@@ -82,18 +83,25 @@ export async function setBorrowerLabel(_prev: FormState, form: FormData): Promis
   return NO_ERROR
 }
 
-/** Archive, not delete. Their loans and their history come back intact. */
-export async function archiveBorrower(_prev: FormState, form: FormData): Promise<FormState> {
+/**
+ * Delete. Their loans and their history come back intact for thirty days.
+ *
+ * Ends on the borrowers list, the way deleting a loan ends on the loans list.
+ * Staying put would leave the admin looking at a profile that is no longer in
+ * any list — the delete appeared to do nothing, and the only way to see that
+ * it worked would be to navigate away by hand.
+ */
+export async function deleteBorrower(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
   const { count } = await db.borrower.updateMany({
     where: { id: text(form, 'borrowerId'), userId: user.id },
-    data: { archivedAt: new Date() },
+    data: { deletedAt: new Date() },
   })
   if (count === 0) return failed('That borrower no longer exists.')
 
   refresh()
-  return NO_ERROR
+  redirect('/borrowers')
 }
 
 export async function restoreBorrower(_prev: FormState, form: FormData): Promise<FormState> {
@@ -101,7 +109,7 @@ export async function restoreBorrower(_prev: FormState, form: FormData): Promise
 
   const { count } = await db.borrower.updateMany({
     where: { id: text(form, 'borrowerId'), userId: user.id },
-    data: { archivedAt: null },
+    data: { deletedAt: null },
   })
   if (count === 0) return failed('That borrower no longer exists.')
 

@@ -2,6 +2,8 @@
 
 import { redirect } from 'next/navigation'
 
+import { type FormState } from '@/lib/form-state.ts'
+
 import { db } from '../db.ts'
 import { clearSessionCookie, readSessionCookie, setSessionCookie } from './cookie.ts'
 import { fakeVerifyPassword, verifyPassword } from './password.ts'
@@ -36,7 +38,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const password = String(formData.get('password') ?? '')
 
   if (!username || !password) {
-    return { error: 'Enter your username and password.' }
+    return { error: 'Enter the username and password.' }
   }
 
   const ip = await requestIp()
@@ -65,7 +67,14 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   redirect('/')
 }
 
-export async function logout(): Promise<void> {
+/**
+ * Log out.
+ *
+ * Shaped like every other form action so it can go through ActionForm and get
+ * the same "are you sure" dialog as delete and restore. It never returns: the
+ * redirect throws, so the FormState is there for the type, not for a caller.
+ */
+export async function logout(_state: FormState, _form: FormData): Promise<FormState> {
   const token = await readSessionCookie()
   if (token) await invalidateSessionToken(token)
   await clearSessionCookie()

@@ -16,8 +16,14 @@
 //   borrowers' names and debts, and a filter you can apply directly is one that
 //   cannot be forgotten in a join.
 //
-//   archivedAt replaces deletion. Nothing is ever destroyed; default queries
-//   exclude rows where it is set, and the Archive screen shows only those.
+//   deletedAt is what "delete" means here. Deleting sets it; default queries
+//   exclude rows where it is set, and the Recently Deleted screen shows only
+//   those. Thirty days later the purge destroys the row for real — see
+//   src/server/deleted/purge.ts. Until then it comes back whole.
+//
+//   The COLUMN is still named archivedAt, mapped back to deletedAt in the Prisma
+//   field. The name changed; rewriting a column on a live database to match a
+//   word is a migration with nothing to show for it.
 //
 // Derived on read, never stored: floating funds, a loan's OVERDUE state, and a
 // borrower's counted track record. See docs/ARCHITECTURE.md.
@@ -75,20 +81,20 @@ model Session {
 /// (part the admin's money, part a lender's) need no special case anywhere: the
 /// difference lives in the rate columns on LoanFunding, not in a branch.
 model Lender {
-  id         String    @id @default(cuid())
-  userId     String
-  firstName  String
-  lastName   String
-  isSelf     Boolean   @default(false)
-  archivedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String    @id @default(cuid())
+  userId    String
+  firstName String
+  lastName  String
+  isSelf    Boolean   @default(false)
+  deletedAt DateTime? @map("archivedAt")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions LenderTransaction[]
   fundings     LoanFunding[]
 
-  @@index([userId, archivedAt])
+  @@index([userId, deletedAt])
 }
 
 /// Someone who borrows. Name only.
@@ -102,14 +108,14 @@ model Borrower {
   firstName   String
   lastName    String
   manualLabel BorrowerLabel?
-  archivedAt  DateTime?
+  deletedAt   DateTime?      @map("archivedAt")
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   loans Loan[]
 
-  @@index([userId, archivedAt])
+  @@index([userId, deletedAt])
 }
 
 enum BorrowerLabel {
@@ -129,13 +135,13 @@ model LenderTransaction {
   amountCentavos Int
   occurredOn     DateTime              @db.Date
   note           String?
-  archivedAt     DateTime?
+  deletedAt      DateTime?             @map("archivedAt")
   createdAt      DateTime              @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   lender Lender @relation(fields: [lenderId], references: [id], onDelete: Cascade)
 
-  @@index([userId, archivedAt])
+  @@index([userId, deletedAt])
   @@index([lenderId, occurredOn])
 }
 
@@ -169,7 +175,7 @@ model Loan {
   interestCentavos Int
   totalCentavos    Int
   status           LoanStatus @default(ACTIVE)
-  archivedAt       DateTime?
+  deletedAt        DateTime?  @map("archivedAt")
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
@@ -178,7 +184,7 @@ model Loan {
   fundings LoanFunding[]
   payment  Payment?
 
-  @@index([userId, status, archivedAt])
+  @@index([userId, status, deletedAt])
   @@index([borrowerId])
   @@index([dueOn])
 }
@@ -236,7 +242,7 @@ model Payment {
   loanId         String    @unique
   paidOn         DateTime  @db.Date
   amountCentavos Int
-  archivedAt     DateTime?
+  deletedAt      DateTime? @map("archivedAt")
   createdAt      DateTime  @default(now())
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -258,7 +264,7 @@ model ProofFile {
   storagePath String
   mimeType    String
   sizeBytes   Int
-  archivedAt  DateTime?
+  deletedAt   DateTime? @map("archivedAt")
   uploadedAt  DateTime  @default(now())
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -281,12 +287,12 @@ model ProofFile {
 /// username-and-IP pair, and a looser one on the IP alone catches someone
 /// working through a list of usernames from one place.
 model LoginAttempt {
-  id String @id @default(cuid())
+  id         String   @id @default(cuid())
   /// sha256("<username>|<ip>")
   identifier String
   /// sha256("<ip>")
-  ipHash    String
-  createdAt DateTime @default(now())
+  ipHash     String
+  createdAt  DateTime @default(now())
 
   @@index([identifier, createdAt])
   @@index([ipHash, createdAt])

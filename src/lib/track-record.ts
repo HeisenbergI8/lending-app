@@ -66,9 +66,23 @@ export function trackRecord(
   return record
 }
 
-/** "5 loans · 5 paid on time · 0 late", or the honest empty case. */
+/**
+ * "5 loans · 5 paid on time · 0 paid late", or the honest empty case.
+ *
+ * Both counts are about loans that have been REPAID, so "0 late" on its own read
+ * as "this borrower is not late" — which is a different claim, and a false one
+ * for anyone sitting on an unpaid loan past its due date. Nothing else on a PDF
+ * statement carries that fact, so a borrower 42 days overdue was described as
+ * "1 loan · 0 paid on time · 0 late" and read as clean.
+ *
+ * Two changes, both wording: "paid late" names which loans are counted, and the
+ * overdue tail is appended only when there is something to say. `overdue` is
+ * ACTIVE with dueOn before today — a fact about today, so this string is only
+ * true on the day it is built. Screens re-render; a printed PDF does not.
+ */
 export function describeTrackRecord(record: TrackRecord): string {
   if (record.total === 0) return 'No loans yet'
   const loans = record.total === 1 ? '1 loan' : `${record.total} loans`
-  return `${loans} · ${record.paidOnTime} paid on time · ${record.paidLate} late`
+  const counted = `${loans} · ${record.paidOnTime} paid on time · ${record.paidLate} paid late`
+  return record.overdue > 0 ? `${counted} · ${record.overdue} overdue now` : counted
 }

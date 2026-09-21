@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: { default: 'Lending App', template: '%s · Lending App' },
+  title: { default: 'Consignment Kush', template: '%s · Consignment Kush' },
   description: 'Track loans, lenders and repayments.',
 }
 

@@ -8,7 +8,7 @@ import { getLoan, loanFormOptions } from '@/server/loans/queries.ts'
 
 import { LoanForm } from '../../loan-form.tsx'
 
-export const metadata = { title: 'Edit loan · Lending App' }
+export const metadata = { title: 'Edit loan · Consignment Kush' }
 
 /** A stored Date back into the "2026-09-21" an <input type="date"> wants. */
 function forInput(date: Date): string {
@@ -42,13 +42,13 @@ export default async function EditLoanPage({ params }: PageProps<'/loans/[id]/ed
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/loans/${loan.id}`} className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm">
+        <Link href={`/loans/${loan.id}`} className="text-muted-foreground hover:text-foreground -my-2 inline-flex min-h-11 items-center gap-1 py-2 text-sm pointer-fine:my-0 pointer-fine:min-h-0 pointer-fine:py-0">
           <ArrowLeft className="size-4" aria-hidden />
           {loan.borrowerName}&rsquo;s loan
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Edit loan</h1>
+        <h1 className="mt-2 text-[1.75rem] font-semibold tracking-tight">Edit loan</h1>
         <p className="text-muted-foreground text-sm">
-          Saving works every figure out again from what you enter here.
+          Saving works every figure out again from what is entered here.
         </p>
       </div>
 

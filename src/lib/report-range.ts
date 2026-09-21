@@ -81,9 +81,9 @@ export function inRange(date: Date | null | undefined, range: ReportRange): bool
 
 const long = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 
-/** "Sep 1, 2026 – Sep 21, 2026", for the line under a report's title. */
+/** "Sep 1, 2026 to Sep 21, 2026", for the line under a report's title. */
 export function describeRange(range: ReportRange): string {
-  return `${long.format(range.from)} – ${long.format(range.to)}`
+  return `${long.format(range.from)} to ${long.format(range.to)}`
 }
 
 /** The range as query parameters, for a link or a form's default values. */

@@ -106,7 +106,7 @@ function readForm(form: FormData): Result<Parsed, string> {
   const borrowerRateBps = borrowerRate ? parseRate(borrowerRate) : ok(DEFAULT_BORROWER_RATE_BPS)
   const adminCutBps = adminCut ? parseRate(adminCut) : ok(DEFAULT_ADMIN_CUT_BPS)
   if (!borrowerRateBps.ok) return err(`Borrower rate: ${borrowerRateBps.error.toLowerCase()}`)
-  if (!adminCutBps.ok) return err(`Your cut: ${adminCutBps.error.toLowerCase()}`)
+  if (!adminCutBps.ok) return err(`Admin cut: ${adminCutBps.error.toLowerCase()}`)
 
   const funders = readFunderRows(form)
   if (!funders.ok) return err(funders.error)
@@ -328,13 +328,13 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
   redirect(`/loans/${loanId}`)
 }
 
-/** Undo a loan. Archived, never destroyed — it comes back whole from the Archive. */
-export async function archiveLoan(_prev: FormState, form: FormData): Promise<FormState> {
+/** Undo a loan. It comes back whole from Recently Deleted for thirty days. */
+export async function deleteLoan(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
   const { count } = await db.loan.updateMany({
     where: { id: text(form, 'loanId'), userId: user.id },
-    data: { archivedAt: new Date() },
+    data: { deletedAt: new Date() },
   })
   if (count === 0) return failed('That loan no longer exists.')
 
@@ -347,7 +347,7 @@ export async function restoreLoan(_prev: FormState, form: FormData): Promise<For
 
   const { count } = await db.loan.updateMany({
     where: { id: text(form, 'loanId'), userId: user.id },
-    data: { archivedAt: null },
+    data: { deletedAt: null },
   })
   if (count === 0) return failed('That loan no longer exists.')
 

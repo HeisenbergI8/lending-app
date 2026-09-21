@@ -1,6 +1,6 @@
 'use client'
 
-import { DisclosureForm } from '@/components/forms.tsx'
+import { FormDialog } from '@/components/forms.tsx'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createBorrower } from '@/server/borrowers/actions.ts'
@@ -12,7 +12,7 @@ import { createBorrower } from '@/server/borrowers/actions.ts'
  */
 export function AddBorrower() {
   return (
-    <DisclosureForm
+    <FormDialog
       action={createBorrower}
       openLabel="Add borrower"
       title="New borrower"
@@ -29,6 +29,6 @@ export function AddBorrower() {
           <Input id="lastName" name="lastName" required autoComplete="off" />
         </div>
       </div>
-    </DisclosureForm>
+    </FormDialog>
   )
 }

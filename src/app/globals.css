@@ -51,73 +51,113 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE BRAND HUE
+
+   ONE PLACE. Every accent in the app — the active nav item, a primary button, a
+   focus ring, the hero tile — resolves to --brand, so the app's colour is
+   changed by editing these two lines and nothing else.
+
+   It is deliberately NOT one of the four status colours. Those mean loan state
+   and only loan state; an accent borrowed from them would make a button read as
+   "paid" and a heading read as "overdue". Keeping the brand in a hue no status
+   uses is what lets both systems carry meaning at once.
+   ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --brand: oklch(0.511 0.196 276.3);
+  --brand-strong: oklch(0.445 0.196 276.3);
+  --brand-foreground: oklch(0.985 0 0);
+  /* A wash of the same hue, for tinted surfaces and soft badges. */
+  --brand-bg: color-mix(in oklab, var(--brand) 8%, transparent);
+  --brand-line: color-mix(in oklab, var(--brand) 22%, transparent);
+}
+
+:root {
+  /* The page is a shade OFF-WHITE and the cards are pure white. That one step of
+     separation is what makes a card look like an object sitting on a surface
+     rather than an outline drawn on the same sheet — the flatness that no amount
+     of border tuning can fix while both are #fff. */
+  --background: oklch(0.977 0.003 275);
+  --foreground: oklch(0.155 0.012 275);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.155 0.012 275);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.155 0.012 275);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: oklch(0.965 0.005 275);
+  --secondary-foreground: oklch(0.235 0.015 275);
+  --muted: oklch(0.965 0.005 275);
+  --muted-foreground: oklch(0.545 0.018 275);
+  --accent: var(--brand-bg);
+  --accent-foreground: var(--brand-strong);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* Softer than the old flat grey: with real elevation doing the separating, a
+     hard border competes with the shadow instead of helping it. */
+  --border: oklch(0.925 0.006 275);
+  --input: oklch(0.912 0.008 275);
+  --ring: var(--brand);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --radius: 0.75rem;
+
+  /* THE SIDEBAR IS DARK IN BOTH THEMES. It is navigation, not content — a deep
+     surface pushes it back and lets the white cards beside it come forward,
+     which is most of the hierarchy this app was missing. A white sidebar against
+     a white page had nothing to say about what mattered. */
+  --sidebar: oklch(0.216 0.032 274);
+  --sidebar-foreground: oklch(0.93 0.012 274);
+  --sidebar-primary: var(--brand);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(1 0 0 / 8%);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: var(--brand);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* The brand lightens in the dark theme. The light-mode indigo is a 4.5:1 text
+     colour on white and a muddy, low-contrast one on a dark surface. */
+  --brand: oklch(0.672 0.166 276.3);
+  --brand-strong: oklch(0.755 0.14 276.3);
+  --brand-foreground: oklch(0.16 0.02 275);
+  --brand-bg: color-mix(in oklab, var(--brand) 16%, transparent);
+  --brand-line: color-mix(in oklab, var(--brand) 32%, transparent);
+
+  --background: oklch(0.162 0.016 275);
+  --foreground: oklch(0.975 0.004 275);
+  --card: oklch(0.212 0.021 275);
+  --card-foreground: oklch(0.975 0.004 275);
+  --popover: oklch(0.212 0.021 275);
+  --popover-foreground: oklch(0.975 0.004 275);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: oklch(0.272 0.023 275);
+  --secondary-foreground: oklch(0.975 0.004 275);
+  --muted: oklch(0.272 0.023 275);
+  --muted-foreground: oklch(0.715 0.02 275);
+  --accent: var(--brand-bg);
+  --accent-foreground: var(--brand-strong);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: var(--brand);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.178 0.024 274);
+  --sidebar-foreground: oklch(0.93 0.012 274);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: oklch(0.16 0.02 275);
+  --sidebar-accent: oklch(1 0 0 / 8%);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: var(--brand);
 }
 
 @layer base {
@@ -154,6 +194,13 @@
   --status-serious: #ec835a;   /* due today */
   --status-critical: #d03b3b;  /* overdue */
 
+  /* A DARKER RED, for use as a FILL behind white text — never as text itself.
+     --status-critical is tuned to be readable AS text on a light surface, which
+     makes it too light to sit behind any: white on it measures 4.8:1, so the
+     hero's supporting lines landed at 4.15 and 3.88 and could not be rescued by
+     raising their opacity. The reserved text token is left exactly as it was. */
+  --status-critical-fill: oklch(0.445 0.176 27.325);
+
   --status-good-bg: color-mix(in oklab, var(--status-good) 12%, transparent);
   --status-warning-bg: color-mix(in oklab, var(--status-warning) 16%, transparent);
   --status-serious-bg: color-mix(in oklab, var(--status-serious) 14%, transparent);
@@ -168,11 +215,99 @@
   --status-critical: #ef5f5f;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   ELEVATION
+
+   Three steps and no more. A card at rest, a card under the pointer, and the
+   things that genuinely float — a dropdown, the sticky bar. Shadows are wide and
+   very soft rather than dark and tight: a tight shadow reads as a drop shadow
+   from 2009, a wide one reads as a surface slightly above the page.
+
+   Tinted with the brand hue rather than pure black, because a neutral-black
+   shadow over a faintly indigo page turns grey and muddy.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --shadow-color: 274 40%;
+  --elevation-rest:
+    0 1px 2px -1px oklch(0.2 0.03 274 / 6%), 0 2px 8px -2px oklch(0.2 0.03 274 / 6%);
+  --elevation-hover:
+    0 2px 4px -2px oklch(0.2 0.03 274 / 8%), 0 8px 20px -4px oklch(0.2 0.03 274 / 10%);
+  --elevation-float:
+    0 8px 16px -6px oklch(0.2 0.03 274 / 12%), 0 20px 40px -12px oklch(0.2 0.03 274 / 16%);
+}
+
+.dark {
+  /* On a dark surface a shadow cannot be seen. Depth there comes from the card
+     being LIGHTER than the page, so these collapse to a hairline of light. */
+  --elevation-rest: 0 1px 0 0 oklch(1 0 0 / 4%) inset;
+  --elevation-hover: 0 1px 0 0 oklch(1 0 0 / 7%) inset;
+  --elevation-float: 0 12px 32px -8px oklch(0 0 0 / 60%);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ICON CHIP TINTS
+
+   The soft rounded squares behind a stat's icon. These are DECORATION and carry
+   no meaning — which is exactly why they are a separate ramp from the status
+   four. A reader never has to ask whether the lilac chip means something; the
+   status badge beside it is the only thing that ever does.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --chip-indigo: oklch(0.478 0.19 276.3);
+  --chip-sky: oklch(0.492 0.125 240);
+  --chip-mint: oklch(0.455 0.105 165);
+  --chip-violet: oklch(0.478 0.17 300);
+  --chip-amber: oklch(0.505 0.115 70);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CHART SERIES
+
+   Two colours, and unlike the chips above they DO carry meaning: the same slot
+   means the same thing on every chart. Series 1 is the money that is working
+   (out on loan, capital); series 2 is the money that came of it (floating,
+   interest).
+
+   They are a separate ramp from both the chips and the four status colours,
+   because a bar that happened to be amber must never be read as "warning".
+
+   Both pairs were checked with the colourblind-separation validator against the
+   surface they sit on: white in the light theme, the card in the dark one. The
+   dark steps are chosen for that surface rather than flipped automatically, and
+   the legend beside every chart means identity is never colour alone.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --series-1: #4747c5;
+  --series-2: #8d5700;
+}
+
+.dark {
+  --series-1: #737ef1;
+  --series-2: #c8800d;
+}
+
 @theme inline {
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-bg: var(--brand-bg);
+  --color-brand-line: var(--brand-line);
+  --color-chip-indigo: var(--chip-indigo);
+  --color-chip-sky: var(--chip-sky);
+  --color-chip-mint: var(--chip-mint);
+  --color-chip-violet: var(--chip-violet);
+  --color-chip-amber: var(--chip-amber);
+
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --shadow-rest: var(--elevation-rest);
+  --shadow-hover: var(--elevation-hover);
+  --shadow-float: var(--elevation-float);
   --color-status-good: var(--status-good);
   --color-status-warning: var(--status-warning);
   --color-status-serious: var(--status-serious);
   --color-status-critical: var(--status-critical);
+  --color-status-critical-fill: var(--status-critical-fill);
   --color-status-good-bg: var(--status-good-bg);
   --color-status-warning-bg: var(--status-warning-bg);
   --color-status-serious-bg: var(--status-serious-bg);
