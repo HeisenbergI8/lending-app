@@ -1,10 +1,10 @@
 # Lending App — Architecture
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
-**What exists:** `src/app/`, `src/lib/money/` with 92 passing tests, `src/server/db.ts`,
-`prisma/schema.prisma` applied to a live Supabase database, and a seeded demo account
-(4 lenders, 5 borrowers, 8 loans). Steps 1-3 of the build order are done.
-**No screens yet** — nothing reads this data in the UI.
+**What exists:** steps 1-4 of the build order. `src/lib/money/`, `src/server/db.ts`,
+`src/server/auth/`, a live Supabase database with a seeded demo account, a working login
+and a placeholder dashboard. 116 tests pass.
+**Still to come:** the lender, borrower and loan screens.
 **Everything else below is still planned, not real** — check before assuming a file is there.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
@@ -59,9 +59,12 @@ lending-app/
 │   │
 │   ├── server/                    # server-only. Never imported by a client component.
 │   │   ├── db.ts                  # the Prisma client singleton
-│   │   ├── auth/
-│   │   │   ├── session.ts         # who is logged in
-│   │   │   └── guard.ts           # requireUser() — the isolation gate
+│   │   ├── auth/                  # BUILT
+│   │   │   ├── password.ts        # scrypt hashing, timing-safe verify
+│   │   │   ├── session.ts         # tokens; the DB stores only their hash
+│   │   │   ├── cookie.ts          # httpOnly / sameSite / secure
+│   │   │   ├── guard.ts           # requireUser() — the isolation gate
+│   │   │   └── actions.ts         # login / logout server actions
 │   │   ├── lenders/
 │   │   ├── borrowers/
 │   │   ├── loans/
@@ -210,7 +213,7 @@ Each step leaves something that runs:
 2. ~~`src/lib/money/` and its tests.~~ **Done** — 92 tests, wired into `npm run verify`.
 
 3. ~~Prisma schema + migration + demo seed.~~ **Done** — applied to Supabase, demo account seeded.
-4. Auth and `requireUser()`.
+4. ~~Auth and `requireUser()`.~~ **Done** — server-side sessions, scrypt passwords.
 5. Lenders, borrowers, and their floating funds.
 6. Loan creation — the form with the live "= 4 weeks" badge.
 7. Payments and proof upload.

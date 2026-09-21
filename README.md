@@ -104,7 +104,7 @@ Written before any code, and kept as the source of truth:
 - [x] Project scaffold
 - [x] Money module and its tests
 - [x] Database schema and migrations
-- [ ] Authentication and account isolation
+- [x] Authentication and account isolation
 - [ ] Lenders, borrowers and floating funds
 - [ ] Loan creation
 - [ ] Payments and proof upload

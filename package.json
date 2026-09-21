@@ -15,7 +15,8 @@
     "db:push": "prisma migrate dev",
     "db:seed": "node --env-file=.env prisma/seed/demo.ts",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:create-admin": "node --env-file=.env prisma/seed/create-admin.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

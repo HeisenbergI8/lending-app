@@ -40,8 +40,29 @@ function createClient(): PrismaClient {
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
 
-export const db: PrismaClient = globalForPrisma.prisma ?? createClient()
+function client(): PrismaClient {
+  const existing = globalForPrisma.prisma
+  if (existing) return existing
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = db
+  const created = createClient()
+  if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = created
+  return created
 }
+
+/**
+ * Built on first use, not on import.
+ *
+ * A client constructed at module scope would demand DATABASE_URL the moment
+ * anything imported this file — including a unit test of a pure function three
+ * imports away, and Next's build step collecting page data in an environment
+ * that has no database. Both would fail for a reason unrelated to what they were
+ * doing. The proxy defers construction to the first actual query.
+ */
+export const db: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, property, receiver) {
+    return Reflect.get(client() as object, property, receiver)
+  },
+  has(_target, property) {
+    return Reflect.has(client() as object, property)
+  },
+})

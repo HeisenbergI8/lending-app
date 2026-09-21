@@ -49,6 +49,9 @@ as a PWA. Full reasoning and the free-tier traps are in [docs/STACK.md](docs/STA
 | Fast check (runs every turn) | `npm run typecheck` |
 | Tests only | `npm test` |
 | Tests, one file | `node --test tests/money/split.test.ts` |
+| Create your admin login | `npm run db:create-admin` |
+| Apply migrations | `npm run db:migrate` |
+| Reseed the demo account | `npm run db:seed` |
 | Run the app locally | `npm run dev` |
 | Production build | `npm run build` |
 
@@ -95,6 +98,13 @@ the reconciliation test there is the one that matters.
 <!-- Things that are true, non-obvious, and have already cost someone time. Add the next one the day
      it costs you. -->
 
+- **`db` is a Proxy that builds the Prisma client on first use, not on import.** Constructing it at
+  module scope would demand `DATABASE_URL` from anything that imported the file — a unit test of a
+  pure function three imports away, or Next's build collecting page data with no database in reach.
+  Both would then fail for a reason unrelated to what they were doing.
+- **A session's token is never stored.** The cookie holds a random token; the `Session` row's id is
+  its SHA-256. Reading the table therefore yields nothing presentable as a login. Do not "simplify"
+  this by storing the token.
 - **The admin is a lender row with `isSelf = true`.** Mixed funding (part the admin's money, part a
   lender's) looks like a special case and is not one — the difference is carried by the rate columns
   on `LoanFunding`, not by branching. If you find yourself writing `if (isAdminMoney)`, stop.
