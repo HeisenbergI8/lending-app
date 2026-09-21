@@ -1,6 +1,6 @@
 import { type Centavos, parsePesos } from '../lib/money/centavos.ts'
 import { type Result, ok, err } from '../lib/money/result.ts'
-import { calendarDate } from '../lib/money/weeks.ts'
+import { parseCalendarDate } from '../lib/money/weeks.ts'
 
 // The shape itself lives in lib/ so client components can read it without
 // importing anything server-only. See src/lib/form-state.ts.
@@ -51,23 +51,10 @@ export function date(form: FormData, key: string): Result<Date, string> {
   const raw = text(form, key)
   if (!raw) return err('Pick a date.')
 
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw)
-  if (!match) return err('Pick a date.')
-
-  const [, year, month, day] = match
-  const parsed = calendarDate(new Date(Number(year), Number(month) - 1, Number(day)))
-
-  // new Date(2026, 1, 31) is 3 March, not an error — the constructor rolls a day
-  // that does not exist over into the next month. A date picker will not produce
-  // one, but a server action is a public endpoint and anything can be posted to
-  // it, so the parts are read back and compared rather than trusted.
-  if (
-    parsed.getFullYear() !== Number(year) ||
-    parsed.getMonth() !== Number(month) - 1 ||
-    parsed.getDate() !== Number(day)
-  ) {
-    return err('That date does not exist.')
-  }
+  // parseCalendarDate carries the midday rule AND the check that the day really
+  // exists — new Date(2026, 1, 31) is 3 March rather than an error.
+  const parsed = parseCalendarDate(raw)
+  if (!parsed) return err(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? 'That date does not exist.' : 'Pick a date.')
 
   return ok(parsed)
 }

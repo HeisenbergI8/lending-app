@@ -1,17 +1,18 @@
 # Lending App — Architecture
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
-**What exists:** steps 1-7 of the build order. `src/lib/money/`, `src/server/db.ts`,
+**What exists:** steps 1-8 of the build order. `src/lib/money/`, `src/server/db.ts`,
 `src/server/auth/`, `src/server/lenders/`, `src/server/borrowers/`, `src/server/loans/`,
 `src/server/payments/`, `src/server/storage/`, a live Supabase database with a seeded demo
-account, a working login, a dashboard, and the lender, borrower and loan screens — including
-creating, correcting and undoing a loan, and marking one paid with proof attached.
-237 tests pass (measured 2026-09-21).
+account, a working login, the dashboard, and the lender, borrower and loan screens — including
+creating, correcting and undoing a loan, marking one paid with proof attached, and searching the
+loans by name, amount, due-date range and status.
+266 tests pass (measured 2026-09-21).
 **Storage is live.** The private `proof-of-payment` bucket exists and `SUPABASE_SERVICE_ROLE_KEY`
 is set. Verified end to end on 2026-09-21: a file uploaded through the form came back byte-for-byte
 through its signed link, and the same path without a signature was refused. The bucket caps files
 at 4 MB and accepts only images and PDFs, matching `src/lib/proof.ts`.
-**Still to come:** search and filters, reports, PWA and deploy.
+**Still to come:** reports, PWA and deploy.
 **Everything else below is still planned, not real** — check before assuming a file is there.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
@@ -237,6 +238,9 @@ Each step leaves something that runs:
 5. ~~Lenders, borrowers, and their floating funds.~~ **Done** — list and profile screens for both, money in/out, derived floating funds, counted track record.
 6. ~~Loan creation — the form with the live "= 4 weeks" badge.~~ **Done** — create, correct and undo; inline borrower and lender creation; the whole-weeks rule enforced in the badge and again in the action.
 7. ~~Payments and proof upload.~~ **Done** — mark as paid with proof in one step, add proof later, undo a payment, remove a file. Uploads verified against the live bucket.
-8. Dashboard and search.
+8. ~~Dashboard and search.~~ **Done** — the dashboard's four figures, the lender pots across the
+   top and the borrowers with their ratings; search on the loans list by name, amount or due-date
+   range, plus the Active / Overdue / Paid chips. The search lives in the query string, so a
+   filtered list is a link.
 9. PDF reports.
 10. PWA manifest, then deploy.

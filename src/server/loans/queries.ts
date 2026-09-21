@@ -1,5 +1,7 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
+import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
+import { calendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
 
 /**
@@ -51,10 +53,66 @@ export type LoanDetail = LoanRow & {
 const funderName = (lender: { firstName: string; lastName: string; isSelf: boolean }) =>
   lender.isSelf ? 'You' : `${lender.firstName} ${lender.lastName}`
 
-/** Every loan, soonest due first. Paid ones last — they need no chasing. */
-export async function listLoans(userId: string): Promise<LoanRow[]> {
+const INSENSITIVE = { mode: 'insensitive' } as const
+
+/**
+ * Turn a search into a `where` clause.
+ *
+ * Every part of it narrows the same query rather than filtering rows in JS: a
+ * search that reads the whole table to throw most of it away would work today at
+ * a few hundred loans and quietly stop working later, and the indexes on
+ * userId+status and dueOn are already there to serve it.
+ *
+ * The three status filters are the loan STATES, not a second vocabulary — and
+ * overdue is not a column, so it is expressed the way it is defined: active,
+ * with a due date before today. Today is a calendar day at midday, for the
+ * reason in money/weeks.ts.
+ */
+export function loanWhere(userId: string, filter: LoanFilter) {
+  const today = calendarDate(new Date())
+
+  const dueOn = {
+    ...(filter.from ? { gte: filter.from } : {}),
+    ...(filter.to ? { lte: filter.to } : {}),
+    ...(filter.status === 'overdue' ? { lt: today } : {}),
+    // An active loan is one not yet due, so the range's own `gte` is tightened to
+    // today rather than replaced — both bounds have to hold, and the later of the
+    // two is the one that does the work.
+    ...(filter.status === 'active' ? { gte: filter.from && filter.from > today ? filter.from : today } : {}),
+  }
+
+  return {
+    userId,
+    archivedAt: null,
+    ...(filter.status === 'paid' ? { status: 'PAID' as const } : {}),
+    ...(filter.status === 'active' || filter.status === 'overdue' ? { status: 'ACTIVE' as const } : {}),
+    ...(Object.keys(dueOn).length > 0 ? { dueOn } : {}),
+    // An amount matches either figure, because the admin remembers a loan by the
+    // money that changed hands OR by what is owed back on it.
+    ...(filter.amount !== null
+      ? { OR: [{ capitalCentavos: filter.amount }, { totalCentavos: filter.amount }] }
+      : {}),
+    // Every word must match somewhere, so "Angel Cruz" finds Angel Cruz rather
+    // than everyone called Angel and everyone called Cruz.
+    ...(filter.terms.length > 0
+      ? {
+          AND: filter.terms.map((term) => ({
+            OR: [
+              { borrower: { firstName: { contains: term, ...INSENSITIVE } } },
+              { borrower: { lastName: { contains: term, ...INSENSITIVE } } },
+              { fundings: { some: { lender: { firstName: { contains: term, ...INSENSITIVE } } } } },
+              { fundings: { some: { lender: { lastName: { contains: term, ...INSENSITIVE } } } } },
+            ],
+          })),
+        }
+      : {}),
+  }
+}
+
+/** Every loan the search matches, soonest due first. Paid ones last — they need no chasing. */
+export async function listLoans(userId: string, filter: LoanFilter = NO_FILTER): Promise<LoanRow[]> {
   const loans = await db.loan.findMany({
-    where: { userId, archivedAt: null },
+    where: loanWhere(userId, filter),
     orderBy: [{ status: 'asc' }, { dueOn: 'asc' }],
     select: {
       id: true,
@@ -126,15 +184,15 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     adminCutBps: funding.adminCutBps,
   }))
 
-  // Prisma cannot filter a to-one relation in a select, so an undone payment is
-  // dropped here instead. Undoing archives the row rather than destroying it, so
-  // the row is still attached to the loan and would otherwise read as paid.
-  const payment = loan.payment?.archivedAt === null ? loan.payment : null
-
   const cuts = funders.reduce((sum, funder) => sum + funder.adminCut, 0)
   const ownCapitalEarnings = funders
     .filter((funder) => funder.isSelf)
     .reduce((sum, funder) => sum + funder.earnings, 0)
+
+  // Prisma cannot filter a to-one relation in a select, so an undone payment is
+  // dropped here instead. Undoing archives the row rather than destroying it, so
+  // the row is still attached to the loan and would otherwise read as paid.
+  const payment = loan.payment?.archivedAt === null ? loan.payment : null
 
   return {
     id: loan.id,

@@ -1,6 +1,13 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { weeksBetween, daysBetween, dueDateAfterWeeks, calendarDate } from '../../src/lib/money/weeks.ts'
+import {
+  weeksBetween,
+  daysBetween,
+  dueDateAfterWeeks,
+  calendarDate,
+  parseCalendarDate,
+  toDateInput,
+} from '../../src/lib/money/weeks.ts'
 
 // Midday, matching calendarDate: every date this module hands back is carried
 // at midday so no time zone can shift which calendar day it is. See weeks.ts.
@@ -126,5 +133,41 @@ describe('calendarDate — the day survives the trip to the database', () => {
       assert.equal(slipped.error.previousValidDue.getHours(), 12)
       assert.equal(slipped.error.nextValidDue.getHours(), 12)
     }
+  })
+})
+
+describe('parseCalendarDate — what arrives from an input or a URL', () => {
+  test('reads a date input value as a midday calendar date', () => {
+    const parsed = parseCalendarDate('2026-09-21')
+    assert.deepEqual(parsed, date(2026, 9, 21))
+    assert.equal(parsed?.getHours(), 12)
+  })
+
+  test('tolerates surrounding whitespace', () => {
+    assert.deepEqual(parseCalendarDate('  2026-09-21 '), date(2026, 9, 21))
+  })
+
+  // new Date(2026, 1, 31) is 3 March, not an error. A query string is public, so
+  // a day that does not exist must not come back as a real one a few days later.
+  test('refuses a day that does not exist rather than rolling it forward', () => {
+    assert.equal(parseCalendarDate('2026-02-31'), null)
+    assert.equal(parseCalendarDate('2026-13-01'), null)
+    assert.equal(parseCalendarDate('2026-04-31'), null)
+  })
+
+  test('accepts a real leap day and refuses one in a common year', () => {
+    assert.deepEqual(parseCalendarDate('2028-02-29'), date(2028, 2, 29))
+    assert.equal(parseCalendarDate('2026-02-29'), null)
+  })
+
+  test('refuses anything that is not YYYY-MM-DD', () => {
+    for (const bad of ['', '21/09/2026', '2026-9-21', 'yesterday', '2026-09-21T00:00:00Z']) {
+      assert.equal(parseCalendarDate(bad), null, bad)
+    }
+  })
+
+  test('round-trips through toDateInput', () => {
+    assert.equal(toDateInput(date(2026, 1, 5)), '2026-01-05')
+    assert.deepEqual(parseCalendarDate(toDateInput(date(2026, 12, 31))), date(2026, 12, 31))
   })
 })

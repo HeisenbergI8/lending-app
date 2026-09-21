@@ -105,10 +105,10 @@ Written before any code, and kept as the source of truth:
 - [x] Money module and its tests
 - [x] Database schema and migrations
 - [x] Authentication and account isolation
-- [ ] Lenders, borrowers and floating funds
-- [ ] Loan creation
-- [ ] Payments and proof upload
-- [ ] Dashboard and search
+- [x] Lenders, borrowers and floating funds
+- [x] Loan creation
+- [x] Payments and proof upload
+- [x] Dashboard and search
 - [ ] PDF reports
 - [ ] PWA and deployment
 - [ ] Public demo account with sample data

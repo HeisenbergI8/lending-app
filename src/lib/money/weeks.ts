@@ -117,3 +117,37 @@ export function describeWeeksError(error: WeeksError): string {
       return `${error.days} days is not a whole number of weeks. Try ${dayMonth.format(error.previousValidDue)} or ${dayMonth.format(error.nextValidDue)}.`
   }
 }
+
+/**
+ * "2026-09-21" — from an `<input type="date">` or from a URL — as a calendar
+ * date, or null when it is not a real day.
+ *
+ * `new Date(2026, 1, 31)` is 3 March, not an error: the constructor rolls a day
+ * that does not exist over into the next month. A date picker will not produce
+ * one, but a server action and a query string are both public and anything can
+ * arrive in either, so the parts are read back and compared rather than trusted.
+ */
+export function parseCalendarDate(raw: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim())
+  if (!match) return null
+
+  const [, year, month, day] = match
+  const parsed = calendarDate(new Date(Number(year), Number(month) - 1, Number(day)))
+
+  if (
+    parsed.getFullYear() !== Number(year) ||
+    parsed.getMonth() !== Number(month) - 1 ||
+    parsed.getDate() !== Number(day)
+  ) {
+    return null
+  }
+
+  return parsed
+}
+
+/** The inverse: a calendar date as "2026-09-21", which is what a date input reads. */
+export function toDateInput(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native.tsx'
 import { type Centavos, centavos, formatPesos, parsePesos } from '@/lib/money/centavos.ts'
 import { computeInterest } from '@/lib/money/interest.ts'
-import { calendarDate, describeWeeksError, weeksBetween } from '@/lib/money/weeks.ts'
+import { describeWeeksError, parseCalendarDate, weeksBetween } from '@/lib/money/weeks.ts'
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
 
 /**
@@ -45,16 +45,6 @@ export type LoanFormValues = {
 type FunderRow = { key: number; lenderId: string; amount: string; firstName: string; lastName: string }
 
 const NEW = 'new'
-
-/** "2026-09-21" as a calendar date, or null while it is still being typed. */
-function readDate(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!match) return null
-  const [, year, month, day] = match
-  const parsed = calendarDate(new Date(Number(year), Number(month) - 1, Number(day)))
-  if (parsed.getMonth() !== Number(month) - 1 || parsed.getDate() !== Number(day)) return null
-  return parsed
-}
 
 function readPesos(value: string): Centavos | null {
   const parsed = parsePesos(value)
@@ -100,8 +90,8 @@ export function LoanForm({
 
   const preview = useMemo(() => {
     const capitalValue = readPesos(capital)
-    const start = readDate(startOn)
-    const due = readDate(dueOn)
+    const start = parseCalendarDate(startOn)
+    const due = parseCalendarDate(dueOn)
     const rateBps = readRate(borrowerRate, 700)
 
     const weeks = start && due ? weeksBetween(start, due) : null
