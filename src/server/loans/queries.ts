@@ -93,7 +93,13 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
       dueOn: true,
       status: true,
       borrower: { select: { firstName: true, lastName: true } },
-      payment: { select: { paidOn: true, proofFiles: { where: { archivedAt: null }, select: { id: true } } } },
+      payment: {
+        select: {
+          paidOn: true,
+          archivedAt: true,
+          proofFiles: { where: { archivedAt: null }, select: { id: true } },
+        },
+      },
       fundings: {
         select: {
           lenderId: true,
@@ -120,6 +126,11 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     adminCutBps: funding.adminCutBps,
   }))
 
+  // Prisma cannot filter a to-one relation in a select, so an undone payment is
+  // dropped here instead. Undoing archives the row rather than destroying it, so
+  // the row is still attached to the loan and would otherwise read as paid.
+  const payment = loan.payment?.archivedAt === null ? loan.payment : null
+
   const cuts = funders.reduce((sum, funder) => sum + funder.adminCut, 0)
   const ownCapitalEarnings = funders
     .filter((funder) => funder.isSelf)
@@ -137,8 +148,8 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     dueOn: loan.dueOn,
     borrowerRateBps: loan.borrowerRateBps,
     state: loanState(loan.status, loan.dueOn),
-    paidOn: loan.payment?.paidOn ?? null,
-    missingProof: loan.payment !== null && loan.payment.proofFiles.length === 0,
+    paidOn: payment?.paidOn ?? null,
+    missingProof: payment !== null && payment.proofFiles.length === 0,
     funders,
     // What the admin actually takes home on this loan: their cut on other
     // people's money, plus what their own capital earned as a funder.

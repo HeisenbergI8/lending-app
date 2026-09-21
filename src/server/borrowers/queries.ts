@@ -59,7 +59,9 @@ export async function listBorrowers(userId: string): Promise<BorrowerSummary[]> 
           status: true,
           dueOn: true,
           totalCentavos: true,
-          payment: { select: { paidOn: true } },
+          // archivedAt comes back so an UNDONE payment can be dropped: the loan is
+          // running again, and it must not count as paid in the track record.
+          payment: { select: { paidOn: true, archivedAt: true } },
         },
       },
     },
@@ -69,7 +71,7 @@ export async function listBorrowers(userId: string): Promise<BorrowerSummary[]> 
     const loans = borrower.loans.map((loan) => ({
       status: loan.status,
       dueOn: loan.dueOn,
-      paidOn: loan.payment?.paidOn ?? null,
+      paidOn: loan.payment?.archivedAt === null ? loan.payment.paidOn : null,
     }))
 
     return {
@@ -108,7 +110,13 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
           startOn: true,
           dueOn: true,
           status: true,
-          payment: { select: { paidOn: true, proofFiles: { where: { archivedAt: null }, select: { id: true } } } },
+          payment: {
+            select: {
+              paidOn: true,
+              archivedAt: true,
+              proofFiles: { where: { archivedAt: null }, select: { id: true } },
+            },
+          },
           fundings: {
             select: {
               lenderId: true,
@@ -122,6 +130,11 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
   })
   if (!borrower) return null
 
+  // An undone payment is archived rather than destroyed, and Prisma cannot
+  // filter a to-one relation in a select — so it is dropped here.
+  const livePayment = <T extends { archivedAt: Date | null }>(loan: { payment: T | null }): T | null =>
+    loan.payment?.archivedAt === null ? loan.payment : null
+
   const loans: BorrowerLoan[] = borrower.loans.map((loan) => ({
     id: loan.id,
     capital: centavos(loan.capitalCentavos),
@@ -131,8 +144,8 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     startOn: loan.startOn,
     dueOn: loan.dueOn,
     state: loanState(loan.status, loan.dueOn),
-    paidOn: loan.payment?.paidOn ?? null,
-    missingProof: loan.payment !== null && loan.payment.proofFiles.length === 0,
+    paidOn: livePayment(loan)?.paidOn ?? null,
+    missingProof: livePayment(loan) !== null && livePayment(loan)!.proofFiles.length === 0,
     funders: loan.fundings.map((funding) => ({
       lenderId: funding.lenderId,
       name: funding.lender.isSelf ? 'You' : `${funding.lender.firstName} ${funding.lender.lastName}`,
@@ -149,7 +162,7 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
       borrower.loans.map((loan) => ({
         status: loan.status,
         dueOn: loan.dueOn,
-        paidOn: loan.payment?.paidOn ?? null,
+        paidOn: livePayment(loan)?.paidOn ?? null,
       })),
     ),
     outstanding: centavos(

@@ -1,15 +1,21 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, Pencil } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, FileText, ImageIcon, Pencil } from 'lucide-react'
 
 import { ActionForm } from '@/components/forms.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Money } from '@/components/money.tsx'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
+import { formatPesos } from '@/lib/money/centavos.ts'
+import { describeBytes } from '@/lib/proof.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { archiveLoan } from '@/server/loans/actions.ts'
 import { getLoan } from '@/server/loans/queries.ts'
+import { archiveProof, undoPayment } from '@/server/payments/actions.ts'
+import { paymentForLoan } from '@/server/payments/queries.ts'
+
+import { AddProofForm, MarkPaidPanel } from './payment-panel.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 const percent = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`
@@ -29,10 +35,12 @@ export async function generateMetadata({ params }: PageProps<'/loans/[id]'>) {
  */
 export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
   const user = await requireUser()
-  const loan = await getLoan(user.id, (await params).id)
+  const { id } = await params
+  const loan = await getLoan(user.id, id)
   if (!loan) notFound()
 
   const paid = loan.state === 'paid'
+  const payment = paid ? await paymentForLoan(user.id, id) : null
 
   return (
     <div className="space-y-6">
@@ -95,12 +103,13 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
         <StatTile label="You earn" value={<Money amount={loan.adminEarnings} variant="display" />} />
       </StatRow>
 
-      {loan.missingProof ? (
-        <p className="text-status-warning inline-flex items-center gap-1.5 text-sm font-medium">
-          <AlertTriangle className="size-4 shrink-0" aria-hidden />
-          Marked paid with no proof attached
-        </p>
-      ) : null}
+      {/* Paying is the one thing this page is for once a loan is running, so it
+          sits above the funding breakdown rather than under it. */}
+      {paid ? (
+        <PaymentSection loanId={loan.id} payment={payment} missingProof={loan.missingProof} />
+      ) : (
+        <MarkPaidPanel loanId={loan.id} total={formatPesos(loan.total)} />
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold">Whose money, and what it earns</h2>
@@ -142,3 +151,85 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
   )
 }
 
+/**
+ * What was paid, and what backs it up.
+ *
+ * The "no proof" warning is prominent by design: a payment can be recorded with
+ * nothing attached, and the only thing stopping that being forgotten is this
+ * line. It disappears the moment a file arrives.
+ *
+ * Undoing a payment puts the loan back to running. The payment row is archived
+ * rather than destroyed, so the proof stays with it and marking it paid again
+ * picks up where it left off.
+ */
+function PaymentSection({
+  loanId,
+  payment,
+  missingProof,
+}: {
+  loanId: string
+  payment: Awaited<ReturnType<typeof paymentForLoan>>
+  missingProof: boolean
+}) {
+  return (
+    <section className="bg-card space-y-3 rounded-xl border p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Payment</h2>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {payment ? `Paid in full on ${dateFormat.format(payment.paidOn)}.` : 'Recorded as paid.'}
+          </p>
+        </div>
+        <ActionForm action={undoPayment} values={{ loanId }} variant="ghost" size="sm" pendingLabel="Undoing…">
+          Undo payment
+        </ActionForm>
+      </div>
+
+      {missingProof ? (
+        <p className="text-status-warning inline-flex items-center gap-1.5 text-sm font-medium">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          No proof attached yet
+        </p>
+      ) : null}
+
+      {payment && payment.files.length > 0 ? (
+        <ul className="space-y-2">
+          {payment.files.map((file, index) => (
+            <li key={file.id} className="flex items-center gap-3 rounded-lg border p-2.5">
+              <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
+                {file.isPdf ? <FileText className="size-4" aria-hidden /> : <ImageIcon className="size-4" aria-hidden />}
+              </span>
+
+              <div className="min-w-0 flex-1 text-sm">
+                {file.url ? (
+                  // Signed, and good for a few minutes only — the bucket is
+                  // private, so there is no lasting address to leak.
+                  <a href={file.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+                    {file.isPdf ? 'Document' : 'Screenshot'} {index + 1}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground font-medium">
+                    {file.isPdf ? 'Document' : 'Screenshot'} {index + 1} — link unavailable
+                  </span>
+                )}
+                <div className="text-muted-foreground text-xs">{describeBytes(file.sizeBytes)}</div>
+              </div>
+
+              <ActionForm
+                action={archiveProof}
+                values={{ proofFileId: file.id }}
+                variant="ghost"
+                size="sm"
+                pendingLabel="Removing…"
+              >
+                Remove
+              </ActionForm>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <AddProofForm loanId={loanId} />
+    </section>
+  )
+}

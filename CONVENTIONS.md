@@ -71,9 +71,8 @@ bundler resolves those extensions fine — this was checked against a real build
 
 ## Where things live
 
-> **PARTLY REAL.** Everything below exists except `src/server/payments/`, `src/server/storage/`
-> and `src/server/reports/` — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-> Check before assuming a file is there.
+> **PARTLY REAL.** Everything below exists except `src/server/reports/` — see
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Check before assuming a file is there.
 
 | Layer | Path | Owns |
 | --- | --- | --- |
@@ -107,6 +106,21 @@ the reconciliation test there is the one that matters.
   decimal points stack, which is what makes a ledger scannable. On a stat tile it gives every digit
   the width of a zero and `₱121` reads loose and gappy. `<Money variant="column" | "display">`
   encodes the distinction — use it rather than writing the class by hand.
+- **Files go into the bucket BEFORE any row is written.** A failed upload then leaves the loan
+  exactly as it was and the admin simply tries again; writing the payment first would leave a record
+  claiming proof that is not there. Anything already uploaded when a later file fails is removed, so
+  a retry does not leave orphans in a bucket nobody looks at. See `server/payments/actions.ts`.
+- **Wrapping a server action in a closure costs the form its no-JavaScript fallback.** Next can only
+  post a form straight to the server when the function handed to `useActionState` IS the server
+  action. Wrapping it — to clear fields or close a panel on success — turns the form into one that
+  needs JavaScript. Worth it for the file forms and the collapsible panels, which need JavaScript
+  anyway; never worth it for a plain form rendered server-side. `MarkPaidPanel` is the worked
+  example of leaving one unwrapped on purpose.
+- **Undoing a payment archives the row, and `Payment.loanId` is unique.** So marking a loan paid
+  UPSERTS rather than creates — a loan paid, undone and paid again must reuse the row it already
+  has. For the same reason every read that asks "was this paid" checks `payment.archivedAt`:
+  Prisma cannot filter a to-one relation in a `select`, so an undone payment comes back attached to
+  the loan and would otherwise read as paid.
 - **A client component must not import from `src/server/`.** The dependency rule runs UI → Server →
   Domain, and `src/server/` is meant to be unreachable from the browser bundle. Anything both sides
   need — the `FormState` shape, the sentence explaining a bad date — lives in `src/lib/`
