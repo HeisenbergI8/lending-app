@@ -1,3 +1,6 @@
 
 # provenly runtime state (the config at the root is tracked, this is not)
 .claude/.harness/
+
+# personal settings, not shared
+.claude/settings.local.json
