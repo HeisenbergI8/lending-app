@@ -45,24 +45,27 @@ as a PWA. Full reasoning and the free-tier traps are in [docs/STACK.md](docs/STA
 
 | Purpose | Command |
 | --- | --- |
-| Full check (the closing gate) | `` |
-| Fast check (runs every turn) | `` |
-| Tests, one file | `` |
-| Run the app locally | `` |
+| Full check (the closing gate) | `npm run verify` |
+| Fast check (runs every turn) | `npm run typecheck` |
+| Run the app locally | `npm run dev` |
+| Production build | `npm run build` |
 
-> **PLACEHOLDER — empty until the project is scaffolded.** The stack is chosen, but no `package.json`
-> exists yet, so there are no scripts to point at. `commands.verify` and `commands.verifyFast` in
-> `harness.config.json` are `null` for the same reason — a verify command naming a script that does
-> not exist fails for a reason that has nothing to do with the code. Fill all of these in the same
-> change that creates `package.json`.
+**`npm run typecheck` is `next typegen && tsc --noEmit`, and the `typegen` half is not optional.**
+Next 16 generates `LayoutProps` and the route types into `.next/types/`. A bare `tsc --noEmit` on a
+clean checkout fails with `Cannot find name 'LayoutProps'` — a failure about missing generated files,
+not about the code. `next build` runs typegen itself, which is why the build passes while plain `tsc`
+does not.
+
+> **No test command yet.** `npm run verify` is typecheck + lint only. Tests arrive with
+> `src/lib/money/` (step 2 of the build order) — add the test run to `verify` in that same change.
 
 ---
 
 ## Where things live
 
-> **PLANNED, NOT YET REAL.** The layout is designed in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-> but nothing is scaffolded — none of these paths exist on disk yet. Do not assume a file is there;
-> check. Delete this warning once the project is created.
+> **PARTLY REAL.** The project is scaffolded, so `src/app/` and `src/lib/` exist. Everything else in
+> the table below is still planned — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Check before
+> assuming a file is there.
 
 | Layer | Path | Owns |
 | --- | --- | --- |

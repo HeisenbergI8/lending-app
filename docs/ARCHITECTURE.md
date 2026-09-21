@@ -1,7 +1,8 @@
 # Lending App — Architecture
 
-**Status:** designed 2026-09-21. **Nothing is scaffolded yet — every path below is planned, not real.**
-Delete this warning once the project exists.
+**Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
+**What exists:** `src/app/`, `src/lib/utils.ts`, `src/components/` via shadcn, and the tooling config.
+**Everything else below is still planned, not real** — check before assuming a file is there.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
 
@@ -198,7 +199,7 @@ the Archive screen shows only those. There is no purge job and no permanent dele
 
 Each step leaves something that runs:
 
-1. Scaffold Next.js + Tailwind + shadcn. **Fill in `harness.config.json` verify commands here.**
+1. ~~Scaffold Next.js + Tailwind + shadcn; fill in `harness.config.json` verify commands.~~ **Done.**
 2. `src/lib/money/` and its tests — no database needed, and it's the risky part.
 3. Prisma schema + migration + demo seed.
 4. Auth and `requireUser()`.
