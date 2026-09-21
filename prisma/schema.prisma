@@ -267,3 +267,28 @@ model ProofFile {
   @@index([paymentId])
   @@index([userId])
 }
+
+/// Failed login attempts, for rate limiting.
+///
+/// The one table with no userId, and deliberately: this is written BEFORE anyone
+/// is authenticated, so there is no user to attribute a row to. It holds no
+/// personal data either — the username and IP are stored only as SHA-256, which
+/// counts just as well as the plaintext and leaves nothing worth stealing.
+///
+/// Two counters, because one is not enough. Keying only on IP lets an attacker
+/// rotate addresses; keying only on username lets anyone lock the admin out of
+/// their own account by failing logins on purpose. So the tight limit is on the
+/// username-and-IP pair, and a looser one on the IP alone catches someone
+/// working through a list of usernames from one place.
+model LoginAttempt {
+  id String @id @default(cuid())
+  /// sha256("<username>|<ip>")
+  identifier String
+  /// sha256("<ip>")
+  ipHash    String
+  createdAt DateTime @default(now())
+
+  @@index([identifier, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([createdAt])
+}

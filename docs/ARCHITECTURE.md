@@ -64,7 +64,9 @@ lending-app/
 │   │   │   ├── session.ts         # tokens; the DB stores only their hash
 │   │   │   ├── cookie.ts          # httpOnly / sameSite / secure
 │   │   │   ├── guard.ts           # requireUser() — the isolation gate
-│   │   │   └── actions.ts         # login / logout server actions
+│   │   │   ├── actions.ts         # login / logout server actions
+│   │   │   ├── rate-limit.ts      # failed-login counters, in Postgres not memory
+│   │   │   └── request-ip.ts      # x-forwarded-for, first entry
 │   │   ├── lenders/
 │   │   ├── borrowers/
 │   │   ├── loans/
@@ -122,7 +124,8 @@ points** (7% = `700`). No decimals anywhere.
 | `LoanFunding` | who put money into this loan | one row per funder |
 | `Payment` | the single full repayment | one row; partial payments don't exist |
 | `ProofFile` | screenshots for a payment | several rows per payment |
-| `Session` | login sessions | |
+| `Session` | login sessions | the row id is the SHA-256 of the cookie's token |
+| `LoginAttempt` | failed logins | the only table with no `userId` — written before anyone is authenticated |
 
 ### Why `LoanFunding` is the clever bit
 

@@ -102,6 +102,13 @@ the reconciliation test there is the one that matters.
   module scope would demand `DATABASE_URL` from anything that imported the file — a unit test of a
   pure function three imports away, or Next's build collecting page data with no database in reach.
   Both would then fail for a reason unrelated to what they were doing.
+- **Rate-limit counters are keyed on username+IP, never on username alone.** Keying on username
+  alone would let anyone lock the admin out of their own account by failing logins on purpose. The
+  looser per-IP cap exists because the pair counter alone misses someone working through a list of
+  usernames from one place.
+- **`LoginAttempt` is the one table with no `userId`**, because it is written before anyone is
+  authenticated. It stores only SHA-256 of the username and IP — counting works the same and a leak
+  yields nothing.
 - **A session's token is never stored.** The cookie holds a random token; the `Session` row's id is
   its SHA-256. Reading the table therefore yields nothing presentable as a login. Do not "simplify"
   this by storing the token.
