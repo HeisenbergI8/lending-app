@@ -77,7 +77,8 @@ bundler resolves those extensions fine — this was checked against a real build
 
 | Layer | Path | Owns |
 | --- | --- | --- |
-| Domain | `src/lib/money/` | every peso decision — interest, splits, the whole-weeks rule. Pure functions, no database, no React. Fully tested. |
+| Design system | `src/components/` | `Money`, `StatTile`, `LoanStatusBadge`, `shell/` — reuse these rather than restyling per screen |
+| Domain | `src/lib/money/`, `src/lib/loan-state.ts` | every peso decision — interest, splits, the whole-weeks rule. Pure functions, no database, no React. Fully tested. |
 | Server | `src/server/` | database access, auth, Supabase storage, PDF reports. Server-only. |
 | UI | `src/app/`, `src/components/` | routes and screens. Never imports Prisma. |
 | Data model | `prisma/schema.prisma` | the nine tables, single source of truth |
@@ -98,6 +99,17 @@ the reconciliation test there is the one that matters.
 <!-- Things that are true, non-obvious, and have already cost someone time. Add the next one the day
      it costs you. -->
 
+- **Colour means loan state and nothing else.** Four reserved tokens — good, warning, serious,
+  critical — and they are never borrowed for an accent, a chart series or decoration. Every status
+  also ships an icon AND a word: on a light surface the warning and serious steps sit below 3:1
+  contrast by design, so colour must never be the only channel.
+- **`tabular-nums` belongs in table columns, not on large standalone figures.** In a column it makes
+  decimal points stack, which is what makes a ledger scannable. On a stat tile it gives every digit
+  the width of a zero and `₱121` reads loose and gappy. `<Money variant="column" | "display">`
+  encodes the distinction — use it rather than writing the class by hand.
+- **`src/components/*.tsx` cannot be imported by `node --test`.** Node strips types but does not
+  compile JSX. Any rule that deserves a test therefore lives in `src/lib/`, not beside the component
+  that renders it — `loan-state.ts` is the worked example.
 - **`db` is a Proxy that builds the Prisma client on first use, not on import.** Constructing it at
   module scope would demand `DATABASE_URL` from anything that imported the file — a unit test of a
   pure function three imports away, or Next's build collecting page data with no database in reach.

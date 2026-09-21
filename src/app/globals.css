@@ -7,9 +7,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /* These must point at the variables layout.tsx actually defines. They read
+     --font-sans: var(--font-sans) before, which is circular: it resolves to
+     nothing and every page silently fell back to the browser's default serif. */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-geist-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -126,5 +129,79 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   LOAN STATUS COLOURS
+
+   Reserved. These four are the only colours in the app that carry meaning, and
+   they carry it for loan state alone — never for decoration, never for a chart
+   series, never as an accent. When colour is spent this sparingly, a splash of
+   it becomes a signal worth trusting.
+
+   Every status also ships with an ICON AND A LABEL. On a light surface the
+   warning and serious steps sit below 3:1 contrast by design; the icon and the
+   word are what carry the meaning, so nothing is lost by a reader who cannot
+   separate the hues. Colour is never the only channel.
+
+   Values are the validated status palette — checked for contrast and for
+   colour-vision separation rather than chosen by eye.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --status-good: #0ca30c;      /* paid */
+  --status-warning: #fab219;   /* due soon */
+  --status-serious: #ec835a;   /* due today */
+  --status-critical: #d03b3b;  /* overdue */
+
+  --status-good-bg: color-mix(in oklab, var(--status-good) 12%, transparent);
+  --status-warning-bg: color-mix(in oklab, var(--status-warning) 16%, transparent);
+  --status-serious-bg: color-mix(in oklab, var(--status-serious) 14%, transparent);
+  --status-critical-bg: color-mix(in oklab, var(--status-critical) 12%, transparent);
+}
+
+/* The same four steps clear 3:1 on the dark surface; only the text steps shift. */
+.dark {
+  --status-good: #35c635;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #ef5f5f;
+}
+
+@theme inline {
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-serious: var(--status-serious);
+  --color-status-critical: var(--status-critical);
+  --color-status-good-bg: var(--status-good-bg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-serious-bg: var(--status-serious-bg);
+  --color-status-critical-bg: var(--status-critical-bg);
+}
+
+@layer base {
+  /* ── MONEY TYPOGRAPHY ──────────────────────────────────────────────────────
+     Columns of figures get tabular-nums so digits share a width and the decimal
+     points line up down the column — the whole reason a ledger is scannable.
+
+     Large standalone values deliberately do NOT. tabular-nums gives every digit
+     the width of a zero, which at display size makes a number like 121 look
+     loose and gappy. Proportional figures are correct there.
+     ──────────────────────────────────────────────────────────────────────── */
+  .money-column {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+    text-align: right;
+  }
+
+  /* Reduced motion is honoured for the page transitions and the mobile nav. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
