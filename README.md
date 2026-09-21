@@ -109,7 +109,7 @@ Written before any code, and kept as the source of truth:
 - [x] Loan creation
 - [x] Payments and proof upload
 - [x] Dashboard and search
-- [ ] PDF reports
+- [x] PDF reports
 - [ ] PWA and deployment
 - [ ] Public demo account with sample data
 

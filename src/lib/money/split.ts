@@ -239,3 +239,27 @@ export function adminTotalEarnings(split: Split, adminLenderId: string | null): 
     : 0
   return centavos(split.adminEarnings + asLender)
 }
+
+/**
+ * The same figure, read back from the funding rows a loan was stored with.
+ *
+ * `adminTotalEarnings` answers it for a split being computed; this answers it
+ * for a loan already in the database, where the cut was carved out once and
+ * written down. Both the loan screen and the reports ask the question, and the
+ * answer must not depend on which of them is asking — so it is written once,
+ * here, beside the split that produced the numbers.
+ *
+ * Nothing is recomputed from a rate. The cut on a row the admin funded
+ * themselves is zero, so their own capital's earnings are added rather than
+ * double-counted, and no branch has to ask whose money it was.
+ */
+export function adminTakeOnLoan(
+  fundings: { adminCut: Centavos; earnings: Centavos; isSelf: boolean }[],
+): Centavos {
+  return centavos(
+    fundings.reduce(
+      (total, funding) => total + funding.adminCut + (funding.isSelf ? funding.earnings : 0),
+      0,
+    ),
+  )
+}

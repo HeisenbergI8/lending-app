@@ -1,6 +1,14 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  /**
+   * The report PDFs read their font off disk at render time, and file tracing
+   * cannot see a path built with path.join. Without this the fonts are left out
+   * of the deployed function and every report falls back to a font with no ₱.
+   */
+  outputFileTracingIncludes: {
+    '/api/reports': ['src/server/reports/fonts/**'],
+  },
   experimental: {
     serverActions: {
       /**

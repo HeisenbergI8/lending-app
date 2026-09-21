@@ -71,8 +71,8 @@ bundler resolves those extensions fine — this was checked against a real build
 
 ## Where things live
 
-> **PARTLY REAL.** Everything below exists except `src/server/reports/` — see
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Check before assuming a file is there.
+> **REAL.** Everything below exists as described — see
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what is still to come (PWA, deploy).
 
 | Layer | Path | Owns |
 | --- | --- | --- |
@@ -166,6 +166,11 @@ the reconciliation test there is the one that matters.
 - **The admin is a lender row with `isSelf = true`.** Mixed funding (part the admin's money, part a
   lender's) looks like a special case and is not one — the difference is carried by the rate columns
   on `LoanFunding`, not by branching. If you find yourself writing `if (isAdminMoney)`, stop.
+- **The PDF standard fonts have no ₱ glyph, and say nothing about it.** A peso amount rendered in
+  Helvetica comes out as `±30,000.00` — no error, no warning, just the wrong character on a document
+  someone is handed. `src/server/reports/` bundles Geist for that reason, `next.config.ts` traces
+  the files into the deployed function, and the check is to render the PDF to an image and LOOK at
+  it. Reading the bytes will not tell you.
 - **Supabase pauses free projects after about a week idle.** The app's whole purpose is a clickable
   CV link, so a paused project defeats it. See docs/STACK.md.
 - **Two database URLs, and they are not interchangeable.** `DIRECT_URL` (5432, session mode) is for

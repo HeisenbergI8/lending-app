@@ -1,7 +1,13 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { centavos, type Centavos } from '../../src/lib/money/centavos.ts'
-import { splitLoan, adminTotalEarnings, type LoanTerms, type Split } from '../../src/lib/money/split.ts'
+import {
+  splitLoan,
+  adminTakeOnLoan,
+  adminTotalEarnings,
+  type LoanTerms,
+  type Split,
+} from '../../src/lib/money/split.ts'
 
 const peso = (n: number) => centavos(n * 100)
 
@@ -369,5 +375,68 @@ describe("the admin's cut, broken down to the rows it came from", () => {
       const earned = result.value.lenders.reduce((sum, l) => sum + l.earnings, 0)
       assert.equal(earned + result.value.adminEarnings, result.value.totalInterest, `capital ${capital}`)
     }
+  })
+})
+
+describe('adminTakeOnLoan — the same answer, read back from stored rows', () => {
+  // The figure the loan screen shows and the figure a report prints come from
+  // this one function, so they cannot drift apart.
+  const rows = (
+    entries: [adminCut: number, earnings: number, isSelf: boolean][],
+  ) =>
+    entries.map(([adminCut, earnings, isSelf]) => ({
+      adminCut: peso(adminCut),
+      earnings: peso(earnings),
+      isSelf,
+    }))
+
+  test("adds the admin's cut across every funder", () => {
+    assert.equal(adminTakeOnLoan(rows([[600, 1500, false], [400, 1000, false]])), peso(1000))
+  })
+
+  // On a row the admin funded themselves the cut is zero — they do not charge
+  // themselves — so their earnings as a funder are what they take.
+  test("adds what the admin's own capital earned", () => {
+    assert.equal(adminTakeOnLoan(rows([[0, 2100, true]])), peso(2100))
+  })
+
+  test('mixed funding is the sum of both, counted once', () => {
+    assert.equal(
+      adminTakeOnLoan(rows([[600, 1500, false], [0, 700, true]])),
+      peso(600 + 700),
+    )
+  })
+
+  test('a loan nobody earned anything on is zero, not NaN', () => {
+    assert.equal(adminTakeOnLoan([]), 0)
+    assert.equal(adminTakeOnLoan(rows([[0, 0, false]])), 0)
+  })
+
+  // The invariant that matters: what the admin takes plus what the other
+  // funders keep IS the interest the borrower was charged. No centavo is
+  // invented and none goes missing.
+  test('it reconciles with a real split, to the centavo', () => {
+    const split = mustSplit({
+      capital: peso(30_000),
+      borrowerRateBps: 700,
+      weeks: 4,
+      fundings: [
+        { lenderId: 'john', principal: peso(20_000), lenderRateBps: 500, adminCutBps: 200 },
+        { lenderId: 'admin', principal: peso(10_000), lenderRateBps: 700, adminCutBps: 0 },
+      ],
+    })
+
+    const stored = split.lenders.map((share) => ({
+      adminCut: share.adminCut,
+      earnings: share.earnings,
+      isSelf: share.lenderId === 'admin',
+    }))
+
+    assert.equal(adminTakeOnLoan(stored), adminTotalEarnings(split, 'admin'))
+
+    const others = split.lenders
+      .filter((share) => share.lenderId !== 'admin')
+      .reduce((total, share) => total + share.earnings, 0)
+    assert.equal(adminTakeOnLoan(stored) + others, split.totalInterest)
   })
 })

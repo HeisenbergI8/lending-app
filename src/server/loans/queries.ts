@@ -1,4 +1,5 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
+import { adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
 import { calendarDate } from '../../lib/money/weeks.ts'
@@ -184,11 +185,6 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     adminCutBps: funding.adminCutBps,
   }))
 
-  const cuts = funders.reduce((sum, funder) => sum + funder.adminCut, 0)
-  const ownCapitalEarnings = funders
-    .filter((funder) => funder.isSelf)
-    .reduce((sum, funder) => sum + funder.earnings, 0)
-
   // Prisma cannot filter a to-one relation in a select, so an undone payment is
   // dropped here instead. Undoing archives the row rather than destroying it, so
   // the row is still attached to the loan and would otherwise read as paid.
@@ -211,7 +207,7 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     funders,
     // What the admin actually takes home on this loan: their cut on other
     // people's money, plus what their own capital earned as a funder.
-    adminEarnings: centavos(cuts + ownCapitalEarnings),
+    adminEarnings: adminTakeOnLoan(funders),
   }
 }
 

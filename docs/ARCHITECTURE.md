@@ -1,19 +1,20 @@
 # Lending App — Architecture
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
-**What exists:** steps 1-8 of the build order. `src/lib/money/`, `src/server/db.ts`,
+**What exists:** steps 1-9 of the build order. `src/lib/money/`, `src/server/db.ts`,
 `src/server/auth/`, `src/server/lenders/`, `src/server/borrowers/`, `src/server/loans/`,
 `src/server/payments/`, `src/server/storage/`, a live Supabase database with a seeded demo
-account, a working login, the dashboard, and the lender, borrower and loan screens — including
-creating, correcting and undoing a loan, marking one paid with proof attached, and searching the
-loans by name, amount, due-date range and status.
-266 tests pass (measured 2026-09-21).
+account, a working login, the dashboard, the lender, borrower and loan screens — including creating,
+correcting and undoing a loan, marking one paid with proof attached, and searching the loans by
+name, amount, due-date range and status — and the four PDF reports.
+282 tests pass (measured 2026-09-21).
 **Storage is live.** The private `proof-of-payment` bucket exists and `SUPABASE_SERVICE_ROLE_KEY`
 is set. Verified end to end on 2026-09-21: a file uploaded through the form came back byte-for-byte
 through its signed link, and the same path without a signature was refused. The bucket caps files
 at 4 MB and accepts only images and PDFs, matching `src/lib/proof.ts`.
-**Still to come:** reports, PWA and deploy.
-**Everything else below is still planned, not real** — check before assuming a file is there.
+**Still to come:** PWA and deploy.
+**The PWA manifest and the deploy are the only parts below that are still planned** — everything
+else described here exists.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
 
@@ -80,7 +81,7 @@ lending-app/
 │   │   ├── loans/                # BUILT — terms.ts (pure), actions.ts, queries.ts
 │   │   ├── payments/              # BUILT — actions.ts, queries.ts (signed links)
 │   │   ├── storage/               # BUILT — proof-bucket.ts, Supabase Storage over fetch
-│   │   └── reports/               # data gathering + PDF rendering
+│   │   └── reports/               # BUILT — queries.ts, document.tsx, bundled fonts
 │   │
 │   ├── app/
 │   │   ├── layout.tsx
@@ -100,7 +101,7 @@ lending-app/
 │   │   │   └── archive/page.tsx
 │   │   └── api/
 │   │       ├── uploads/route.ts
-│   │       └── reports/[kind]/route.ts   # returns a PDF
+│   │       └── reports/route.ts   # returns a PDF; the kind is a query parameter
 │   │
 │   ├── components/
 │   │   ├── ui/                    # shadcn/ui — generated, don't hand-edit
@@ -242,5 +243,8 @@ Each step leaves something that runs:
    top and the borrowers with their ratings; search on the loans list by name, amount or due-date
    range, plus the Active / Overdue / Paid chips. The search lives in the query string, so a
    filtered list is a link.
-9. PDF reports.
+9. ~~PDF reports.~~ **Done** — overall summary, per lender, per borrower and the borrower's full
+   file, over any date range, rendered server-side with `@react-pdf/renderer` and returned as a
+   download. The app's own typeface is bundled with them: the PDF standard fonts have no ₱ glyph
+   and print `±30,000.00` without complaining.
 10. PWA manifest, then deploy.
