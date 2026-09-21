@@ -1,0 +1,269 @@
+// Lending app — data model.
+//
+// Rules that apply to EVERY table here, and are not repeated on each one:
+//
+//   MONEY is stored as a whole number of centavos in an Int column. Never Decimal,
+//   never Float. ₱30,000.00 is 3_000_000. Postgres Int tops out at 2,147,483,647,
+//   which is ₱21,474,836.47 — the ceiling for any single amount. If a loan ever
+//   needs to exceed that, these columns move to BigInt and src/lib/money/ moves to
+//   bigint arithmetic. Both changes together, or not at all.
+//
+//   RATES are basis points in an Int column. 7% is 700, 5% is 500, 2% is 200.
+//   Integers for the same reason as money.
+//
+//   userId is on every domain table, including the ones that could reach it through
+//   a relation. The demo account a recruiter logs into must never see real
+//   borrowers' names and debts, and a filter you can apply directly is one that
+//   cannot be forgotten in a join.
+//
+//   archivedAt replaces deletion. Nothing is ever destroyed; default queries
+//   exclude rows where it is set, and the Archive screen shows only those.
+//
+// Derived on read, never stored: floating funds, a loan's OVERDUE state, and a
+// borrower's counted track record. See docs/ARCHITECTURE.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 moved connection URLs out of the schema. The migrate/introspect URL
+// lives in prisma.config.ts; the running app supplies its own via a driver
+// adapter in src/server/db.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+/// The admin. Exactly two rows in practice: the real account, and the demo
+/// account seeded with fictional people for the public CV link.
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions           Session[]
+  lenders            Lender[]
+  borrowers          Borrower[]
+  loans              Loan[]
+  lenderTransactions LenderTransaction[]
+  fundings           LoanFunding[]
+  payments           Payment[]
+  proofFiles         ProofFile[]
+}
+
+/// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
+/// deleting the row logs that device out immediately, which a signed token
+/// cannot do until it expires. With one user there is no scale argument for
+/// statelessness, and this holds real money records.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Someone whose money is lent out. Name only — no phone, no address.
+///
+/// The admin is a Lender row with isSelf = true. That is what makes mixed funding
+/// (part the admin's money, part a lender's) need no special case anywhere: the
+/// difference lives in the rate columns on LoanFunding, not in a branch.
+model Lender {
+  id         String    @id @default(cuid())
+  userId     String
+  firstName  String
+  lastName   String
+  isSelf     Boolean   @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions LenderTransaction[]
+  fundings     LoanFunding[]
+
+  @@index([userId, archivedAt])
+}
+
+/// Someone who borrows. Name only.
+///
+/// The counted track record — loans taken, paid on time, paid late — is computed
+/// from the loans, never stored. manualLabel is the admin's own opinion on top of
+/// it, which is a judgement and therefore genuinely is stored.
+model Borrower {
+  id          String         @id @default(cuid())
+  userId      String
+  firstName   String
+  lastName    String
+  manualLabel BorrowerLabel?
+  archivedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loans Loan[]
+
+  @@index([userId, archivedAt])
+}
+
+enum BorrowerLabel {
+  GOOD
+  OKAY
+  BAD
+}
+
+/// Money a lender puts in or takes out. Floating funds is derived from these
+/// plus the lender's active and repaid loans — it is never stored as a balance,
+/// so it cannot drift away from the transactions that produced it.
+model LenderTransaction {
+  id             String                @id @default(cuid())
+  userId         String
+  lenderId       String
+  type           LenderTransactionType
+  amountCentavos Int
+  occurredOn     DateTime              @db.Date
+  note           String?
+  archivedAt     DateTime?
+  createdAt      DateTime              @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lender Lender @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+
+  @@index([userId, archivedAt])
+  @@index([lenderId, occurredOn])
+}
+
+enum LenderTransactionType {
+  DEPOSIT
+  WITHDRAWAL
+}
+
+/// One loan to one borrower.
+///
+/// weeks, interestCentavos and totalCentavos are computed ONCE by src/lib/money/
+/// when the loan is created, and stored. Nothing recalculates them afterwards —
+/// the total is fixed the day the loan is made, and a later change to a default
+/// rate must not silently rewrite what an existing borrower owes.
+///
+/// weeks is derived from the two dates, and (dueOn - startOn) must be an exact
+/// multiple of 7. The application enforces that; it is stored so a report never
+/// has to re-derive it.
+///
+/// There is no OVERDUE value in LoanStatus. Overdue is ACTIVE with dueOn in the
+/// past — a fact about today, not a state someone has to remember to write.
+model Loan {
+  id               String     @id @default(cuid())
+  userId           String
+  borrowerId       String
+  capitalCentavos  Int
+  borrowerRateBps  Int
+  startOn          DateTime   @db.Date
+  dueOn            DateTime   @db.Date
+  weeks            Int
+  interestCentavos Int
+  totalCentavos    Int
+  status           LoanStatus @default(ACTIVE)
+  archivedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  borrower Borrower      @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
+  fundings LoanFunding[]
+  payment  Payment?
+
+  @@index([userId, status, archivedAt])
+  @@index([borrowerId])
+  @@index([dueOn])
+}
+
+enum LoanStatus {
+  ACTIVE
+  PAID
+}
+
+/// Whose money funded this loan, and what it earns.
+///
+/// One row per funder. Two invariants the application enforces, both covered by
+/// tests in tests/money/split.test.ts:
+///
+///   1. principalCentavos across a loan's rows sums to exactly Loan.capitalCentavos
+///   2. lenderRateBps + adminCutBps == Loan.borrowerRateBps, on every row
+///
+/// The second is what guarantees the shares add back up to the interest charged.
+/// When the admin funds with their own money the row simply carries
+/// lenderRateBps = the full borrower rate and adminCutBps = 0.
+///
+/// Earnings are stored rather than recomputed because the split's remainder
+/// handling assigns leftover centavos deliberately; re-running it later against a
+/// changed rate would move money that has already been paid out.
+model LoanFunding {
+  id                String @id @default(cuid())
+  userId            String
+  loanId            String
+  lenderId          String
+  principalCentavos Int
+  lenderRateBps     Int
+  adminCutBps       Int
+  /// What this lender earns on their own principal.
+  earningsCentavos  Int
+  /// The admin's cut taken on this row's principal. Zero when the funder is the admin.
+  adminCutCentavos  Int
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan   Loan   @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  lender Lender @relation(fields: [lenderId], references: [id], onDelete: Restrict)
+
+  @@unique([loanId, lenderId])
+  @@index([lenderId])
+  @@index([userId])
+}
+
+/// The single repayment.
+///
+/// loanId is unique: one payment per loan, enforced by the database rather than
+/// by hoping the application never writes a second. There are no partial
+/// payments and no installments — the borrower pays the whole total at once.
+model Payment {
+  id             String    @id @default(cuid())
+  userId         String
+  loanId         String    @unique
+  paidOn         DateTime  @db.Date
+  amountCentavos Int
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan       Loan        @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  proofFiles ProofFile[]
+}
+
+/// A screenshot or receipt backing a payment. Several per payment is normal —
+/// the GCash screenshot plus the chat confirming it.
+///
+/// A Payment with no ProofFile rows is allowed; the UI flags it rather than
+/// blocking it, so a payment is never left unrecorded just because the file is
+/// still on someone's phone.
+model ProofFile {
+  id          String    @id @default(cuid())
+  userId      String
+  paymentId   String
+  /// Path within the Supabase storage bucket. The file itself is never in the database.
+  storagePath String
+  mimeType    String
+  sizeBytes   Int
+  archivedAt  DateTime?
+  uploadedAt  DateTime  @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([userId])
+}

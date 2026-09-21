@@ -100,6 +100,14 @@ the reconciliation test there is the one that matters.
   on `LoanFunding`, not by branching. If you find yourself writing `if (isAdminMoney)`, stop.
 - **Supabase pauses free projects after about a week idle.** The app's whole purpose is a clickable
   CV link, so a paused project defeats it. See docs/STACK.md.
+- **Two database URLs, and they are not interchangeable.** The Prisma CLI needs the DIRECT connection
+  (port 5432) because migrations take advisory locks and run DDL; the running app needs the POOLED one
+  (6543) because serverless opens a connection per invocation and the direct connection runs out of
+  slots. Swapping them produces failures that look nothing like their cause.
+- **Prisma 7 does not read `.env` and has no `url` in `schema.prisma`.** The CLI's URL lives in
+  `prisma.config.ts` (which calls `process.loadEnvFile()` itself), and the app builds its connection
+  through a driver adapter in `src/server/db.ts`. Guides written for Prisma 6 and earlier will not
+  match this repo.
 
 ---
 
