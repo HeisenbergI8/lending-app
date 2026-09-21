@@ -67,6 +67,23 @@ every import inside `src/lib/money/` and `tests/` must carry an explicit `.ts` e
 resolver will not guess it), and `allowImportingTsExtensions` is on in `tsconfig.json` to match. Next's
 bundler resolves those extensions fine — this was checked against a real build, not assumed.
 
+### Reading the database directly
+
+```bash
+node .claude/harness/db-ro.mjs --grants                              # confirm the connection
+node .claude/harness/db-ro.mjs 'SELECT COUNT(*) FROM "Loan"'         # one read-only statement
+```
+
+**The database IS reachable from this repo.** Do not tell anyone a figure cannot be checked without
+running `--grants` first. Read-only is enforced by the script — a statement check plus a Postgres
+`BEGIN READ ONLY` transaction — not by the role's grants, which are full (`DB_RO_URL` in `.env`
+overrides the connection if a SELECT-only role is ever created).
+
+Identifiers are Prisma's, so they are quoted and case-sensitive: `FROM "Loan"`, `"archivedAt"`,
+`"capitalCentavos"`. Two counterparts use this: the **`label-truth`** skill when a figure is being
+written, and the **`data-truth`** agent when one needs checking after the fact. Its measurements live
+in `.claude/reconciliation/`.
+
 ---
 
 ## Where things live

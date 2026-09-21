@@ -2,6 +2,12 @@
 # provenly runtime state (the config at the root is tracked, this is not)
 .claude/.harness/
 
+# reconciliation measurements quote REAL borrowers' names, ids and debts straight
+# out of the database, and this repo is public. They stay on the machine that made
+# them. The agent that writes them (.claude/agents/data-truth.md) is tracked; its
+# output is not.
+.claude/reconciliation/
+
 # personal settings, not shared
 .claude/settings.local.json
 
