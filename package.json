@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "verify": "npm run typecheck && npm run lint"
+    "verify": "npm run typecheck && npm run lint && npm run test",
+    "test": "node --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

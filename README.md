@@ -3,9 +3,8 @@
 A private lending ledger for a one-person lending operation: track who borrowed what, whose money
 funded it, and what everyone is owed.
 
-> **Status: specification complete, implementation not started.**
-> This repository currently contains the design documents and the development harness. There is no
-> application code yet. The roadmap below is the plan, not a description of what exists.
+> **Status: in progress.** The money module is built and tested; the screens and database are not.
+> `npm run verify` runs a typecheck, lint and 92 tests. The roadmap below marks what exists.
 
 ---
 
@@ -102,8 +101,8 @@ Written before any code, and kept as the source of truth:
 - [x] Feature specification
 - [x] Technology decisions
 - [x] Architecture and data model
-- [ ] Project scaffold
-- [ ] Money module and its tests
+- [x] Project scaffold
+- [x] Money module and its tests
 - [ ] Database schema and migrations
 - [ ] Authentication and account isolation
 - [ ] Lenders, borrowers and floating funds

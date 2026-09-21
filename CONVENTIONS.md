@@ -45,8 +45,10 @@ as a PWA. Full reasoning and the free-tier traps are in [docs/STACK.md](docs/STA
 
 | Purpose | Command |
 | --- | --- |
-| Full check (the closing gate) | `npm run verify` |
+| Full check (the closing gate) | `npm run verify` — typecheck + lint + tests |
 | Fast check (runs every turn) | `npm run typecheck` |
+| Tests only | `npm test` |
+| Tests, one file | `node --test tests/money/split.test.ts` |
 | Run the app locally | `npm run dev` |
 | Production build | `npm run build` |
 
@@ -56,16 +58,19 @@ clean checkout fails with `Cannot find name 'LayoutProps'` — a failure about m
 not about the code. `next build` runs typegen itself, which is why the build passes while plain `tsc`
 does not.
 
-> **No test command yet.** `npm run verify` is typecheck + lint only. Tests arrive with
-> `src/lib/money/` (step 2 of the build order) — add the test run to `verify` in that same change.
+**Tests are plain TypeScript run by Node itself** — `node --test`, no Vitest, no Jest, no loader.
+Node 22 strips types natively, so there is no test framework to install or configure. Two consequences:
+every import inside `src/lib/money/` and `tests/` must carry an explicit `.ts` extension (Node's ESM
+resolver will not guess it), and `allowImportingTsExtensions` is on in `tsconfig.json` to match. Next's
+bundler resolves those extensions fine — this was checked against a real build, not assumed.
 
 ---
 
 ## Where things live
 
-> **PARTLY REAL.** The project is scaffolded, so `src/app/` and `src/lib/` exist. Everything else in
-> the table below is still planned — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Check before
-> assuming a file is there.
+> **PARTLY REAL.** `src/app/`, `src/lib/money/` and `tests/money/` exist. `src/server/`,
+> `prisma/` and the domain components do not yet — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+> Check before assuming a file is there.
 
 | Layer | Path | Owns |
 | --- | --- | --- |
@@ -78,9 +83,10 @@ does not.
 Dependencies point **one way only**: UI → Server → Domain. The domain layer imports nothing from the
 other two — that is what lets the money math be tested without a database.
 
-**Read this first:** `src/lib/money/split.ts` (once it exists). It carries the 7% = 5% + 2% invariant
-and the rule that a split's leftover centavos are assigned deliberately, never dropped. Model any new
-money code on it.
+**Read this first:** [src/lib/money/split.ts](src/lib/money/split.ts). It carries the
+7% = 5% + 2% invariant and the largest-remainder rule that stops a split losing centavos. Model any
+new money code on it, and read [tests/money/split.test.ts](tests/money/split.test.ts) alongside it —
+the reconciliation test there is the one that matters.
 
 ---
 

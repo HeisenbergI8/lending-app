@@ -1,7 +1,8 @@
 # Lending App — Architecture
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
-**What exists:** `src/app/`, `src/lib/utils.ts`, `src/components/` via shadcn, and the tooling config.
+**What exists:** `src/app/`, `src/lib/utils.ts`, the tooling config, and **`src/lib/money/` with
+92 passing tests** (steps 1-2 of the build order).
 **Everything else below is still planned, not real** — check before assuming a file is there.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
@@ -45,8 +46,9 @@ lending-app/
 │
 ├── src/
 │   ├── lib/
-│   │   ├── money/                 # ← THE CORE. Pure functions. Fully tested.
-│   │   │   ├── centavos.ts        # parse, format, the integer type
+│   │   ├── money/                 # ← THE CORE. Pure functions. Fully tested. BUILT.
+│   │   │   ├── result.ts          # Ok/Err — validation failures are answers, not exceptions
+│   │   │   ├── centavos.ts        # branded integer money, parse, format
 │   │   │   ├── weeks.ts           # (due − start) ÷ 7, whole-number rule
 │   │   │   ├── interest.ts        # capital × rate × weeks
 │   │   │   ├── split.ts           # per-lender earnings + remainder handling
@@ -153,12 +155,15 @@ These are computed on read, so they can never drift out of date:
 
 Integer division leaves remainders. ₱8,400 split between three lenders does not divide evenly.
 
-**One function owns rounding, and the remainder is never dropped.** The split computes each share by
-integer division, then hands out the leftover centavos one at a time, largest fractional part first.
-The result always sums back to the exact interest.
+**One function owns rounding, and the remainder is never dropped.** `distribute()` in
+[src/lib/money/split.ts](../src/lib/money/split.ts) floors every share, then hands out the leftover
+centavos one at a time, largest fractional part first. Ties break by position, so the same loan always
+splits the same way — a split that shuffles its remainder between runs is an untestable
+reconciliation bug.
 
-A test asserts this on awkward numbers specifically — that is the single most valuable test in the
-project.
+[tests/money/split.test.ts](../tests/money/split.test.ts) asserts this on deliberately awkward
+numbers, plus an exhaustive sweep over every capital from 1 to 2,000 centavos. That is the single most
+valuable test in the project.
 
 ---
 
@@ -200,7 +205,7 @@ the Archive screen shows only those. There is no purge job and no permanent dele
 Each step leaves something that runs:
 
 1. ~~Scaffold Next.js + Tailwind + shadcn; fill in `harness.config.json` verify commands.~~ **Done.**
-2. `src/lib/money/` and its tests — no database needed, and it's the risky part.
+2. ~~`src/lib/money/` and its tests.~~ **Done** — 92 tests, wired into `npm run verify`.
 3. Prisma schema + migration + demo seed.
 4. Auth and `requireUser()`.
 5. Lenders, borrowers, and their floating funds.
