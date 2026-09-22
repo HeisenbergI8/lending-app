@@ -194,7 +194,7 @@ export function LoginForm() {
                 // being handed a new name each time it is used.
                 aria-pressed={revealed}
                 aria-label={revealed ? 'Hide password' : 'Show password'}
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg focus-visible:ring-2 focus-visible:outline-none"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-0 flex w-11 cursor-pointer items-center justify-center rounded-r-lg focus-visible:ring-2 focus-visible:outline-none"
               >
                 {revealed ? (
                   <EyeOff className="size-4" aria-hidden />
