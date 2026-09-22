@@ -9,11 +9,14 @@ import { PrismaClient } from '@prisma/client'
  *
  * Two things this file exists to get right:
  *
- * 1. ONE INSTANCE. Next.js hot-reload re-evaluates modules on every edit. A
- *    client constructed at module scope would therefore be constructed again on
- *    every save, each one holding its own connection pool, until Postgres refuses
- *    new connections and the dev server starts failing for no visible reason.
- *    Stashing it on globalThis in development is the standard fix.
+ * 1. ONE INSTANCE, IN EVERY ENVIRONMENT. The cache used to be skipped in
+ *    production, on the reasoning that it only existed to survive Next.js
+ *    hot-reload re-evaluating modules on every edit. That made the proxy below
+ *    build a brand new client — and a new connection pool — on every single
+ *    property access, so `db.$transaction(...)` began a transaction on one
+ *    client and `tx.payment.upsert(...)` ran against another, which answered
+ *    "Transaction not found". Dev never showed it, because dev was the one
+ *    environment that cached.
  *
  * 2. THE POOLED URL. Serverless functions open a connection per invocation, and
  *    the session connection runs out of slots quickly under that pattern. So the
@@ -45,7 +48,7 @@ function client(): PrismaClient {
   if (existing) return existing
 
   const created = createClient()
-  if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = created
+  globalForPrisma.prisma = created
   return created
 }
 
