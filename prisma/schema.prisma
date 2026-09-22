@@ -57,6 +57,7 @@ model User {
   fundings           LoanFunding[]
   payments           Payment[]
   proofFiles         ProofFile[]
+  loanNotes          LoanNote[]
 }
 
 /// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
@@ -135,14 +136,24 @@ model LenderTransaction {
   amountCentavos Int
   occurredOn     DateTime              @db.Date
   note           String?
+  /// Set when this movement was taken AGAINST a particular loan — an advance on
+  /// money that loan has not returned yet. Null on an ordinary deposit or
+  /// withdrawal, which is most of them.
+  ///
+  /// The relation, not a sentence in `note`: the cap on the next advance is
+  /// "what this loan still owes the pot minus what has already been drawn on
+  /// it", and that subtraction needs rows it can add up, not prose.
+  loanId         String?
   deletedAt      DateTime?             @map("archivedAt")
   createdAt      DateTime              @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   lender Lender @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  loan   Loan?  @relation(fields: [loanId], references: [id], onDelete: Cascade)
 
   @@index([userId, deletedAt])
   @@index([lenderId, occurredOn])
+  @@index([loanId])
 }
 
 enum LenderTransactionType {
@@ -200,10 +211,12 @@ model Loan {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  borrower Borrower      @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  borrower Borrower            @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
   fundings LoanFunding[]
   payment  Payment?
+  notes    LoanNote[]
+  advances LenderTransaction[]
 
   @@index([userId, status, deletedAt])
   @@index([borrowerId])
@@ -256,6 +269,30 @@ model LoanFunding {
 
   @@unique([loanId, lenderId])
   @@index([lenderId])
+  @@index([userId])
+}
+
+/// The Admin's own remark on a loan — who was chased, what was agreed, why a
+/// date slipped. Never a figure: nothing on any screen adds these up, and no
+/// report reads them.
+///
+/// THE ONE TABLE THAT REALLY DELETES. Everywhere else `deletedAt` hides a row
+/// for thirty days because destroying it would destroy money history. A note
+/// carries none — it is the Admin talking to themselves — and a soft-deleted
+/// one would sit in Recently Deleted next to loans and payments, inviting the
+/// question of what money it was worth. Deleting a note asks first and then
+/// means it.
+model LoanNote {
+  id        String   @id @default(cuid())
+  userId    String
+  loanId    String
+  body      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId, createdAt])
   @@index([userId])
 }
 

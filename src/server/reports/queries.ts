@@ -91,6 +91,48 @@ export type SummaryReport = {
   preview: ReportPreview
 }
 
+/**
+ * One loan on the Admin's cut report — the loans list, with the Admin's own
+ * share of it added.
+ *
+ * `adminCut` is adminTakeOnLoan over the loan's funding rows: the cut charged
+ * on the other funders' capital PLUS what the Admin's own capital earned, if
+ * any went in. It is the same figure the loan screen shows as "Admin interest",
+ * from the same function, so the report and the screen cannot disagree.
+ *
+ * It is NOT a percentage of anything on this row. On a fixed-amount loan there
+ * is no rate at all, and even on a weekly one the cut is decided per funder.
+ */
+export type AdminCutLoanRow = {
+  loanId: string
+  borrowerName: string
+  capital: Centavos
+  interest: Centavos
+  total: Centavos
+  startOn: Date
+  dueOn: Date
+  paidOn: Date | null
+  state: LoanState
+  /** Whose money funded it, the Admin's own pot shown as "Admin". */
+  funders: string[]
+  adminCut: Centavos
+}
+
+export type AdminCutReport = {
+  kind: 'admin-cut'
+  header: ReportHeader
+  /** Loans that STARTED in the period. The cut on these was agreed, not received. */
+  started: AdminCutLoanRow[]
+  /** Loans REPAID in the period. The cut on these has actually arrived. */
+  repaid: AdminCutLoanRow[]
+  /** The cut across `started` — money the Admin is owed as of the day those loans were made. */
+  agreed: Centavos
+  /** The cut across `repaid` — money that reached the Admin pot in this period. */
+  collected: Centavos
+  /** As of today, across every running loan whenever it started. */
+  outstandingToday: Centavos
+}
+
 export type LenderLoanRow = {
   borrowerName: string
   principal: Centavos
@@ -177,7 +219,7 @@ export type BorrowerReport = {
   preview: ReportPreview
 }
 
-export type Report = SummaryReport | LenderReport | BorrowerReport
+export type Report = SummaryReport | AdminCutReport | LenderReport | BorrowerReport
 
 const sum = (amounts: number[]): Centavos => centavos(amounts.reduce((total, n) => total + n, 0))
 
@@ -325,6 +367,118 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
       })),
       range,
     ),
+  }
+}
+
+/**
+ * Where the Admin's own money came from, loan by loan.
+ *
+ * TWO SECTIONS, BECAUSE THE TWO ARE NOT THE SAME MONEY. A loan that started in
+ * March promises the Admin a cut; a loan repaid in March hands one over. Rolled
+ * into one figure they read as a month's profit, and a month of heavy lending
+ * with nothing collected would report a fortune that has not arrived.
+ *
+ * A loan that both started and was repaid in the period appears in both, and
+ * that is correct: it was made in the period AND it paid in the period. The two
+ * totals are never added together and the report never prints a sum of them.
+ *
+ * Every figure comes off the stored funding rows through adminTakeOnLoan — the
+ * same function the loan screen and the overall summary use. Nothing here is a
+ * second opinion about a peso.
+ */
+export async function adminCutReport(userId: string, range: ReportRange): Promise<AdminCutReport> {
+  const period = rangeFilter(range)
+  const now = new Date()
+
+  const [inPeriod, running] = await Promise.all([
+    db.loan.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        // Started in the period, or repaid in it. One query for both, so a loan
+        // that did both is fetched once and appears in both lists from one row.
+        OR: [{ startOn: period }, { payment: { deletedAt: null, paidOn: period } }],
+      },
+      select: {
+        id: true,
+        capitalCentavos: true,
+        interestCentavos: true,
+        totalCentavos: true,
+        startOn: true,
+        dueOn: true,
+        status: true,
+        borrower: { select: { firstName: true, lastName: true } },
+        payment: { select: { paidOn: true, deletedAt: true } },
+        fundings: {
+          select: {
+            earningsCentavos: true,
+            adminCutCentavos: true,
+            lender: { select: { firstName: true, lastName: true, isSelf: true } },
+          },
+        },
+      },
+      orderBy: { startOn: 'asc' },
+    }),
+    // AS OF TODAY, and deliberately not ranged: "still to come" is a fact about
+    // now. Every running loan, whenever it started — including ones that began
+    // long before this period and will pay long after it.
+    db.loan.findMany({
+      where: { userId, deletedAt: null, status: 'ACTIVE' },
+      select: {
+        fundings: {
+          select: {
+            earningsCentavos: true,
+            adminCutCentavos: true,
+            lender: { select: { isSelf: true } },
+          },
+        },
+      },
+    }),
+  ])
+
+  const cutOf = (fundings: { earningsCentavos: number; adminCutCentavos: number; lender: { isSelf: boolean } }[]) =>
+    adminTakeOnLoan(
+      fundings.map((funding) => ({
+        adminCut: centavos(funding.adminCutCentavos),
+        earnings: centavos(funding.earningsCentavos),
+        isSelf: funding.lender.isSelf,
+      })),
+    )
+
+  // An undone payment is soft-deleted, not destroyed, so it is still attached to
+  // its loan and would otherwise read as a repayment that happened.
+  const livePaidOn = (loan: (typeof inPeriod)[number]) =>
+    loan.payment?.deletedAt === null ? loan.payment.paidOn : null
+
+  const rows: AdminCutLoanRow[] = inPeriod.map((loan) => ({
+    loanId: loan.id,
+    borrowerName: fullName(loan.borrower),
+    capital: centavos(loan.capitalCentavos),
+    interest: centavos(loan.interestCentavos),
+    total: centavos(loan.totalCentavos),
+    startOn: loan.startOn,
+    dueOn: loan.dueOn,
+    paidOn: livePaidOn(loan),
+    state: loanState(loan.status, loan.dueOn, now),
+    funders: loan.fundings.map((funding) =>
+      funding.lender.isSelf ? 'Admin' : fullName(funding.lender),
+    ),
+    adminCut: cutOf(loan.fundings),
+  }))
+
+  const started = rows.filter((row) => inRange(row.startOn, range))
+  const repaid = rows
+    .filter((row) => inRange(row.paidOn, range))
+    .sort((a, b) => (a.paidOn?.getTime() ?? 0) - (b.paidOn?.getTime() ?? 0))
+
+  return {
+    kind: 'admin-cut',
+    header: { title: "Admin's cut", subject: null, range, generatedAt: now },
+    started,
+    repaid,
+    agreed: sum(started.map((row) => row.adminCut)),
+    collected: sum(repaid.map((row) => row.adminCut)),
+    outstandingToday: sum(running.map((loan) => cutOf(loan.fundings))),
   }
 }
 

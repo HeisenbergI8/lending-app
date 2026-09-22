@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowUpRight,
   CheckCircle2,
   FileText,
   HandCoins,
@@ -17,20 +18,30 @@ import {
 import { ActionForm } from '@/components/forms.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Money } from '@/components/money.tsx'
-import { StatRow, StatTile } from '@/components/stat-tile.tsx'
+import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { formatPesos } from '@/lib/money/centavos.ts'
 import { describeTerm } from '@/lib/money/weeks.ts'
 import { describeBytes } from '@/lib/proof.ts'
 import { requireUser } from '@/server/auth/guard.ts'
-import { deleteLoan } from '@/server/loans/actions.ts'
-import { getLoan } from '@/server/loans/queries.ts'
+import { deleteLoan, deleteLoanNote } from '@/server/loans/actions.ts'
+import { type LoanDetail, getLoan } from '@/server/loans/queries.ts'
 import { deleteProof, undoPayment } from '@/server/payments/actions.ts'
 import { paymentForLoan } from '@/server/payments/queries.ts'
 
+import { AdvanceForm } from './advance-form.tsx'
+import { NoteForm } from './note-form.tsx'
 import { AddProofForm, MarkPaidPanel } from './payment-panel.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
+// A note is often several in one day, so it carries the time as well as the date.
+const stampFormat = new Intl.DateTimeFormat('en-PH', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
 const percent = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`
 
 /**
@@ -47,6 +58,14 @@ const chargeNote = (loan: { interestBasis: string; borrowerRateBps: number | nul
   loan.interestBasis === 'WEEKLY_RATE' && loan.borrowerRateBps !== null
     ? `borrower pays ${percent(loan.borrowerRateBps)} a week`
     : 'interest set as a fixed amount'
+
+/** "2026-09-22" for <input type="date">, in the admin's own timezone. */
+function todayForInput(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
 
 /** "Maria Santos" → "Maria". The full name is already on the line above it. */
 const firstName = (name: string) => name.split(' ')[0]
@@ -182,6 +201,16 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
         <MarkPaidPanel loanId={loan.id} total={formatPesos(loan.total)} />
       )}
 
+      {/* DRAWING EARLY ON WHAT THIS LOAN WILL RETURN. Rendered only when there
+          is something to say: a loan that gives the Admin pot nothing, and has
+          had nothing drawn on it, gets no section at all rather than a row of
+          zeroes. A repaid loan keeps the section for the record but loses the
+          button — once the money is really in the pot, an ordinary withdrawal
+          on the Admin pot's page is the honest record. */}
+      {loan.adminStake.stake > 0 || loan.advances.length > 0 ? (
+        <AdvanceSection loan={loan} paid={paid} />
+      ) : null}
+
       <section className="space-y-3">
         <h2 className="text-base font-semibold tracking-tight">Whose money, and what it earns</h2>
 
@@ -240,7 +269,160 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
           Every share was fixed when the loan was created and is never recalculated.
         </p>
       </section>
+
+      <NotesSection loanId={loan.id} notes={loan.notes} />
     </div>
+  )
+}
+
+/**
+ * What the Admin can still draw against this loan, and what they already have.
+ *
+ * THREE FIGURES THAT ADD UP, printed together because separately any one of
+ * them is misleading. "Returns" is everything the loan hands the Admin pot when
+ * it settles: their own capital back, what that capital earned, and the cut
+ * charged on the other funders' money. "Drawn" is what has left already.
+ * "Left to draw" is the difference, and the server recomputes it before
+ * accepting anything — see adminStakeInLoan.
+ *
+ * NONE OF THIS IS MONEY IN HAND. The interest inside "Returns" has not arrived;
+ * that is what makes a draw against it an advance rather than a withdrawal, and
+ * why the pot's floating funds can go negative when one is taken.
+ */
+function AdvanceSection({ loan, paid }: { loan: LoanDetail; paid: boolean }) {
+  const { stake, advanced, headroom } = loan.adminStake
+
+  return (
+    <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <IconChip icon={Wallet} tint="violet" />
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">The Admin&rsquo;s share of this loan</h2>
+            <p className="text-muted-foreground mt-0.5 text-sm">
+              {paid
+                ? 'This loan has been repaid, so its share is in the Admin pot already.'
+                : 'Money can be drawn out of the Admin pot now, against what this loan will return to it.'}
+            </p>
+          </div>
+        </div>
+
+        {paid || headroom === 0 ? null : (
+          <AdvanceForm loanId={loan.id} headroom={formatPesos(headroom)} today={todayForInput()} />
+        )}
+      </div>
+
+      <dl className="grid gap-2 sm:grid-cols-3">
+        <div className="flex items-baseline justify-between gap-3 sm:block">
+          <dt className="text-muted-foreground text-xs">Returns to the Admin pot</dt>
+          <dd className="text-sm font-semibold sm:mt-0.5">
+            <Money amount={stake} variant="display" />
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3 sm:block">
+          <dt className="text-muted-foreground text-xs">Drawn in advance</dt>
+          <dd className="text-sm sm:mt-0.5">
+            <Money amount={advanced} variant="display" muted={advanced === 0} />
+          </dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3 sm:block">
+          <dt className="text-muted-foreground text-xs">Left to draw</dt>
+          <dd className="text-sm sm:mt-0.5">
+            <Money amount={headroom} variant="display" muted={headroom === 0} />
+          </dd>
+        </div>
+      </dl>
+
+      {loan.advances.length > 0 ? (
+        <ul className="divide-border/70 border-border divide-y rounded-xl border">
+          {loan.advances.map((advance) => (
+            <li key={advance.id} className="flex items-center gap-3 p-2.5">
+              <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
+                <ArrowUpRight className="size-4" aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="font-medium">Advance</div>
+                <div className="text-muted-foreground truncate text-xs">
+                  {dateFormat.format(advance.occurredOn)}
+                  {advance.note ? ` · ${advance.note}` : ''}
+                </div>
+              </div>
+              <Money amount={advance.amount} variant="display" className="text-sm font-semibold" />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <p className="text-muted-foreground text-xs">
+        {loan.advances.length > 0
+          ? 'Each advance is a withdrawal on the Admin pot and is undone from there, in the withdrawal history.'
+          : 'An advance leaves the Admin pot the day it is taken, whether or not this loan has been repaid.'}
+      </p>
+    </section>
+  )
+}
+
+/**
+ * The Admin's own remarks on a loan.
+ *
+ * Newest first, because the last thing that happened is what is being looked
+ * for. Nothing here is a figure and nothing adds these up: it is a place to
+ * write down what was said on the phone, and the rest of the app never reads it.
+ *
+ * DELETING ONE REALLY DELETES IT. Everything else in this app goes to Recently
+ * Deleted for thirty days because destroying it would destroy money history;
+ * a note carries none. The dialog says so rather than promising an undo that
+ * does not exist.
+ */
+function NotesSection({ loanId, notes }: { loanId: string; notes: LoanDetail['notes'] }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold tracking-tight">Notes</h2>
+        {notes.length > 0 ? (
+          <p className="text-muted-foreground text-xs">
+            {notes.length === 1 ? '1 note' : `${notes.length} notes`}
+          </p>
+        ) : null}
+      </div>
+
+      <NoteForm loanId={loanId} />
+
+      {notes.length === 0 ? (
+        <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-6 text-center text-sm">
+          Nothing written on this loan yet.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {notes.map((note) => (
+            <li key={note.id} className="bg-card rounded-2xl p-3 ring-1 ring-border/70 shadow-rest">
+              <div className="flex items-start justify-between gap-3">
+                {/* The note as it was typed, line breaks and all. A remark is
+                    often a short list, and collapsing it to one paragraph would
+                    lose the thing that made it readable. */}
+                <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap">{note.body}</p>
+                <ActionForm
+                  action={deleteLoanNote}
+                  values={{ noteId: note.id }}
+                  variant="ghost"
+                  size="sm"
+                  pendingLabel="Deleting…"
+                  confirm={{
+                    title: 'Delete this note?',
+                    body: 'Notes are not kept in Recently Deleted. This one goes for good.',
+                    action: 'Delete note',
+                  }}
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                  <span className="sr-only">Delete note</span>
+                </ActionForm>
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">{stampFormat.format(note.createdAt)}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

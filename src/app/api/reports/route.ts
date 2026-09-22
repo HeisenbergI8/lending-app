@@ -1,7 +1,7 @@
 import { isReportKind, parseReportRange, rangeParams } from '@/lib/report-range.ts'
 import { getCurrentUser } from '@/server/auth/guard.ts'
 import { renderReport } from '@/server/reports/document.tsx'
-import { borrowerReport, lenderReport, summaryReport } from '@/server/reports/queries.ts'
+import { adminCutReport, borrowerReport, lenderReport, summaryReport } from '@/server/reports/queries.ts'
 
 /**
  * A report, as a PDF the browser saves — or shows, with `inline=1`.
@@ -52,9 +52,12 @@ export async function GET(request: Request) {
   const report =
     kind === 'summary'
       ? await summaryReport(user.id, range)
-      : kind === 'lender'
-        ? await lenderReport(user.id, id, range)
-        : await borrowerReport(user.id, id, range, { withProof: kind === 'borrower-file' })
+      : kind === 'admin-cut'
+        ? // No person to pick: the Admin's cut is the Admin's, so `id` is ignored.
+          await adminCutReport(user.id, range)
+        : kind === 'lender'
+          ? await lenderReport(user.id, id, range)
+          : await borrowerReport(user.id, id, range, { withProof: kind === 'borrower-file' })
 
   if (!report) return badRequest('That person is not on this account.')
 

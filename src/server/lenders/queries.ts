@@ -42,6 +42,29 @@ export type LenderTransactionRow = {
   amount: Centavos
   occurredOn: Date
   note: string | null
+  /**
+   * The loan this was drawn against, on an advance. Null on an ordinary
+   * deposit or withdrawal, which is most of them.
+   */
+  against: { loanId: string; borrowerName: string } | null
+}
+
+/**
+ * One slice of the Admin's cut: what was taken, on whose money, in whose loan.
+ *
+ * ONE ROW PER FUNDING ROW, not per loan. The cut is charged on a lender's
+ * capital, so a loan funded by two lenders yields two of these — which is the
+ * only way the breakdown can name the money each one came from.
+ */
+export type AdminCutRow = {
+  loanId: string
+  borrowerName: string
+  /** Whose capital the cut was taken on. Never the Admin's own: that row's cut is zero. */
+  lenderName: string
+  cut: Centavos
+  dueOn: Date
+  paidOn: Date | null
+  state: LoanState
 }
 
 /** One month of a lender's pot: what was working, and what was sitting idle. */
@@ -85,6 +108,21 @@ export type LenderDetail = LenderSummary & {
    * able to say why the last column is shorter than the tile above it.
    */
   notYetStarted: Centavos
+  /**
+   * The Admin's cut, itemised — EMPTY FOR EVERY LENDER BUT THE ADMIN POT.
+   *
+   * `running` and `settled` are the same two sums as `position.adminCutPending`
+   * and `position.adminCutEarned`, split loan by loan instead of totalled. That
+   * is the whole reason they exist: the tiles above carry a cut that belongs to
+   * none of the loans listed on this page, because it was charged on other
+   * people's capital.
+   *
+   * Rows where the cut is zero are left out. Those are the Admin's own funding
+   * rows, where there is nobody to take a cut from — and on a fixed-amount loan
+   * where the Admin kept nothing. Neither adds a centavo to either total, so
+   * leaving them out cannot change what the lists add up to.
+   */
+  adminCuts: { running: AdminCutRow[]; settled: AdminCutRow[] }
 }
 
 /**
@@ -235,6 +273,29 @@ function buildHistory(
   return months
 }
 
+/**
+ * The cut rows, split the way the two tiles above them are split.
+ *
+ * SETTLED MEANS THE LOAN IS PAID, and nothing else. That is the very test
+ * `ledgers` applies to decide between settledAdminCuts and pendingAdminCuts, so
+ * `settled` here sums to position.adminCutEarned and `running` to
+ * position.adminCutPending — exactly, always, because they are the same rows
+ * added up the same way. `state` is 'paid' when and only when the status is
+ * PAID (see loanState), which is why it can stand in for the status here.
+ *
+ * Running loans read soonest due first, which is the order the query asked for
+ * and the order the rest of this page uses. Settled ones are reversed, newest
+ * repayment on top, because a history is read from the end.
+ */
+function splitCuts(rows: AdminCutRow[]): { running: AdminCutRow[]; settled: AdminCutRow[] } {
+  return {
+    running: rows.filter((row) => row.state !== 'paid'),
+    settled: rows
+      .filter((row) => row.state === 'paid')
+      .sort((a, b) => (b.paidOn?.getTime() ?? 0) - (a.paidOn?.getTime() ?? 0)),
+  }
+}
+
 /** Everyone whose money is in play, the admin's own pot first. */
 export async function listLenders(userId: string): Promise<LenderSummary[]> {
   const [lenders, byLender] = await Promise.all([
@@ -286,7 +347,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
   // would return the same rows, so there is only ever one.
   const historyWhere = lender.isSelf ? { userId, loan: { deletedAt: null } } : { userId, lenderId, loan: { deletedAt: null } }
 
-  const [byLender, fundings, transactions, historyRows] = await Promise.all([
+  const [byLender, fundings, transactions, historyRows, cutRows] = await Promise.all([
     ledgers(userId),
     db.loanFunding.findMany({
       where: { userId, lenderId, loan: { deletedAt: null } },
@@ -309,6 +370,9 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
     db.lenderTransaction.findMany({
       where: { userId, lenderId, deletedAt: null },
       orderBy: [{ occurredOn: 'desc' }, { createdAt: 'desc' }],
+      // The loan comes along so a withdrawal drawn against one can say which.
+      // Only an advance has it; on every other row it is null.
+      include: { loan: { select: { id: true, borrower: { select: { firstName: true, lastName: true } } } } },
     }),
     db.loanFunding.findMany({
       where: historyWhere,
@@ -325,6 +389,33 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         },
       },
     }),
+    // THE ADMIN'S CUT, LOAN BY LOAN. Every funding row in the account whose cut
+    // is more than nothing — which is every row funded by somebody other than
+    // the Admin — because the cut is charged on capital that is not the pot's
+    // and so appears on no funding row of its own.
+    //
+    // Queried for the Admin pot alone. On anybody else's profile this list
+    // would be somebody else's money and the two totals it reconciles against
+    // are both zero, so it is not fetched at all.
+    lender.isSelf
+      ? db.loanFunding.findMany({
+          where: { userId, loan: { deletedAt: null }, adminCutCentavos: { gt: 0 } },
+          select: {
+            adminCutCentavos: true,
+            lender: { select: { firstName: true, lastName: true } },
+            loan: {
+              select: {
+                id: true,
+                status: true,
+                dueOn: true,
+                borrower: { select: { firstName: true, lastName: true } },
+                payment: { select: { paidOn: true, deletedAt: true } },
+              },
+            },
+          },
+          orderBy: { loan: { dueOn: 'asc' } },
+        })
+      : Promise.resolve([]),
   ])
 
   // An undone payment is soft-deleted rather than destroyed, so it is still
@@ -361,7 +452,24 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
       amount: centavos(row.amountCentavos),
       occurredOn: row.occurredOn,
       note: row.note,
+      against: row.loan
+        ? {
+            loanId: row.loan.id,
+            borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
+          }
+        : null,
     })),
+    adminCuts: splitCuts(
+      cutRows.map((row) => ({
+        loanId: row.loan.id,
+        borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
+        lenderName: `${row.lender.firstName} ${row.lender.lastName}`,
+        cut: centavos(row.adminCutCentavos),
+        dueOn: row.loan.dueOn,
+        paidOn: settledOn(row.loan.payment),
+        state: loanState(row.loan.status, row.loan.dueOn),
+      })),
+    ),
     notYetStarted: centavos(
       historyRows
         .filter(

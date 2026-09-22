@@ -8,6 +8,8 @@ import { describeBytes } from '../../lib/proof.ts'
 import { describeTrackRecord } from '../../lib/track-record.ts'
 import { describeTerm } from '../../lib/money/weeks.ts'
 import {
+  type AdminCutReport,
+  type AdminCutLoanRow,
   type BorrowerReport,
   type LenderReport,
   type Report,
@@ -58,6 +60,9 @@ const LATE = '#b42318'
  * Checked with the colourblind-separation validator against white, which is the
  * only surface a printed page ever has.
  */
+/** The Admin's own share, wherever it is picked out of a row. The app's brand ink. */
+const CUT_INK = '#4747c5'
+
 const CAPITAL_FILL = '#4747c5'
 const INTEREST_FILL = '#8d5700'
 const CHART_HEIGHT = 74
@@ -81,6 +86,10 @@ const styles = StyleSheet.create({
   empty: { fontSize: 9, color: MUTED, paddingVertical: 6 },
   note: { fontSize: 7.5, color: MUTED, marginTop: 6 },
   late: { color: LATE },
+  // THE ONE COLUMN THIS REPORT IS ABOUT. Weight and ink, not colour alone: the
+  // page may well be printed in black and white, and a colour nobody can see is
+  // not a highlight. The heading above it says so in words as well.
+  cut: { fontWeight: 600, color: CUT_INK },
   chartTitle: { fontSize: 7.5, color: MUTED, marginTop: 12 },
   chart: { flexDirection: 'row', alignItems: 'flex-end', height: CHART_HEIGHT, gap: 3, marginTop: 6 },
   chartSlot: { flex: 1, alignItems: 'center' },
@@ -377,6 +386,124 @@ function SummaryDocument({ report }: { report: SummaryReport }) {
   )
 }
 
+/**
+ * Every loan the Admin took a share of, with that share picked out.
+ *
+ * The columns are the loans list on paper — borrower, dates, capital, total,
+ * who funded it — plus the one column that list does not carry. That is the
+ * whole design: the Admin already knows how to read the list, and this adds the
+ * figure they came for rather than inventing a second way to say the same loan.
+ *
+ * TWO TABLES THAT ARE NEVER ADDED TOGETHER. The first is what the period
+ * PROMISED the Admin, the second what it PAID them, and one loan can honestly
+ * be in both. There is no grand total anywhere on this report for that reason.
+ */
+function AdminCutDocument({ report }: { report: AdminCutReport }) {
+  const columns = (second: string): Column[] => [
+    { key: 'who', label: 'Borrower', width: 22 },
+    { key: 'start', label: 'Started', width: 14 },
+    { key: 'second', label: second, width: 14 },
+    { key: 'capital', label: 'Capital', width: 15, align: 'right' },
+    { key: 'total', label: 'Borrower repays', width: 17, align: 'right' },
+    { key: 'cut', label: "Admin's cut", width: 18, align: 'right' },
+  ]
+
+  // The funders go UNDER the row rather than in a column of their own. A loan
+  // split three ways needs three names, and three names do not fit a column
+  // narrow enough to leave the figures room.
+  const row = (loan: AdminCutLoanRow, second: React.ReactNode) => ({
+    key: loan.loanId,
+    cells: [
+      loan.borrowerName,
+      day.format(loan.startOn),
+      second,
+      money(loan.capital),
+      money(loan.total),
+      <Text key="cut" style={styles.cut}>
+        {money(loan.adminCut)}
+      </Text>,
+    ],
+    under: <Text style={styles.proof}>Funded by {loan.funders.join(', ')}</Text>,
+  })
+
+  return (
+    <Shell header={report.header}>
+      <View style={styles.section}>
+        <Text style={styles.heading}>In this period</Text>
+        <View style={styles.figures}>
+          {/* `agreed` is adminTakeOnLoan summed over loans whose START DATE falls
+              in the range. It is what those loans promise the Admin on the day
+              they were written, and none of it has necessarily arrived — a loan
+              made in this period is usually repaid in a later one. NOT a profit
+              figure, and labelled so it cannot be read as one. */}
+          <Figure
+            label="Cut on loans made"
+            value={money(report.agreed)}
+            note={report.started.length === 1 ? 'on 1 loan started here' : `on ${report.started.length} loans started here`}
+          />
+          {/* `collected` is the same sum over loans whose live PAYMENT date falls
+              in the range. This is the money that actually reached the pot. */}
+          <Figure
+            label="Cut collected"
+            value={money(report.collected)}
+            note={report.repaid.length === 1 ? 'from 1 loan repaid here' : `from ${report.repaid.length} loans repaid here`}
+          />
+        </View>
+        <Text style={styles.note}>
+          These two are never added together. A loan can be in both, made and repaid in the same
+          period, and the first is money promised while the second is money received.
+        </Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.heading}>As of today</Text>
+        <View style={styles.figures}>
+          {/* Every ACTIVE loan in the account, whatever period it belongs to. A
+              range cannot narrow this: it is a fact about now. */}
+          <Figure
+            label="Still to come"
+            value={money(report.outstandingToday)}
+            note="the Admin's cut on every loan still running, whenever it started"
+          />
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.heading}>Loans made in this period</Text>
+        <Table
+          columns={columns('Due')}
+          rows={report.started.map((loan) =>
+            row(
+              loan,
+              <Text key="due" style={loan.state === 'overdue' ? styles.late : undefined}>
+                {day.format(loan.dueOn)}
+                {loan.state === 'overdue' ? ' (late)' : ''}
+              </Text>,
+            ),
+          )}
+          empty="No loans were made in this period."
+        />
+        <Text style={styles.note}>
+          The Admin’s cut is what this loan hands the Admin: the cut charged on the other
+          funders’ capital, plus what the Admin’s own money earned where any went in. Fixed
+          the day the loan was made and never recalculated.
+        </Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.heading}>Loans repaid in this period</Text>
+        <Table
+          columns={columns('Paid')}
+          rows={report.repaid.map((loan) =>
+            row(loan, loan.paidOn ? day.format(loan.paidOn) : 'Paid'),
+          )}
+          empty="No loans were repaid in this period."
+        />
+      </View>
+    </Shell>
+  )
+}
+
 function LenderDocument({ report }: { report: LenderReport }) {
   const loanColumns: Column[] = [
     { key: 'who', label: 'Borrower', width: 30 },
@@ -591,6 +718,7 @@ function BorrowerDocument({ report }: { report: BorrowerReport }) {
 
 function ReportDocument({ report }: { report: Report }) {
   if (report.kind === 'summary') return <SummaryDocument report={report} />
+  if (report.kind === 'admin-cut') return <AdminCutDocument report={report} />
   if (report.kind === 'lender') return <LenderDocument report={report} />
   return <BorrowerDocument report={report} />
 }

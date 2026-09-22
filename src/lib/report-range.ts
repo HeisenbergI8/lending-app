@@ -16,7 +16,7 @@ import { addDays, calendarDate, parseCalendarDate, toDateInput } from './money/w
 
 export type ReportRange = { from: Date; to: Date }
 
-export const REPORT_KINDS = ['summary', 'lender', 'borrower', 'borrower-file'] as const
+export const REPORT_KINDS = ['summary', 'admin-cut', 'lender', 'borrower', 'borrower-file'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 export function isReportKind(value: string): value is ReportKind {

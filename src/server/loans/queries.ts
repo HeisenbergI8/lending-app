@@ -1,6 +1,6 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type InterestBasis } from '../../lib/money/interest.ts'
-import { adminTakeOnLoan } from '../../lib/money/split.ts'
+import { type AdminStake, adminStakeInLoan, adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
 import { calendarDate } from '../../lib/money/weeks.ts'
@@ -45,12 +45,40 @@ export type LoanRow = {
   state: LoanState
   /** Whose money this is, largest share first. */
   funders: LoanRowFunder[]
+  /**
+   * The most recent note on this loan, or null when nothing has been written.
+   *
+   * THE LATEST ONE ONLY, and the card says so when there are more — see
+   * `noteCount`. A page of loans cannot carry every note on every one of them,
+   * and the newest is the one that answers "where did this get to".
+   */
+  latestNote: { body: string; createdAt: Date } | null
+  /** How many notes the loan has. The bound on `latestNote`, printed rather than hidden. */
+  noteCount: number
+}
+
+/** One of the Admin's own remarks on a loan. Holds no figure and is never summed. */
+export type LoanNoteRow = {
+  id: string
+  body: string
+  createdAt: Date
+}
+
+/** Money the Admin drew against this loan before the borrower repaid it. */
+export type AdvanceRow = {
+  id: string
+  amount: Centavos
+  occurredOn: Date
+  note: string | null
 }
 
 // The detail page carries a RICHER funder than the list does — rates, earnings,
 // the admin's cut — so the list's leaner one is dropped rather than intersected
 // with it. An intersection of the two arrays type-checks and then means neither.
-export type LoanDetail = Omit<LoanRow, 'funders'> & {
+// `latestNote` / `noteCount` go with it: the detail page carries EVERY note in
+// `notes` below, and a "latest" shortcut beside the full list is a second way to
+// say the same thing that can only ever disagree with it.
+export type LoanDetail = Omit<LoanRow, 'funders' | 'latestNote' | 'noteCount'> & {
   interest: Centavos
   /** The term in days. Say it with describeTerm — "4 weeks" or "3 days". */
   termDays: number
@@ -65,6 +93,16 @@ export type LoanDetail = Omit<LoanRow, 'funders'> & {
   adminEarnings: Centavos
   /** What everyone ELSE earns — the interest that is not the admin's. The two always add up to `interest`. */
   lenderEarnings: Centavos
+  /** The Admin's own remarks, newest first. */
+  notes: LoanNoteRow[]
+  /** Advances drawn against this loan, newest first. Live rows only — a deleted one is not one. */
+  advances: AdvanceRow[]
+  /**
+   * What this loan returns to the Admin pot, what has been drawn early, and
+   * what is left to draw. See adminStakeInLoan — the three are worked out
+   * together so they cannot disagree on screen.
+   */
+  adminStake: AdminStake
 }
 
 const funderName = (lender: { firstName: string; lastName: string; isSelf: boolean }) =>
@@ -196,7 +234,8 @@ export async function listLoans(
         // the other half of the question the admin opens this screen with.
         //
         // This is the join that made the old query expensive, and paging is what
-        // makes it cheap: it now runs for twenty loans rather than all of them.
+        // makes it cheap: it now runs for one page of loans rather than all of
+        // them — PAGE_SIZE of them, which is ten today.
         fundings: {
           select: {
             lenderId: true,
@@ -205,6 +244,26 @@ export async function listLoans(
           },
           orderBy: { principalCentavos: 'desc' },
         },
+        // The one line on the card that says what was last agreed with this
+        // borrower.
+        //
+        // `take: 1` IS NOT A LIMIT IN THE SQL. Prisma fetches every note
+        // belonging to the page's loan ids in one statement and slices to the
+        // newest here, so the cost is the number of notes on those ten loans,
+        // not ten rows. Measured on 2026-09-22: one `WHERE "loanId" IN (...)`
+        // per page, not one per loan — the shape that matters is unchanged.
+        //
+        // The bound is therefore how many notes ONE loan collects, and nothing
+        // caps it. At the handful a person types while chasing a borrower this
+        // is free. If a loan ever carries hundreds, this select is where it
+        // will show, and the fix is a raw DISTINCT ON rather than a bigger
+        // `take`.
+        notes: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { body: true, createdAt: true },
+        },
+        _count: { select: { notes: true } },
       },
     }),
     // One grouped pass gives the active/paid split AND the outstanding sum, so
@@ -239,6 +298,8 @@ export async function listLoans(
       total: centavos(loan.totalCentavos),
       dueOn: loan.dueOn,
       state: loanState(loan.status, loan.dueOn),
+      latestNote: loan.notes[0] ?? null,
+      noteCount: loan._count.notes,
       funders: loan.fundings.map((funding) => ({
         lenderId: funding.lenderId,
         name: funderName(funding.lender),
@@ -365,6 +426,19 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
           lender: { select: { firstName: true, lastName: true, isSelf: true } },
         },
       },
+      notes: {
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, body: true, createdAt: true },
+      },
+      // Money drawn against this loan early. WITHDRAWAL only: the action never
+      // writes anything else against a loan, and filtering rather than trusting
+      // that means a deposit attached by hand could never read as an advance
+      // and quietly raise the ceiling on the next one.
+      advances: {
+        where: { deletedAt: null, type: 'WITHDRAWAL' },
+        orderBy: [{ occurredOn: 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, amountCentavos: true, occurredOn: true, note: true },
+      },
     },
   })
   if (!loan) return null
@@ -406,6 +480,21 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     missingProof: payment !== null && payment.proofFiles.length === 0,
     funders,
     adminEarnings,
+    notes: loan.notes,
+    advances: loan.advances.map((row) => ({
+      id: row.id,
+      amount: centavos(row.amountCentavos),
+      occurredOn: row.occurredOn,
+      note: row.note,
+    })),
+    // The ceiling on the next advance. `advanced` is SUM("amountCentavos") over
+    // the live WITHDRAWAL rows naming this loan — restoring one from Recently
+    // Deleted puts it straight back into the sum, which is the point of adding
+    // rows up rather than storing a running figure.
+    adminStake: adminStakeInLoan(
+      funders,
+      centavos(loan.advances.reduce((total, row) => total + row.amountCentavos, 0)),
+    ),
     // Taken OUT of the total rather than added up from the rows. The split
     // already guaranteed the parts sum to the interest charged, so subtracting
     // is the one way these two figures cannot drift a centavo apart from it.

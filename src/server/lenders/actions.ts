@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
+import { centavos, formatPesos } from '../../lib/money/centavos.ts'
+import { adminStakeInLoan } from '../../lib/money/split.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, personName, text } from '../forms.ts'
@@ -150,6 +152,105 @@ export async function recordTransaction(_prev: FormState, form: FormData): Promi
       userId: user.id,
       lenderId,
       type,
+      amountCentavos: value.value,
+      occurredOn: occurredOn.value,
+      note: note || null,
+    },
+  })
+
+  refresh()
+  return NO_ERROR
+}
+
+/**
+ * Money drawn against a loan before the borrower repays it.
+ *
+ * AN ADVANCE IS AN ORDINARY WITHDRAWAL. It is written to the same table, it is
+ * subtracted from floating funds by the same sum, it appears in the same
+ * withdrawal history and it is undone by the same button. The only thing that
+ * makes it an advance is the loan it names — which exists so the ceiling on the
+ * NEXT one can be worked out by adding up the ones already taken.
+ *
+ * So the pot drops by the full amount the moment this runs. That is the honest
+ * position: the cash has left, and the loan has not paid it back yet. Floating
+ * funds can go negative as a result, and it is meant to.
+ *
+ * The ceiling is everything the loan will hand back to the Admin pot — see
+ * adminStakeInLoan. Going over it is refused rather than warned about: past
+ * that point the money is not this loan's to give, and an "advance" on it is
+ * really a withdrawal against the pot at large, which the Admin pot's own page
+ * already does.
+ */
+export async function recordAdvance(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+
+  const loanId = text(form, 'loanId')
+
+  const value = amount(form, 'amount')
+  if (!value.ok) return failed(value.error)
+
+  const occurredOn = date(form, 'occurredOn')
+  if (!occurredOn.ok) return failed(occurredOn.error)
+
+  const note = text(form, 'note')
+
+  const admin = await db.lender.findFirst({
+    where: { userId: user.id, isSelf: true, deletedAt: null },
+    select: { id: true },
+  })
+  if (!admin) return failed('There is no Admin pot to draw into. Add one on the Lenders page first.')
+
+  const loan = await db.loan.findFirst({
+    where: { id: loanId, userId: user.id, deletedAt: null },
+    select: {
+      status: true,
+      fundings: {
+        select: {
+          principalCentavos: true,
+          earningsCentavos: true,
+          adminCutCentavos: true,
+          lender: { select: { isSelf: true } },
+        },
+      },
+      advances: { where: { deletedAt: null, type: 'WITHDRAWAL' }, select: { amountCentavos: true } },
+    },
+  })
+  if (!loan) return failed('That loan no longer exists.')
+
+  // Nothing to be in advance OF. Once the borrower has paid, the money really is
+  // in the pot and the plain withdrawal on the Admin pot's page is the right
+  // record — this one would claim the loan still owes what it has already paid.
+  if (loan.status === 'PAID') {
+    return failed('That loan has been repaid, so there is nothing to draw in advance. Record a withdrawal on the Admin pot instead.')
+  }
+
+  const stake = adminStakeInLoan(
+    loan.fundings.map((funding) => ({
+      principal: centavos(funding.principalCentavos),
+      earnings: centavos(funding.earningsCentavos),
+      adminCut: centavos(funding.adminCutCentavos),
+      isSelf: funding.lender.isSelf,
+    })),
+    centavos(loan.advances.reduce((total, row) => total + row.amountCentavos, 0)),
+  )
+
+  if (stake.stake === 0) {
+    return failed('This loan returns nothing to the Admin pot, so there is nothing to draw against it.')
+  }
+  if (value.value > stake.headroom) {
+    return failed(
+      stake.advanced > 0
+        ? `That is more than this loan still owes the Admin pot. ${formatPesos(stake.headroom)} is left after the ${formatPesos(stake.advanced)} already drawn.`
+        : `That is more than this loan will return to the Admin pot. ${formatPesos(stake.headroom)} is the most that can be drawn against it.`,
+    )
+  }
+
+  await db.lenderTransaction.create({
+    data: {
+      userId: user.id,
+      lenderId: admin.id,
+      loanId,
+      type: 'WITHDRAWAL',
       amountCentavos: value.value,
       occurredOn: occurredOn.value,
       note: note || null,

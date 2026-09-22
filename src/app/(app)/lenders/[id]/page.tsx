@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, HandCoins, Trash2, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, HandCoins, Scissors, Trash2, TrendingUp, Wallet } from 'lucide-react'
 
 import { ActionForm } from '@/components/forms.tsx'
 import { StackedColumns } from '@/components/chart.tsx'
@@ -8,7 +8,7 @@ import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
 import { Money } from '@/components/money.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
-import { centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteTransaction } from '@/server/lenders/actions.ts'
 import { type LenderDetail, getLender } from '@/server/lenders/queries.ts'
@@ -138,10 +138,18 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
           NONE of the "Out with" or "Paid back" rows further down this page —
           those list only loans this pot's own capital went into — so a tile
           carrying a cut sat higher than the rows beneath it with nothing on the
-          page to account for the difference. The note prints the cut so the two
-          reconcile by addition. `adminCutEarned` / `adminCutPending` are exactly
-          the SUM("adminCutCentavos") slices of the same two totals, split in
-          lenderPosition; both are 0 for every lender except the admin pot. */}
+          page to account for the difference. On the admin pot the breakdown
+          section below itemises every peso of it; on every other lender both cut
+          figures are 0 and the section is not rendered at all. `adminCutEarned`
+          / `adminCutPending` are exactly the SUM("adminCutCentavos") slices of
+          the same two totals, split in lenderPosition.
+
+          TOTAL INTEREST IS earned + pending, which is the only reading of the
+          words that is true. That makes "Earned" beside it a PART of it rather
+          than a second amount, so the note says how much is still to come —
+          "of it" is load-bearing, and without it the two invite subtraction that
+          lands on the right number for the wrong reason. Neither figure is in
+          Floating until the loan is repaid; `pending` never is. */}
       <StatRow>
         <StatTile label="Out on loan" value={<Money amount={position.outOnLoan} variant="display" />} />
         <StatTile
@@ -149,23 +157,54 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
           value={<Money amount={position.earned} variant="display" />}
           note={
             position.adminCutEarned > 0
-              ? `includes ${formatPesos(position.adminCutEarned)} cut from other lenders' loans`
-              : undefined
+              ? `received, includes ${formatPesos(position.adminCutEarned)} cut from other lenders' loans`
+              : 'received, already in floating'
           }
         />
-        {/* Pending is deliberately separate from Earned. It is owed, not received,
-            and folding it into floating would let the admin lend money that has
-            not come back yet. */}
         <StatTile
-          label="Still to earn"
-          value={<Money amount={position.pending} variant="display" />}
-          note={
-            position.adminCutPending > 0
-              ? `on loans running, includes ${formatPesos(position.adminCutPending)} cut from other lenders' loans`
-              : 'on loans running'
-          }
+          label="Total interest"
+          value={<Money amount={centavos(position.earned + position.pending)} variant="display" />}
+          note={`${formatPesos(position.pending)} of it still to come, on loans running`}
         />
       </StatRow>
+
+      {/* WHERE THE CUT COMES FROM. The two tiles above carry money that belongs
+          to none of the loans listed further down this page, because the cut is
+          charged on capital that is not this pot's. This is that money, one row
+          per funding row it was taken on, and each list sums to exactly the
+          figure it names: `running` to position.adminCutPending, `settled` to
+          position.adminCutEarned. Same rows, same test, added up in
+          splitCuts rather than in lenderPosition.
+
+          Only the Admin pot has any. On every other lender the query is not run
+          and both lists are empty, so this renders nowhere else. */}
+      {lender.adminCuts.running.length > 0 || lender.adminCuts.settled.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex items-start gap-3">
+            <IconChip icon={Scissors} tint="amber" />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold tracking-tight">Where the Admin cut comes from</h2>
+              <p className="text-muted-foreground mt-0.5 text-sm">
+                The cut is charged on other lenders&rsquo; capital, so it is in the figures above and
+                in none of the loans below. This is every peso of it.
+              </p>
+            </div>
+          </div>
+
+          <CutList
+            title="On loans still running"
+            rows={lender.adminCuts.running}
+            total={position.adminCutPending}
+            empty="No running loan is funded by anyone else right now."
+          />
+          <CutList
+            title="On loans repaid"
+            rows={lender.adminCuts.settled}
+            total={position.adminCutEarned}
+            empty="No loan funded by anyone else has been repaid yet."
+          />
+        </section>
+      ) : null}
 
       {/* THE POT OVER TIME, which is the one thing the figures above cannot say.
           They are all as of today: they tell the admin where the money is, and
@@ -339,6 +378,77 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
 }
 
 /**
+ * One run of the Admin's cut: running or repaid.
+ *
+ * EVERY ROW NAMES BOTH PEOPLE, and it has to. The cut was charged on one
+ * lender's capital inside one borrower's loan, and a row naming only the
+ * borrower cannot be told apart from the row beside it when the same loan was
+ * funded by two people. So the borrower is the heading and the lender is the
+ * line under it, because "whose loan" is how the rest of this page is indexed.
+ *
+ * The total in the corner is handed in rather than added up here: it is the
+ * very figure in the tile above, so a sum computed in this component would be a
+ * second opinion about it. The rows it sits over add to it by construction.
+ */
+function CutList({
+  title,
+  rows,
+  total,
+  empty,
+}: {
+  title: string
+  rows: LenderDetail['adminCuts']['running']
+  total: Centavos
+  empty: string
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {rows.length > 0 ? (
+          <p className="text-muted-foreground text-xs">
+            <Money amount={total} variant="display" /> across{' '}
+            {rows.length === 1 ? '1 loan' : `${rows.length} shares`}
+          </p>
+        ) : null}
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-4 text-center text-sm">
+          {empty}
+        </p>
+      ) : (
+        <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
+          {rows.map((row) => (
+            <li key={`${row.loanId}-${row.lenderName}`}>
+              <Link
+                href={`/loans/${row.loanId}`}
+                className="hover:bg-muted/40 flex items-center gap-3 p-3 transition-colors duration-150"
+              >
+                <Avatar name={row.borrowerName} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{row.borrowerName}</div>
+                  <div className="text-muted-foreground mt-0.5 truncate text-xs">
+                    on {row.lenderName}&rsquo;s money ·{' '}
+                    {row.paidOn
+                      ? `paid ${dateFormat.format(row.paidOn)}`
+                      : `due ${dateFormat.format(row.dueOn)}`}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <Money amount={row.cut} variant="display" className="text-sm font-semibold" />
+                  <LoanStatusBadge state={row.state} />
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
  * A run of movements, one way or the other.
  *
  * Money going out is shown NEGATIVE, not merely greyed. A colour and an icon are
@@ -372,11 +482,30 @@ function TransactionList({
             <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
               <Icon className="size-4" aria-hidden />
             </span>
+            {/* AN ADVANCE SAYS SO. It is an ordinary withdrawal in every other
+                respect — same row, same effect on floating, same delete button —
+                but it was drawn against a loan that has not been repaid, and a
+                list that called it "Money out" like the rest would leave the
+                admin no way to tell which withdrawals are already spoken for. */}
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium">{isDeposit ? 'Money in' : 'Money out'}</div>
+              <div className="truncate text-sm font-medium">
+                {entry.against
+                  ? `Advance on ${entry.against.borrowerName}’s loan`
+                  : isDeposit
+                    ? 'Money in'
+                    : 'Money out'}
+              </div>
               <div className="text-muted-foreground mt-0.5 truncate text-xs">
                 {dateFormat.format(entry.occurredOn)}
                 {entry.note ? ` · ${entry.note}` : ''}
+                {entry.against ? (
+                  <>
+                    {' · '}
+                    <Link href={`/loans/${entry.against.loanId}`} className="hover:text-foreground underline">
+                      open the loan
+                    </Link>
+                  </>
+                ) : null}
               </div>
             </div>
             <Money

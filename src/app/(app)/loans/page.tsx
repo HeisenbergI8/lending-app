@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { AlertTriangle, Clock, HandCoins, Plus, SearchX } from 'lucide-react'
+import { AlertTriangle, Clock, HandCoins, MessageSquareText, Plus, SearchX } from 'lucide-react'
 
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
@@ -173,27 +173,57 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                     </div>
                   </div>
 
-                  {/* WHOSE MONEY, along the bottom. The amount beside each name
-                      is that funder's `principalCentavos` — what they PUT IN,
-                      never what they earn on it. Their earnings are a separate
-                      stored column and are on the loan's own page; putting the
-                      two within a card of each other is how one gets read as
-                      the other.
+                  {loan.latestNote || loan.funders.length > 0 ? (
+                    <div className="border-border/70 mt-2.5 space-y-1.5 border-t pt-2">
+                      {/* THE LAST THING WRITTEN ON THIS LOAN, above the funders
+                          and not muted to match them. This list is read to
+                          decide who to chase next, and "says Friday" changes
+                          that answer in a way no figure on the card can.
 
-                      Largest share first, and deliberately allowed to WRAP
-                      rather than truncate: a name cut to "Jo…" beside a
-                      five-figure sum is the one thing on this card nobody
-                      should have to guess at. Two lines on a phone is the right
-                      price for that. */}
-                  {loan.funders.length > 0 ? (
-                    <p className="text-muted-foreground border-border/70 mt-2.5 border-t pt-2 text-xs">
-                      {loan.funders.map((funder, index) => (
-                        <span key={funder.lenderId}>
-                          {index > 0 ? ' · ' : ''}
-                          {funder.name} <Money amount={funder.principal} variant="display" />
-                        </span>
-                      ))}
-                    </p>
+                          ONE LINE, CLAMPED. A note has no length limit worth
+                          relying on at 2,000 characters, and a card that grows
+                          to fit one stops being a list. The count beside it is
+                          what keeps the clamp honest: the card is showing the
+                          newest of N, and it says so rather than looking like
+                          the whole story. The loan's own page has them all. */}
+                      {loan.latestNote ? (
+                        <p className="flex items-start gap-1.5 text-xs">
+                          <MessageSquareText
+                            className="text-muted-foreground mt-px size-3.5 shrink-0"
+                            aria-hidden
+                          />
+                          <span className="text-foreground/90 line-clamp-1">{loan.latestNote.body}</span>
+                          {loan.noteCount > 1 ? (
+                            <span className="text-muted-foreground shrink-0">
+                              +{loan.noteCount - 1} more
+                            </span>
+                          ) : null}
+                        </p>
+                      ) : null}
+
+                      {/* WHOSE MONEY, along the bottom. The amount beside each
+                          name is that funder's `principalCentavos` — what they
+                          PUT IN, never what they earn on it. Their earnings are
+                          a separate stored column and are on the loan's own
+                          page; putting the two within a card of each other is
+                          how one gets read as the other.
+
+                          Largest share first, and deliberately allowed to WRAP
+                          rather than truncate: a name cut to "Jo…" beside a
+                          five-figure sum is the one thing on this card nobody
+                          should have to guess at. Two lines on a phone is the
+                          right price for that. */}
+                      {loan.funders.length > 0 ? (
+                        <p className="text-muted-foreground text-xs">
+                          {loan.funders.map((funder, index) => (
+                            <span key={funder.lenderId}>
+                              {index > 0 ? ' · ' : ''}
+                              {funder.name} <Money amount={funder.principal} variant="display" />
+                            </span>
+                          ))}
+                        </p>
+                      ) : null}
+                    </div>
                   ) : null}
                 </Link>
               </li>

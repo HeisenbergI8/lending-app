@@ -418,6 +418,56 @@ export async function restoreLoan(_prev: FormState, form: FormData): Promise<For
   return NO_ERROR
 }
 
+/** The longest note the app will store. Long enough for a paragraph, short of an essay. */
+const NOTE_LIMIT = 2_000
+
+/**
+ * A remark on a loan — who was chased, what was agreed, why a date slipped.
+ *
+ * Kept as typed and never parsed. Nothing in the app reads a note for a figure,
+ * so there is nothing here to validate beyond "it says something and it fits".
+ */
+export async function addLoanNote(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+
+  const loanId = text(form, 'loanId')
+  const body = text(form, 'body')
+  if (!body) return failed('Write something first.')
+  if (body.length > NOTE_LIMIT) return failed('That note is too long. Keep it under 2,000 characters.')
+
+  // The loan id came from the browser, so it is a request rather than a
+  // permission — the same rule as everywhere else in this file.
+  const loan = await db.loan.findFirst({
+    where: { id: loanId, userId: user.id, deletedAt: null },
+    select: { id: true },
+  })
+  if (!loan) return failed('That loan no longer exists.')
+
+  await db.loanNote.create({ data: { userId: user.id, loanId, body } })
+
+  refresh()
+  return NO_ERROR
+}
+
+/**
+ * Remove a note, for good.
+ *
+ * The only hard delete in the app. A note holds no money and no figure depends
+ * on it, so there is nothing for Recently Deleted to protect — see the schema.
+ * The button asks first, and says that it cannot be undone.
+ */
+export async function deleteLoanNote(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+
+  const { count } = await db.loanNote.deleteMany({
+    where: { id: text(form, 'noteId'), userId: user.id },
+  })
+  if (count === 0) return failed('That note no longer exists.')
+
+  refresh()
+  return NO_ERROR
+}
+
 /**
  * A refusal the admin should read, thrown to unwind the transaction.
  *

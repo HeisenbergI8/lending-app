@@ -397,3 +397,49 @@ export function adminTakeOnLoan(
     ),
   )
 }
+
+/**
+ * What one loan will hand back to the Admin pot, and how much of it has already
+ * been drawn.
+ *
+ * The Admin can take money out against a loan before the borrower repays it —
+ * an advance. The ceiling on that is everything the loan is going to return to
+ * the pot when it settles, and that is three things and no more:
+ *
+ *   the Admin's own capital in the loan   (their principal, which comes back)
+ * + what that capital earned              (their own funding rows' earnings)
+ * + the cut charged on everyone else      (adminCut, which is 0 on their rows)
+ *
+ * The middle two together are `adminTakeOnLoan`, so this is that plus the
+ * principal rather than a second opinion about it.
+ *
+ * INTEREST IS IN THE CEILING EVEN THOUGH IT HAS NOT ARRIVED. That is the point
+ * of an advance: it is money drawn early against a return that is expected, not
+ * received. The pot's floating funds drop by the full amount the moment it is
+ * recorded, so the app never claims the cash is still there to lend.
+ *
+ * `advanced` is what the caller has already added up from live advance rows on
+ * this loan; a deleted one is not one. `headroom` never goes below zero — if a
+ * loan was edited smaller after an advance was taken the ceiling is simply
+ * reached, and the negative would read as a debt the loan does not have.
+ */
+export type AdminStake = {
+  /** Everything this loan returns to the Admin pot when it is repaid. */
+  stake: Centavos
+  /** Already drawn against it. */
+  advanced: Centavos
+  /** What is left to draw. Never negative. */
+  headroom: Centavos
+}
+
+export function adminStakeInLoan(
+  fundings: { principal: Centavos; adminCut: Centavos; earnings: Centavos; isSelf: boolean }[],
+  advanced: Centavos,
+): AdminStake {
+  const stake = centavos(
+    adminTakeOnLoan(fundings) +
+      fundings.reduce((total, funding) => total + (funding.isSelf ? funding.principal : 0), 0),
+  )
+
+  return { stake, advanced, headroom: centavos(Math.max(0, stake - advanced)) }
+}

@@ -88,6 +88,17 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
           previewing={kind === 'summary'}
         />
 
+        {/* No person to pick, so no dropdown: the Admin's cut is the Admin's.
+            Sits second because it is the one report that is only about the
+            Admin's own money, and the summary above it is about everyone's. */}
+        <ReportCard
+          title="Admin's cut"
+          description="Every loan the Admin took a share of, with that share picked out. Loans made in the period, then loans repaid in it."
+          kind="admin-cut"
+          defaults={defaults('admin-cut')}
+          previewing={kind === 'admin-cut'}
+        />
+
         <ReportCard
           title="Lender statement"
           description="For handing to a lender: their money in and out, which loans it funded, what it earned."
