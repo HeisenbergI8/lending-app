@@ -5,7 +5,9 @@ import { AlertTriangle, ArrowLeft, HandCoins } from 'lucide-react'
 import { BorrowerLabelBadge } from '@/components/borrower-rating.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Money } from '@/components/money.tsx'
+import { Pager } from '@/components/pager.tsx'
 import { describeTerm } from '@/lib/money/weeks.ts'
+import { PAGE_SIZE, parsePage } from '@/lib/pagination.ts'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { requireUser } from '@/server/auth/guard.ts'
 import { getBorrower } from '@/server/borrowers/queries.ts'
@@ -32,12 +34,18 @@ export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>)
  * the other. The counts are arithmetic; the label is an opinion; each says
  * something the other cannot.
  */
-export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id]'>) {
+export default async function BorrowerPage({ params, searchParams }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
   const borrower = await getBorrower(user.id, (await params).id)
   if (!borrower) notFound()
 
   const { record } = borrower
+
+  /* The history is kept forever, so it only grows. Ten at a time below; the
+     counted line and the tiles above are still over every loan there has ever
+     been, which is the figure the profile exists to give. */
+  const { page: at } = parsePage((await searchParams).page)
+  const loans = borrower.loans.slice((at - 1) * PAGE_SIZE, at * PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -94,7 +102,14 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
       <LabelPicker borrowerId={borrower.id} current={borrower.label} />
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold tracking-tight">Loans</h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="text-base font-semibold tracking-tight">Loans</h2>
+          {borrower.loans.length > 0 ? (
+            <p className="text-muted-foreground text-xs">
+              {borrower.loans.length === 1 ? '1 loan' : `${borrower.loans.length} loans`} in all
+            </p>
+          ) : null}
+        </div>
 
         {borrower.loans.length === 0 ? (
           <div className="bg-card/60 border-border rounded-2xl border border-dashed p-10 text-center">
@@ -106,7 +121,7 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
           </div>
         ) : (
           <ul className="space-y-2">
-            {borrower.loans.map((loan) => (
+            {loans.map((loan) => (
               <li key={loan.id} className="bg-card rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -148,6 +163,13 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
             ))}
           </ul>
         )}
+
+        <Pager
+          page={at}
+          total={borrower.loans.length}
+          noun="loans"
+          href={(to) => (to > 1 ? `/borrowers/${borrower.id}?page=${to}` : `/borrowers/${borrower.id}`)}
+        />
       </section>
     </div>
   )

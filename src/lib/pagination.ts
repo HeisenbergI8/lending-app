@@ -67,3 +67,33 @@ export function pageRange(page: number, total: number, size: number = PAGE_SIZE)
   const first = (page - 1) * size + 1
   return { first, last: Math.min(page * size, total) }
 }
+
+/**
+ * Page links for a screen that holds MORE THAN ONE list.
+ *
+ * A lender's page has six of them, so a single `?page=` cannot serve it: paging
+ * the withdrawals would silently reset the loans. Each list gets its own key,
+ * and every other key in the query string is carried across untouched.
+ *
+ * The anchor is not decoration either. Paging the sixth list on a long page
+ * would otherwise land the admin back at the top with no sign anything moved.
+ */
+export function pagedHref(
+  path: string,
+  current: Record<string, string | string[] | undefined>,
+): (key: string, anchor: string) => (page: number) => string {
+  return (key, anchor) => (page) => {
+    const query = new URLSearchParams()
+
+    for (const [name, value] of Object.entries(current)) {
+      const first = Array.isArray(value) ? value[0] : value
+      if (first && name !== key) query.set(name, first)
+    }
+    // Page 1 is the default, so it is left out — the URL of a list nobody has
+    // paged stays clean.
+    if (page > 1) query.set(key, String(page))
+
+    const search = query.toString()
+    return `${path}${search ? `?${search}` : ''}#${anchor}`
+  }
+}

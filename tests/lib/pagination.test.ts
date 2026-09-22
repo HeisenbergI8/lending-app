@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { PAGE_SIZE, pageCount, pageRange, parsePage } from '../../src/lib/pagination.ts'
+import { PAGE_SIZE, pageCount, pageRange, pagedHref, parsePage } from '../../src/lib/pagination.ts'
 
 describe('parsePage — reading ?page= out of the URL', () => {
   test('no page parameter is page 1, skipping nothing', () => {
@@ -55,5 +55,34 @@ describe('pageRange — the bound printed beside the list', () => {
 
   test('an empty list ranges over nothing', () => {
     assert.deepEqual(pageRange(1, 0, 20), { first: 0, last: 0 })
+  })
+})
+
+describe('pagedHref — one page number per list on a screen that holds several', () => {
+  const href = pagedHref('/lenders/abc', { out: '3', withdrawn: '2' })
+
+  test('paging one list leaves the others where they were', () => {
+    assert.equal(href('in', 'money-in')(4), '/lenders/abc?out=3&withdrawn=2&in=4#money-in')
+  })
+
+  test('its own key is replaced, not repeated', () => {
+    assert.equal(href('out', 'out-with')(5), '/lenders/abc?withdrawn=2&out=5#out-with')
+  })
+
+  // Page 1 is the default, so going back to it drops the key rather than
+  // leaving ?out=1 behind in the URL.
+  test('page 1 drops the key', () => {
+    assert.equal(href('out', 'out-with')(1), '/lenders/abc?withdrawn=2#out-with')
+  })
+
+  test('with nothing else in the query string the URL is just the anchor', () => {
+    assert.equal(pagedHref('/lenders/abc', {})('in', 'money-in')(1), '/lenders/abc#money-in')
+  })
+
+  test('a repeated key takes the first value, the same as parsePage', () => {
+    assert.equal(
+      pagedHref('/lenders/abc', { out: ['3', '9'] })('in', 'money-in')(2),
+      '/lenders/abc?out=3&in=2#money-in',
+    )
   })
 })

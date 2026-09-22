@@ -7,8 +7,10 @@ import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
 import { Money } from '@/components/money.tsx'
+import { Pager } from '@/components/pager.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteTransaction } from '@/server/lenders/actions.ts'
 import { type LenderDetail, getLender } from '@/server/lenders/queries.ts'
@@ -59,6 +61,23 @@ function describeRates(rates: number[], fixedAmountLoans: number, isSelf: boolea
     : `Earns ${span} on their own capital.${fixed}`
 }
 
+/**
+ * The ten rows a page number covers.
+ *
+ * Sliced HERE rather than in the query, because every figure on this page is a
+ * sum over the whole list — floating, out on loan, the cut, the month columns.
+ * Fetching ten rows would make each of those a separate round trip to add up
+ * what is already in hand, and the lists are one lender's own history, not the
+ * whole ledger.
+ *
+ * Named `pageOf` rather than `page`, which is what a helper in a file called
+ * page.tsx should not be called: the word already means the route here, and a
+ * reader hitting `page(rows, at)` has to stop and work out which one it is.
+ */
+function pageOf<T>(rows: readonly T[], at: number): T[] {
+  return rows.slice((at - 1) * PAGE_SIZE, at * PAGE_SIZE)
+}
+
 /** "2026-09-21" for <input type="date">, in the admin's own timezone. */
 function todayForInput(): string {
   const now = new Date()
@@ -84,7 +103,7 @@ export async function generateMetadata({ params }: PageProps<'/lenders/[id]'>) {
  * Every number here is derived on this read. Nothing on this page is stored as a
  * balance, which is why none of it can drift away from the rows that produced it.
  */
-export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>) {
+export default async function LenderPage({ params, searchParams }: PageProps<'/lenders/[id]'>) {
   const user = await requireUser()
   const lender = await getLender(user.id, (await params).id)
   if (!lender) notFound()
@@ -93,6 +112,26 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
   const deposits = lender.transactions.filter((entry) => entry.type === 'DEPOSIT')
   const withdrawals = lender.transactions.filter((entry) => entry.type === 'WITHDRAWAL')
   const settledEarnings = centavos(lender.settled.reduce((total, row) => total + row.earnings, 0))
+
+  /* SIX LISTS, SIX PAGE NUMBERS. Every list on this page is capped at ten rows,
+     each with its own key in the query string, so paging the withdrawals does
+     not send the loan lists back to the top.
+
+     The counts in the section headings and the figures in the tiles are still
+     computed over EVERY row, never over the ten on screen. That is the whole
+     point of paging here: the reading stays complete while the scrolling gets
+     shorter. The Pager prints "1-10 of 14" underneath so the ten are never
+     mistaken for all of them. */
+  const query = await searchParams
+  const href = pagedHref(`/lenders/${lender.id}`, query)
+  const paging = {
+    cutsOut: parsePage(query.cutsOut).page,
+    cutsPaid: parsePage(query.cutsPaid).page,
+    out: parsePage(query.out).page,
+    paid: parsePage(query.paid).page,
+    in: parsePage(query.in).page,
+    withdrawn: parsePage(query.withdrawn).page,
+  }
 
   return (
     <div className="space-y-6">
@@ -192,16 +231,22 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
           </div>
 
           <CutList
+            id="cuts-running"
             title="On loans still running"
             rows={lender.adminCuts.running}
             total={position.adminCutPending}
             empty="No running loan is funded by anyone else right now."
+            page={paging.cutsOut}
+            href={href('cutsOut', 'cuts-running')}
           />
           <CutList
+            id="cuts-repaid"
             title="On loans repaid"
             rows={lender.adminCuts.settled}
             total={position.adminCutEarned}
             empty="No loan funded by anyone else has been repaid yet."
+            page={paging.cutsPaid}
+            href={href('cutsPaid', 'cuts-repaid')}
           />
         </section>
       ) : null}
@@ -248,8 +293,15 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
         ) : null}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold tracking-tight">Out with</h2>
+      <section id="out-with" className="scroll-mt-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="text-base font-semibold tracking-tight">Out with</h2>
+          {lender.fundings.length > 0 ? (
+            <p className="text-muted-foreground text-xs">
+              {lender.fundings.length === 1 ? '1 loan running' : `${lender.fundings.length} loans running`}
+            </p>
+          ) : null}
+        </div>
 
         {lender.fundings.length === 0 ? (
           <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-6 text-center text-sm">
@@ -257,7 +309,7 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
           </p>
         ) : (
           <ul className="space-y-2">
-            {lender.fundings.map((funding) => (
+            {pageOf(lender.fundings, paging.out).map((funding) => (
               <li key={funding.loanId}>
                 <Link
                   href={`/borrowers/${funding.borrowerId}`}
@@ -280,12 +332,19 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
             ))}
           </ul>
         )}
+
+        <Pager
+          page={paging.out}
+          total={lender.fundings.length}
+          noun="loans"
+          href={href('out', 'out-with')}
+        />
       </section>
 
       {/* WHO HAS ALREADY PAID THIS POT BACK. "Out with" above is the money at
           risk; this is the track record beside it, and the two answer different
           questions. Kept forever, the same as on a borrower's own profile. */}
-      <section className="space-y-3">
+      <section id="paid-back" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-base font-semibold tracking-tight">Paid back</h2>
           {lender.settled.length > 0 ? (
@@ -302,7 +361,7 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
           </p>
         ) : (
           <ul className="space-y-2">
-            {lender.settled.map((funding) => (
+            {pageOf(lender.settled, paging.paid).map((funding) => (
               <li key={funding.loanId}>
                 <Link
                   href={`/loans/${funding.loanId}`}
@@ -325,6 +384,13 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
             ))}
           </ul>
         )}
+
+        <Pager
+          page={paging.paid}
+          total={lender.settled.length}
+          noun="loans"
+          href={href('paid', 'paid-back')}
+        />
       </section>
 
       <section className="space-y-3">
@@ -340,7 +406,7 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
           "what have they taken back" — and the second is the one the admin is
           usually looking for, because it is the money that has left. In a single
           list a withdrawal was a minus sign among a dozen deposits. */}
-      <section className="space-y-3">
+      <section id="money-in" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-base font-semibold tracking-tight">Money in</h2>
           {deposits.length > 0 ? (
@@ -354,10 +420,13 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
         <TransactionList
           entries={deposits}
           empty="Nothing has been put into this pot yet."
+          page={paging.in}
+          noun="deposits"
+          href={href('in', 'money-in')}
         />
       </section>
 
-      <section className="space-y-3">
+      <section id="withdrawals" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-base font-semibold tracking-tight">Withdrawal history</h2>
           {withdrawals.length > 0 ? (
@@ -371,6 +440,9 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
         <TransactionList
           entries={withdrawals}
           empty="Nothing has been taken back out of this pot."
+          page={paging.withdrawn}
+          noun="withdrawals"
+          href={href('withdrawn', 'withdrawals')}
         />
       </section>
     </div>
@@ -391,18 +463,24 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
  * second opinion about it. The rows it sits over add to it by construction.
  */
 function CutList({
+  id,
   title,
   rows,
   total,
   empty,
+  page: at,
+  href,
 }: {
+  id: string
   title: string
   rows: LenderDetail['adminCuts']['running']
   total: Centavos
   empty: string
+  page: number
+  href: (page: number) => string
 }) {
   return (
-    <div className="space-y-2">
+    <div id={id} className="scroll-mt-4 space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h3 className="text-sm font-medium">{title}</h3>
         {rows.length > 0 ? (
@@ -419,7 +497,7 @@ function CutList({
         </p>
       ) : (
         <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
-          {rows.map((row) => (
+          {pageOf(rows, at).map((row) => (
             <li key={`${row.loanId}-${row.lenderName}`}>
               <Link
                 href={`/loans/${row.loanId}`}
@@ -444,6 +522,8 @@ function CutList({
           ))}
         </ul>
       )}
+
+      <Pager page={at} total={rows.length} noun="shares" href={href} />
     </div>
   )
 }
@@ -459,9 +539,15 @@ function CutList({
 function TransactionList({
   entries,
   empty,
+  page: at,
+  noun,
+  href,
 }: {
   entries: LenderDetail['transactions']
   empty: string
+  page: number
+  noun: string
+  href: (page: number) => string
 }) {
   if (entries.length === 0) {
     return (
@@ -473,65 +559,69 @@ function TransactionList({
   }
 
   return (
-    <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
-      {entries.map((entry) => {
-        const isDeposit = entry.type === 'DEPOSIT'
-        const Icon = isDeposit ? ArrowDownLeft : ArrowUpRight
-        return (
-          <li key={entry.id} className="flex items-center gap-3 p-3">
-            <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
-              <Icon className="size-4" aria-hidden />
-            </span>
-            {/* AN ADVANCE SAYS SO. It is an ordinary withdrawal in every other
-                respect — same row, same effect on floating, same delete button —
-                but it was drawn against a loan that has not been repaid, and a
-                list that called it "Money out" like the rest would leave the
-                admin no way to tell which withdrawals are already spoken for. */}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">
-                {entry.against
-                  ? `Advance on ${entry.against.borrowerName}’s loan`
-                  : isDeposit
-                    ? 'Money in'
-                    : 'Money out'}
+    <>
+      <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
+        {pageOf(entries, at).map((entry) => {
+          const isDeposit = entry.type === 'DEPOSIT'
+          const Icon = isDeposit ? ArrowDownLeft : ArrowUpRight
+          return (
+            <li key={entry.id} className="flex items-center gap-3 p-3">
+              <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
+                <Icon className="size-4" aria-hidden />
+              </span>
+              {/* AN ADVANCE SAYS SO. It is an ordinary withdrawal in every other
+                  respect — same row, same effect on floating, same delete button —
+                  but it was drawn against a loan that has not been repaid, and a
+                  list that called it "Money out" like the rest would leave the
+                  admin no way to tell which withdrawals are already spoken for. */}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">
+                  {entry.against
+                    ? `Advance on ${entry.against.borrowerName}’s loan`
+                    : isDeposit
+                      ? 'Money in'
+                      : 'Money out'}
+                </div>
+                <div className="text-muted-foreground mt-0.5 truncate text-xs">
+                  {dateFormat.format(entry.occurredOn)}
+                  {entry.note ? ` · ${entry.note}` : ''}
+                  {entry.against ? (
+                    <>
+                      {' · '}
+                      <Link href={`/loans/${entry.against.loanId}`} className="hover:text-foreground underline">
+                        open the loan
+                      </Link>
+                    </>
+                  ) : null}
+                </div>
               </div>
-              <div className="text-muted-foreground mt-0.5 truncate text-xs">
-                {dateFormat.format(entry.occurredOn)}
-                {entry.note ? ` · ${entry.note}` : ''}
-                {entry.against ? (
-                  <>
-                    {' · '}
-                    <Link href={`/loans/${entry.against.loanId}`} className="hover:text-foreground underline">
-                      open the loan
-                    </Link>
-                  </>
-                ) : null}
-              </div>
-            </div>
-            <Money
-              amount={isDeposit ? entry.amount : centavos(-entry.amount)}
-              variant="display"
-              className="text-sm font-semibold"
-              muted={!isDeposit}
-            />
-            <ActionForm
-              action={deleteTransaction}
-              values={{ transactionId: entry.id }}
-              variant="destructive"
-              size="sm"
-              pendingLabel="Deleting…"
-              confirm={{
-                title: 'Delete this entry?',
-                body: "It moves to Recently Deleted and can be restored for thirty days. The lender's balance changes right away.",
-                action: 'Delete entry',
-              }}
-            >
-              <Trash2 className="size-4" aria-hidden />
-              Delete
-            </ActionForm>
-          </li>
-        )
-      })}
-    </ul>
+              <Money
+                amount={isDeposit ? entry.amount : centavos(-entry.amount)}
+                variant="display"
+                className="text-sm font-semibold"
+                muted={!isDeposit}
+              />
+              <ActionForm
+                action={deleteTransaction}
+                values={{ transactionId: entry.id }}
+                variant="destructive"
+                size="sm"
+                pendingLabel="Deleting…"
+                confirm={{
+                  title: 'Delete this entry?',
+                  body: "It moves to Recently Deleted and can be restored for thirty days. The lender's balance changes right away.",
+                  action: 'Delete entry',
+                }}
+              >
+                <Trash2 className="size-4" aria-hidden />
+                Delete
+              </ActionForm>
+            </li>
+          )
+        })}
+      </ul>
+
+      <Pager page={at} total={entries.length} noun={noun} href={href} />
+    </>
   )
 }
