@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatCountdown } from '../src/lib/countdown.ts'
+import { formatCountdown } from '../../src/lib/countdown.ts'
 
 const minutes = (n: number) => n * 60_000
 
