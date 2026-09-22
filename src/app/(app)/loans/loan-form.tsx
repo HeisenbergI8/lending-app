@@ -14,11 +14,14 @@ import { type Centavos, centavos, formatPesos, parsePesos } from '@/lib/money/ce
 import { type InterestBasis, computeInterest } from '@/lib/money/interest.ts'
 import {
   DAYS_PER_WEEK,
+  daysBetween,
   describeTerm,
   describeTermError,
   describeWeeksError,
+  dueDateAfterWeeks,
   parseCalendarDate,
   termDaysBetween,
+  toDateInput,
   weeksBetween,
 } from '@/lib/money/weeks.ts'
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
@@ -92,6 +95,41 @@ type FunderRow = {
 
 const NEW = 'new'
 
+/**
+ * THE LENGTHS OFFERED IN THE DROPDOWN, in weeks.
+ *
+ * A convenience over the due date, never a second place to keep the term: the
+ * form still posts startOn and dueOn, and the server still works the weeks out
+ * from those two dates. Picking "4 weeks" types the due date for the admin, and
+ * Custom dates hands the field back for anything that is not a round week.
+ */
+const WEEK_PRESETS = [1, 2, 3, 4]
+const CUSTOM = 'custom'
+
+const dayMonth = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * Which length the dropdown opens on for a loan that already has both dates.
+ *
+ * Editing a four-week loan shows "4 weeks", so saving it again cannot quietly
+ * move the due date. A loan that runs ten days has no preset to sit on and
+ * keeps its two dates instead.
+ */
+function presetFor(startOn: string, dueOn: string): string {
+  const start = parseCalendarDate(startOn)
+  const due = parseCalendarDate(dueOn)
+  if (!start || !due) return dueOn.trim() === '' ? '' : CUSTOM
+
+  const weeks = daysBetween(start, due) / DAYS_PER_WEEK
+  return WEEK_PRESETS.includes(weeks) ? String(weeks) : CUSTOM
+}
+
+/** The due date a chosen length implies, or null while the start date is unreadable. */
+function dueAfter(startOn: string, weeks: number): string | null {
+  const start = parseCalendarDate(startOn)
+  return start ? toDateInput(dueDateAfterWeeks(start, weeks)) : null
+}
+
 function readPesos(value: string): Centavos | null {
   const parsed = parsePesos(value)
   return parsed.ok ? parsed.value : null
@@ -126,6 +164,7 @@ export function LoanForm({
   const [capital, setCapital] = useState(initial.capital)
   const [startOn, setStartOn] = useState(initial.startOn)
   const [dueOn, setDueOn] = useState(initial.dueOn)
+  const [termChoice, setTermChoice] = useState(() => presetFor(initial.startOn, initial.dueOn))
   const [basis, setBasis] = useState<InterestBasis>(initial.interestBasis)
   const [borrowerRate, setBorrowerRate] = useState(initial.borrowerRate)
   const [adminCut, setAdminCut] = useState(initial.adminCut)
@@ -145,6 +184,25 @@ export function LoanForm({
         }))
       : [{ key: 0, lenderId: lenders[0]?.id ?? '', amount: '', touched: false, firstName: '', lastName: '' }],
   )
+
+  /**
+   * Both ends of the length dropdown.
+   *
+   * A chosen length keeps the due date derived — moving the start date moves it
+   * with them — so the two can never drift apart while the dropdown still says
+   * four weeks.
+   */
+  const chooseTerm = (choice: string) => {
+    setTermChoice(choice)
+    if (choice === CUSTOM || choice === '') return
+    setDueOn(dueAfter(startOn, Number(choice)) ?? '')
+  }
+
+  const chooseStart = (value: string) => {
+    setStartOn(value)
+    if (termChoice === CUSTOM || termChoice === '') return
+    setDueOn(dueAfter(value, Number(termChoice)) ?? '')
+  }
 
   const updateRow = (key: number, patch: Partial<FunderRow>) =>
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)))
@@ -270,35 +328,69 @@ export function LoanForm({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="startOn">Start date</Label>
-            <Input
-              id="startOn"
-              name="startOn"
-              type="date"
-              value={startOn}
-              onChange={(event) => setStartOn(event.target.value)}
-              required
-            />
-            <p className="text-muted-foreground text-xs">When the money actually changed hands.</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="dueOn">Due date</Label>
-            <Input
-              id="dueOn"
-              name="dueOn"
-              type="date"
-              value={dueOn}
-              onChange={(event) => setDueOn(event.target.value)}
-              aria-invalid={preview.term !== null && !preview.term.ok}
-              aria-describedby="term-preview"
-              required
-            />
-            <TermBadge basis={basis} term={preview.term} />
-          </div>
+        {/* HOW LONG IT RUNS. Almost every loan is a round one to four weeks,
+            so that is one pick rather than two dates counted out on a calendar.
+            Custom dates is what opens the two date fields. */}
+        <div className="space-y-2">
+          <Label htmlFor="termChoice">How long</Label>
+          <SelectNative
+            id="termChoice"
+            value={termChoice}
+            onChange={(event) => chooseTerm(event.target.value)}
+            required
+          >
+            {/* Nothing is pre-picked on a new loan, and the select is required,
+                so a length that was never read cannot be saved. */}
+            {termChoice === '' ? <option value="">Choose a length…</option> : null}
+            {WEEK_PRESETS.map((weeks) => (
+              <option key={weeks} value={weeks}>
+                {describeTerm(weeks * DAYS_PER_WEEK)}
+              </option>
+            ))}
+            <option value={CUSTOM}>Custom dates</option>
+          </SelectNative>
+          {termChoice !== '' && termChoice !== CUSTOM ? <DatesFromLength startOn={startOn} dueOn={dueOn} /> : null}
         </div>
+
+        {termChoice === CUSTOM ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="startOn">Start date</Label>
+              <Input
+                id="startOn"
+                name="startOn"
+                type="date"
+                value={startOn}
+                onChange={(event) => chooseStart(event.target.value)}
+                required
+              />
+              <p className="text-muted-foreground text-xs">When the money actually changed hands.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="dueOn">Due date</Label>
+              <Input
+                id="dueOn"
+                name="dueOn"
+                type="date"
+                value={dueOn}
+                onChange={(event) => setDueOn(event.target.value)}
+                aria-invalid={preview.term !== null && !preview.term.ok}
+                aria-describedby="term-preview"
+                required
+              />
+              <TermBadge basis={basis} term={preview.term} />
+            </div>
+          </div>
+        ) : (
+          // A chosen length still posts the two dates, because that is what the
+          // action reads and what the loan stores. They are printed in words
+          // under the dropdown so neither is hidden, only untyped.
+          <>
+            <input type="hidden" name="startOn" value={startOn} />
+            <input type="hidden" name="dueOn" value={dueOn} />
+          </>
+        )}
 
         {/* HOW THE INTEREST IS SET, chosen per loan and never hidden behind a
             disclosure. A switch rather than two described cards: it is a choice
@@ -612,6 +704,32 @@ function AdminRemainder({ interest, lenderShare }: { interest: string; lenderSha
     <p className="text-muted-foreground text-xs">
       The Admin keeps{' '}
       <span className="text-foreground font-medium">{formatPesos(centavos(total - lenders))}</span>.
+    </p>
+  )
+}
+
+/**
+ * The two dates a chosen length works out to.
+ *
+ * BOTH are printed, not just the due date. A length hides the date fields, so
+ * this line is the only place the start date appears, and a loan entered days
+ * after the cash changed hands would otherwise be dated today without anything
+ * on screen saying so. Not a second "= 4 weeks", which the dropdown above
+ * already says.
+ */
+function DatesFromLength({ startOn, dueOn }: { startOn: string; dueOn: string }) {
+  const start = parseCalendarDate(startOn)
+  const due = parseCalendarDate(dueOn)
+
+  if (!start || !due) {
+    return <p className="text-muted-foreground text-xs">Pick Custom dates to set the start date.</p>
+  }
+
+  return (
+    <p className="text-muted-foreground text-xs">
+      <span className="text-foreground font-medium">{dayMonth.format(start)}</span> to{' '}
+      <span className="text-foreground font-medium">{dayMonth.format(due)}</span>. Pick Custom dates to start it on
+      another day.
     </p>
   )
 }
