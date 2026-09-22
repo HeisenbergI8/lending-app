@@ -282,6 +282,52 @@ export async function overdueSummary(
   }
 }
 
+/**
+ * Every peso of interest this account has ever charged, and how much of it is in.
+ *
+ * MEASURED, not assumed, on 2026-09-22 against the demo account: SUM over
+ * Loan.interestCentavos for non-deleted loans came to exactly the same figure as
+ * SUM(LoanFunding.earningsCentavos) + SUM(LoanFunding.adminCutCentavos) over the
+ * same loans. That is the invariant in the schema — lenderRateBps + adminCutBps
+ * equals borrowerRateBps on every funding row — holding in the live data, and it
+ * is why this reads the loan rather than adding up the split. One number, one
+ * source.
+ *
+ * `charged` is every loan on record, running or repaid. `collected` is the part
+ * on loans marked PAID. Undoing a payment sets the loan back to ACTIVE, so a
+ * repayment that was handed back stops counting as collected — checked in
+ * payments/actions.ts rather than assumed from the Payment row, which stays
+ * attached to the loan after an undo.
+ *
+ * Deleted loans are excluded, like everywhere but Recently Deleted. Interest on
+ * a loan the admin deleted is not interest she charged anybody.
+ *
+ * NOT date-filtered, deliberately. This is a to-date total, and the dashboard
+ * says so; a range belongs on the reports screen, which has the dates to do it.
+ */
+export async function interestSummary(
+  userId: string,
+): Promise<{ charged: Centavos; collected: Centavos; pending: Centavos }> {
+  const where = { userId, deletedAt: null }
+
+  const [all, paid] = await Promise.all([
+    db.loan.aggregate({ where, _sum: { interestCentavos: true } }),
+    db.loan.aggregate({
+      where: { ...where, status: 'PAID' as const },
+      _sum: { interestCentavos: true },
+    }),
+  ])
+
+  const charged = all._sum.interestCentavos ?? 0
+  const collected = paid._sum.interestCentavos ?? 0
+
+  return {
+    charged: centavos(charged),
+    collected: centavos(collected),
+    pending: centavos(charged - collected),
+  }
+}
+
 export async function getLoan(userId: string, loanId: string): Promise<LoanDetail | null> {
   const loan = await db.loan.findFirst({
     // A deleted loan is gone from every list, so it must be gone from its own

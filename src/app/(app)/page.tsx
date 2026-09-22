@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { AlertTriangle, ChevronRight, HandCoins, PiggyBank, Users, Wallet } from 'lucide-react'
+import { AlertTriangle, ChevronRight, HandCoins, PiggyBank, TrendingUp, Users, Wallet } from 'lucide-react'
 
 import { Avatar } from '@/components/avatar.tsx'
 import { BorrowerLabelBadge, TrackRecordLine } from '@/components/borrower-rating.tsx'
@@ -9,7 +9,7 @@ import { centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { borrowerCounts, topBorrowers } from '@/server/borrowers/queries.ts'
 import { listLenders } from '@/server/lenders/queries.ts'
-import { overdueSummary } from '@/server/loans/queries.ts'
+import { interestSummary, overdueSummary } from '@/server/loans/queries.ts'
 
 export const metadata = { title: 'Dashboard · Consignment Kush' }
 
@@ -28,7 +28,7 @@ const SHOWN = 6
 export default async function DashboardPage() {
   const user = await requireUser()
 
-  const [lenders, borrowers, people, overdue] = await Promise.all([
+  const [lenders, borrowers, people, overdue, interest] = await Promise.all([
     listLenders(user.id),
     // The six shown, ranked by what they owe, chosen by Postgres. This screen
     // used to load EVERY borrower with EVERY loan and payment and sort them in
@@ -40,6 +40,10 @@ export default async function DashboardPage() {
     // — it shows a count, a sum and how many PEOPLE are late — so fetching them
     // to add up in JavaScript was work whose only output was three numbers.
     overdueSummary(user.id),
+    // Two aggregates over Loan.interestCentavos. Not summed from the funding
+    // rows: the schema's rate invariant means both routes give the same figure,
+    // and the loan is the shorter one.
+    interestSummary(user.id),
   ])
 
   const pots = lenders.reduce(
@@ -115,6 +119,24 @@ export default async function DashboardPage() {
             self && self.position.pending > 0
               ? `${formatPesos(self.position.pending)} still to come`
               : 'already back with the Admin'
+          }
+        />
+        {/* INTEREST CHARGED, NOT INTEREST KEPT, and the two are far apart. This
+            is the whole 7% on every loan on record — the funding lenders' 5%
+            and the Admin's 2% together — where the tile beside it is only the
+            Admin's share. Labelled "Total interest" and noted as to date,
+            because it is every loan ever, not this month: a range belongs on
+            the reports screen, which has the dates for it. Deleted loans are
+            out, and a repayment that was undone stops counting as collected. */}
+        <StatTile
+          label="Total interest"
+          icon={TrendingUp}
+          tint="amber"
+          value={<Money amount={interest.charged} variant="display" />}
+          note={
+            interest.charged === 0
+              ? 'no loans on record yet'
+              : `to date · ${formatPesos(interest.collected)} back, ${formatPesos(interest.pending)} still out`
           }
         />
       </StatRow>

@@ -8,6 +8,7 @@ import { type Result, ok, err } from '../../lib/money/result.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
+import { borrowerNameTaken, lenderNameTaken } from '../people.ts'
 import {
   DEFAULT_ADMIN_CUT_BPS,
   DEFAULT_BORROWER_RATE_BPS,
@@ -182,6 +183,14 @@ async function resolveFunders(
 
   for (const row of rows) {
     if (row.lenderId === 'new') {
+      // THIS is where duplicates actually come from. Typing a name straight
+      // into the loan form is quicker than scrolling the dropdown for someone
+      // already there, and it silently creates a second pot holding half their
+      // money. The check runs inside the transaction, so a refusal takes the
+      // whole loan with it rather than leaving the person behind.
+      const taken = await lenderNameTaken(tx, userId, row, undefined)
+      if (taken) return err(taken)
+
       const created = await tx.lender.create({
         data: { userId, firstName: row.firstName, lastName: row.lastName },
       })
@@ -210,6 +219,11 @@ async function resolveBorrower(
     if (!found) return err('That borrower no longer exists.')
     return ok(found.id)
   }
+
+  // Same reason as a new lender on this form: picking the existing borrower is
+  // the intent, and a second row would split their track record in two.
+  const taken = await borrowerNameTaken(tx, userId, borrower, undefined)
+  if (taken) return err(taken)
 
   const created = await tx.borrower.create({
     data: { userId, firstName: borrower.firstName, lastName: borrower.lastName },
