@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Expand, FileText, Printer } from 'lucide-react'
+import { CalendarRange, Expand, FileText, Printer } from 'lucide-react'
 
 import { IconChip } from '@/components/stat-tile.tsx'
 import { cn } from '@/lib/utils'
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native'
-import { type ReportKind, defaultRange, isReportKind, parseReportRange, rangeParams } from '@/lib/report-range.ts'
+import { type ReportKind, isReportKind, parseReportRange, rangeParams } from '@/lib/report-range.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { listBorrowerNames } from '@/server/borrowers/queries.ts'
 import { listLenderNames } from '@/server/lenders/queries.ts'
@@ -30,6 +30,13 @@ export const metadata = { title: 'Reports · Consignment Kush' }
  * dates. Two submit buttons with different `formaction`s, which is a plain HTML
  * form doing two things rather than a mode switch nobody would find.
  *
+ * THE PERIOD BELONGS TO THE PAGE, NOT TO EACH CARD. It used to sit in all three
+ * forms, which meant the same two dates typed three times to produce three
+ * reports for one month — and three cards that looked like the same form
+ * repeated rather than three different reports. It now lives in the URL, set
+ * once at the top, and each card carries it as hidden inputs. The cost is a
+ * reload when the period changes, which is what the page did anyway.
+ *
  * The app still sends nothing anywhere. Printing hands the file to the browser;
  * the admin forwards it herself, by decision in the spec.
  */
@@ -44,17 +51,16 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
   const asked = one(params.preview)
   const kind = isReportKind(asked) ? asked : null
   const id = one(params.id)
-  const range = kind ? parseReportRange({ from: one(params.from), to: one(params.to) }) : defaultRange()
+  const range = parseReportRange({ from: one(params.from), to: one(params.to) })
 
   // Names only. These two feed dropdowns, so a track record or a lender ledger
   // would be computed and then thrown away.
   const [lenders, borrowers] = await Promise.all([listLenderNames(user.id), listBorrowerNames(user.id)])
   const dates = rangeParams(range)
 
-  // The card that was previewed keeps the dates and the person it was asked
-  // about; the others go back to this month, because nothing was asked of them.
-  const defaults = (cardKind: ReportKind) =>
-    kind === cardKind ? { ...dates, id } : rangeParams(defaultRange())
+  // Every card runs on the page's period. Only the person carries per card,
+  // and only on the card that was actually asked about.
+  const defaults = (cardKind: ReportKind) => ({ ...dates, id: kind === cardKind ? id : undefined })
 
   return (
     <div className="space-y-6">
@@ -65,53 +71,122 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
         </p>
       </div>
 
-      <ReportCard
-        title="Overall summary"
-        description="What the Admin lent, what came back, what the Admin earned, and who is late."
-        kind="summary"
-        defaults={defaults('summary')}
-        previewing={kind === 'summary'}
-      />
+      <PeriodBar dates={dates} previewing={kind} id={id} />
 
-      <ReportCard
-        title="Lender statement"
-        description="For handing to a lender: their money in and out, which loans it funded, what it earned."
-        kind="lender"
-        defaults={defaults('lender')}
-        previewing={kind === 'lender'}
-        people={lenders.map((lender) => ({
-          id: lender.id,
-          name: `${lender.firstName} ${lender.lastName}${lender.isSelf ? ' (Admin)' : ''}`,
-        }))}
-        peopleLabel="Lender"
-        emptyPeople="Add a lender first."
-      />
+      {/* Two across once there is room, and NO items-start: the cards in a row
+          stretch to the tallest of them, so a card with a person to pick does
+          not stand a head above one without. The borrower card spans the row
+          rather than sitting alone in half of one, which is both the hole in
+          the layout and the card with the most to fit. The card being previewed
+          spans it too, because a PDF in half a column is a PDF nobody can read. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ReportCard
+          title="Overall summary"
+          description="What the Admin lent, what came back, what the Admin earned, and who is late."
+          kind="summary"
+          defaults={defaults('summary')}
+          previewing={kind === 'summary'}
+        />
 
-      <ReportCard
-        title="Borrower statement"
-        description="What they borrowed, what they owe, when it is due, and what they have paid."
-        kind="borrower"
-        defaults={defaults('borrower')}
-        previewing={kind === 'borrower'}
-        people={borrowers.map((borrower) => ({
-          id: borrower.id,
-          name: `${borrower.firstName} ${borrower.lastName}`,
-        }))}
-        peopleLabel="Borrower"
-        emptyPeople="Add a borrower first."
-        // The full file is the same statement with every payment and proof
-        // listed under its loan: the Admin's own records rather than something
-        // to hand over.
-        extraKind={{ kind: 'borrower-file', label: 'Full file' }}
-        hint="Statement is the one to hand over. Full file adds every payment and its proof, for the Admin's own records. Both cover the dates picked above; widen them for everything on record."
-      />
+        <ReportCard
+          title="Lender statement"
+          description="For handing to a lender: their money in and out, which loans it funded, what it earned."
+          kind="lender"
+          defaults={defaults('lender')}
+          previewing={kind === 'lender'}
+          people={lenders.map((lender) => ({
+            id: lender.id,
+            name: `${lender.firstName} ${lender.lastName}${lender.isSelf ? ' (Admin)' : ''}`,
+          }))}
+          peopleLabel="Lender"
+          emptyPeople="Add a lender first."
+        />
+
+        <ReportCard
+          title="Borrower statement"
+          description="What they borrowed, what they owe, when it is due, and what they have paid."
+          kind="borrower"
+          defaults={defaults('borrower')}
+          previewing={kind === 'borrower'}
+          people={borrowers.map((borrower) => ({
+            id: borrower.id,
+            name: `${borrower.firstName} ${borrower.lastName}`,
+          }))}
+          peopleLabel="Borrower"
+          emptyPeople="Add a borrower first."
+          wide
+          // The full file is the same statement with every payment and proof
+          // listed under its loan: the Admin's own records rather than something
+          // to hand over.
+          extraKind={{ kind: 'borrower-file', label: 'Full file' }}
+          hint="Full file adds every payment and its proof, for the Admin’s own records."
+        />
+      </div>
 
       <p className="text-muted-foreground text-xs">
-        A range covers loans started, repayments received and money moved between those dates.
-        Floating funds, what is still out and what a borrower owes are always as of today. The
-        ledger records movements, not nightly balances, so it cannot honestly rewind them.
+        Floating funds, what is still out and what a borrower owes are always as of today, whatever
+        period is picked — the ledger records movements, not nightly balances.
       </p>
     </div>
+  )
+}
+
+/**
+ * The period every report on this page covers.
+ *
+ * One control, at the top, because it is one question: which stretch of time is
+ * this page about. Applying it reloads the page with the dates in the URL, and
+ * the cards below read them from there.
+ *
+ * A preview already open stays open and re-renders for the new dates, which is
+ * why the kind and the person ride along as hidden inputs. Without them,
+ * widening the range would close the very report being widened.
+ */
+function PeriodBar({
+  dates,
+  previewing,
+  id,
+}: {
+  dates: { from: string; to: string }
+  previewing: ReportKind | null
+  id: string
+}) {
+  return (
+    <form
+      method="get"
+      action="/reports"
+      className="bg-card flex flex-wrap items-end gap-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest"
+    >
+      {previewing ? (
+        <>
+          <input type="hidden" name="preview" value={previewing} />
+          <input type="hidden" name="id" value={id} />
+        </>
+      ) : null}
+
+      <div className="flex items-center gap-2 self-center">
+        <IconChip icon={CalendarRange} tint="violet" />
+        <span className="text-sm font-medium">Period</span>
+      </div>
+
+      <div className="min-w-0 flex-1 space-y-1 sm:max-w-40">
+        <Label htmlFor="period-from" className="text-muted-foreground text-xs">
+          From
+        </Label>
+        <Input id="period-from" name="from" type="date" defaultValue={dates.from} />
+      </div>
+
+      <div className="min-w-0 flex-1 space-y-1 sm:max-w-40">
+        <Label htmlFor="period-to" className="text-muted-foreground text-xs">
+          To
+        </Label>
+        <Input id="period-to" name="to" type="date" defaultValue={dates.to} />
+      </div>
+
+      <Button type="submit" variant="secondary">
+        Apply
+      </Button>
+    </form>
   )
 }
 
@@ -126,10 +201,12 @@ function ReportCard({
   emptyPeople,
   extraKind,
   hint,
+  wide,
 }: {
   title: string
   description: string
   kind: ReportKind
+  /** The page's period, carried into this card's form, plus its own person. */
   defaults: { from: string; to: string; id?: string }
   /** Whether this card is the one the admin asked to see. */
   previewing: boolean
@@ -138,6 +215,8 @@ function ReportCard({
   emptyPeople?: string
   extraKind?: { kind: ReportKind; label: string }
   hint?: string
+  /** Span the whole row rather than half of it. */
+  wide?: boolean
 }) {
   const id = kind
   const missingPeople = people !== undefined && people.length === 0
@@ -149,7 +228,12 @@ function ReportCard({
   })
 
   return (
-    <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+    <section
+      className={cn(
+        'bg-card flex flex-col gap-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest',
+        (wide || previewing) && 'lg:col-span-2',
+      )}
+    >
       <div className="flex items-start gap-3">
         <IconChip icon={FileText} tint="sky" />
         <div className="min-w-0">
@@ -159,19 +243,20 @@ function ReportCard({
       </div>
 
       {missingPeople ? (
-        <p className="text-muted-foreground text-sm">{emptyPeople}</p>
+        <p className="text-muted-foreground mt-auto text-sm">{emptyPeople}</p>
       ) : (
-        <form
-          method="get"
-          action="/api/reports"
-          className="grid gap-2 sm:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] sm:items-end"
-        >
+        <form method="get" action="/api/reports" className="mt-auto flex flex-wrap items-end gap-2">
           {/* The kind rides on the submit button when there is more than one, so
               each button is its own report and nothing has to be toggled first. */}
           {extraKind ? null : <input type="hidden" name="kind" value={kind} />}
 
+          {/* The period the page is set to. Hidden rather than shown again:
+              every card runs on the same one, and it is stated once above. */}
+          <input type="hidden" name="from" value={defaults.from} />
+          <input type="hidden" name="to" value={defaults.to} />
+
           {people ? (
-            <div className="space-y-1 sm:col-span-2">
+            <div className="min-w-0 flex-1 space-y-1">
               <Label htmlFor={`${id}-person`} className="text-muted-foreground text-xs">
                 {peopleLabel}
               </Label>
@@ -185,24 +270,10 @@ function ReportCard({
             </div>
           ) : null}
 
-          <div className="space-y-1">
-            <Label htmlFor={`${id}-from`} className="text-muted-foreground text-xs">
-              From
-            </Label>
-            <Input id={`${id}-from`} name="from" type="date" defaultValue={defaults.from} />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor={`${id}-to`} className="text-muted-foreground text-xs">
-              To
-            </Label>
-            <Input id={`${id}-to`} name="to" type="date" defaultValue={defaults.to} />
-          </div>
-
-          {/* One cell of an auto-fit grid, so its width comes from the other
-              fields rather than from what the buttons need. The buttons no
-              longer fit a single cell at any width, so the row is spanned. */}
-          <div className="flex flex-wrap gap-2 sm:col-span-2">
+          {/* ONE LOUD BUTTON. Preview is what the admin came to do; Print and the
+              full file are what they do next, and three equal buttons made the
+              first choice look like a three-way one. */}
+          <div className="flex flex-wrap gap-1">
             {/* PREVIEW GOES BACK TO THIS PAGE, print goes to the file. Same
                 form, same dates, one `formaction` apart. */}
             <Button type="submit" formAction="/reports" name="preview" value={kind}>
@@ -210,7 +281,7 @@ function ReportCard({
             </Button>
             <Button
               type="submit"
-              variant="secondary"
+              variant="ghost"
               name={extraKind ? 'kind' : undefined}
               value={extraKind ? kind : undefined}
             >
@@ -218,7 +289,7 @@ function ReportCard({
               Print
             </Button>
             {extraKind ? (
-              <Button type="submit" variant="secondary" name="kind" value={extraKind.kind}>
+              <Button type="submit" variant="ghost" name="kind" value={extraKind.kind}>
                 {extraKind.label}
               </Button>
             ) : null}
