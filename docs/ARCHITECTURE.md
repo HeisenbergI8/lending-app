@@ -1,20 +1,21 @@
 # Lending App — Architecture
 
 **Status:** designed 2026-09-21; scaffolded 2026-09-21 (step 1 of the build order).
-**What exists:** steps 1-9 of the build order. `src/lib/money/`, `src/server/db.ts`,
-`src/server/auth/`, `src/server/lenders/`, `src/server/borrowers/`, `src/server/loans/`,
-`src/server/payments/`, `src/server/storage/`, a live Supabase database with a seeded demo
-account, a working login, the dashboard, the lender, borrower and loan screens — including creating,
-correcting and undoing a loan, marking one paid with proof attached, and searching the loans by
-name, amount, due-date range and status — and the four PDF reports.
-282 tests pass (measured 2026-09-21).
+**What exists:** steps 1-10 of the build order, bar the deploy itself. `src/lib/money/`,
+`src/server/db.ts`, `src/server/auth/`, `src/server/lenders/`, `src/server/borrowers/`,
+`src/server/loans/`, `src/server/payments/`, `src/server/storage/`, a live Supabase database with a
+seeded demo account, a working login, the dashboard, the lender, borrower and loan screens —
+including creating, correcting and undoing a loan, marking one paid with proof attached, and
+searching the loans by name, amount, due-date range and status — the four PDF reports, and the PWA
+manifest and icons that make it installable to a phone home screen.
+316 tests pass (measured 2026-09-22).
 **Storage is live.** The private `proof-of-payment` bucket exists and `SUPABASE_SERVICE_ROLE_KEY`
 is set. Verified end to end on 2026-09-21: a file uploaded through the form came back byte-for-byte
 through its signed link, and the same path without a signature was refused. The bucket caps files
 at 4 MB and accepts only images and PDFs, matching `src/lib/proof.ts`.
-**Still to come:** PWA and deploy.
-**The PWA manifest and the deploy are the only parts below that are still planned** — everything
-else described here exists.
+**Still to come:** the deploy.
+**The deploy is the only part below that is still planned** — everything else described here
+exists.
 
 Features: [FEATURES.md](FEATURES.md) · Stack: [STACK.md](STACK.md)
 
@@ -86,6 +87,8 @@ lending-app/
 │   ├── app/
 │   │   ├── layout.tsx
 │   │   ├── manifest.ts            # PWA — installable to home screen
+│   │   ├── icon.svg               # the mark; source of truth for every icon
+│   │   ├── apple-icon.png         # iOS home screen (it ignores the manifest)
 │   │   ├── (auth)/
 │   │   │   └── login/page.tsx
 │   │   ├── (app)/                 # everything behind the login
@@ -117,6 +120,9 @@ lending-app/
 │
 ├── docs/                          # FEATURES.md, STACK.md, ARCHITECTURE.md
 └── public/
+    ├── icon-192.png               # renders of app/icon.svg, for the manifest
+    ├── icon-512.png
+    └── icon-maskable-512.png      # full-bleed; Android crops to its own shape
 ```
 
 ---
@@ -266,4 +272,6 @@ Each step leaves something that runs:
    file, over any date range, rendered server-side with `@react-pdf/renderer` and returned as a
    download. The app's own typeface is bundled with them: the PDF standard fonts have no ₱ glyph
    and print `±30,000.00` without complaining.
-10. PWA manifest, then deploy.
+10. ~~PWA manifest~~ **Done** — `app/manifest.ts` plus the icon set, so the app installs to the
+    phone home screen and opens full-screen with no browser chrome. The status-bar colour is the
+    page background exactly, in both light and dark. Then **deploy** — still to do.

@@ -27,9 +27,12 @@ export const viewport: Viewport = {
   // viewport-fit=cover is what lets env(safe-area-inset-*) return real values,
   // which the phone tab bar and the sticky header both depend on.
   viewportFit: 'cover',
+  // These are --background from globals.css, not round numbers near it. Once
+  // the app is installed this colour IS the status bar, sitting directly above
+  // the page — a shade off shows as a seam across the top of the screen.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
+    { media: '(prefers-color-scheme: light)', color: '#f7f7f9' },
+    { media: '(prefers-color-scheme: dark)', color: '#0c0d15' },
   ],
 }
 

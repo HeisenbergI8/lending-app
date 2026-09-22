@@ -110,7 +110,8 @@ Written before any code, and kept as the source of truth:
 - [x] Payments and proof upload
 - [x] Dashboard and search
 - [x] PDF reports
-- [ ] PWA and deployment
+- [x] Installable to a phone home screen (PWA)
+- [ ] Deployment
 - [ ] Public demo account with sample data
 
 A demo account with fictional borrowers will be available once the app is deployed. Real lending
