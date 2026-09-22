@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, personName, text } from '../forms.ts'
+import { lenderNameTaken, lenderRestoreBlocked } from '../people.ts'
 
 /**
  * Writing lenders and their money in and out.
@@ -38,6 +39,9 @@ export async function createLender(_prev: FormState, form: FormData): Promise<Fo
   const name = personName(form)
   if (!name.ok) return failed(name.error)
 
+  const taken = await lenderNameTaken(db, user.id, name.value)
+  if (taken) return failed(taken)
+
   await db.lender.create({ data: { userId: user.id, ...name.value } })
   refresh()
   return NO_ERROR
@@ -49,6 +53,10 @@ export async function renameLender(_prev: FormState, form: FormData): Promise<Fo
   const id = text(form, 'lenderId')
   const name = personName(form)
   if (!name.ok) return failed(name.error)
+
+  // Same rule as a fresh lender, minus the row being renamed — see renameBorrower.
+  const taken = await lenderNameTaken(db, user.id, name.value, id)
+  if (taken) return failed(taken)
 
   const { count } = await db.lender.updateMany({
     where: { id, userId: user.id },
@@ -89,8 +97,20 @@ export async function deleteLender(_prev: FormState, form: FormData): Promise<Fo
 export async function restoreLender(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
+  const lenderId = text(form, 'lenderId')
+
+  // Same unwatched door as restoreBorrower — see the comment there.
+  const restoring = await db.lender.findFirst({
+    where: { id: lenderId, userId: user.id },
+    select: { firstName: true, lastName: true },
+  })
+  if (!restoring) return failed('That lender no longer exists.')
+
+  const clash = await lenderRestoreBlocked(db, user.id, restoring, lenderId)
+  if (clash) return failed(clash)
+
   const { count } = await db.lender.updateMany({
-    where: { id: text(form, 'lenderId'), userId: user.id },
+    where: { id: lenderId, userId: user.id },
     data: { deletedAt: null },
   })
   if (count === 0) return failed('That lender no longer exists.')
