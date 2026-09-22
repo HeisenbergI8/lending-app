@@ -352,6 +352,24 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a3adbb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   }
 
+  /* ── DATE FIELDS ON iOS ────────────────────────────────────────────────────
+     Safari on iOS gives input[type=date] a fixed intrinsic width from the date
+     it is showing, and then refuses to go under it — so in a row of two the
+     boxes run past the card and out over whatever button follows. Turning the
+     native appearance off is what makes it an ordinary box that honours its
+     width; the inner value then has to be told to sit left, because WebKit
+     centres it once the appearance is gone.
+     ──────────────────────────────────────────────────────────────────────── */
+  input[type='date'] {
+    appearance: none;
+    min-width: 0;
+  }
+
+  input[type='date']::-webkit-date-and-time-value {
+    text-align: left;
+    margin: 0;
+  }
+
   /* Reduced motion is honoured for the page transitions and the mobile nav. */
   @media (prefers-reduced-motion: reduce) {
     *,

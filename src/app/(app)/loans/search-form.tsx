@@ -58,8 +58,10 @@ export function LoanSearch({ filter }: { filter: LoanFilter }) {
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <div className="flex-1 space-y-1">
+        {/* min-w-0 on both halves: without it a flex child will not shrink under
+            its own content, and a date box is as wide as the date in it. */}
+        <div className="flex min-w-0 gap-2">
+          <div className="min-w-0 flex-1 space-y-1">
             <Label htmlFor="from" className="text-muted-foreground text-xs">
               Due from
             </Label>
@@ -70,7 +72,7 @@ export function LoanSearch({ filter }: { filter: LoanFilter }) {
               defaultValue={filter.from ? toDateInput(filter.from) : ''}
             />
           </div>
-          <div className="flex-1 space-y-1">
+          <div className="min-w-0 flex-1 space-y-1">
             <Label htmlFor="to" className="text-muted-foreground text-xs">
               Due to
             </Label>

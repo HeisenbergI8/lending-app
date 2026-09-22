@@ -175,7 +175,10 @@ function PeriodBar({
         </>
       ) : null}
 
-      <div className="flex items-center gap-2 self-center">
+      {/* On a phone the label takes a line of its own, so the two dates and
+          Apply get the full width below it rather than three controls fighting
+          over what is left beside the label. */}
+      <div className="flex w-full items-center gap-2 self-center sm:w-auto">
         <IconChip icon={CalendarRange} tint="violet" />
         <span className="text-sm font-medium">Period</span>
       </div>
