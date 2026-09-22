@@ -329,6 +329,29 @@
     text-align: right;
   }
 
+  /* ── THE DROPDOWN ARROW ────────────────────────────────────────────────────
+     Every <select> in the app draws its own chevron rather than the browser's,
+     because the browser's sits hard against the right edge and a full-width
+     field then reads as a box with a stray mark in the corner. This one is
+     inset 1.5rem, and the control's pr-10 keeps a long option from running
+     under it.
+
+     Two colours rather than currentColor: a background image cannot inherit
+     text colour, and a chevron drawn for the light theme is invisible on the
+     dark one.
+     ──────────────────────────────────────────────────────────────────────── */
+  .select-chevron {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23525f70' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1.5rem center;
+    background-size: 0.75rem 0.75rem;
+  }
+
+  .dark .select-chevron {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a3adbb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+
   /* Reduced motion is honoured for the page transitions and the mobile nav. */
   @media (prefers-reduced-motion: reduce) {
     *,
