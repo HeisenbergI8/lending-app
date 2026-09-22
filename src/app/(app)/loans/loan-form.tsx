@@ -301,35 +301,20 @@ export function LoanForm({
         </div>
 
         {/* HOW THE INTEREST IS SET, chosen per loan and never hidden behind a
-            disclosure. The weekly rate is the default and covers nearly every
-            loan; a fixed amount is for the ones no rate describes honestly, like
-            three days for an amount agreed with the borrower. */}
-        <fieldset className="text-sm">
+            disclosure. A switch rather than two described cards: it is a choice
+            between two words, and the fields that appear underneath say what
+            each one means better than a subtitle can. */}
+        <fieldset>
           <legend className="text-muted-foreground text-xs">How the interest is set</legend>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <BasisChoice
-              value="WEEKLY_RATE"
-              current={basis}
-              onSelect={setBasis}
-              title="A weekly rate"
-              hint="The usual. Runs in whole weeks."
-            />
-            <BasisChoice
-              value="FIXED_AMOUNT"
-              current={basis}
-              onSelect={setBasis}
-              title="A fixed amount"
-              hint="Typed in pesos. Any number of days."
-            />
+          <div className="border-input mt-2 grid grid-cols-2 gap-1 rounded-lg border p-1">
+            <BasisChoice value="WEEKLY_RATE" current={basis} onSelect={setBasis} label="Weekly rate" />
+            <BasisChoice value="FIXED_AMOUNT" current={basis} onSelect={setBasis} label="Fixed amount" />
           </div>
         </fieldset>
 
         {basis === 'FIXED_AMOUNT' ? (
           <div className="text-sm">
-            <p className="text-muted-foreground text-xs">
-              Both figures are typed. The Admin keeps whatever the lenders do not.
-            </p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="fixedInterest">Interest the borrower pays</Label>
                 <div className="relative">
@@ -348,9 +333,6 @@ export function LoanForm({
                     required
                   />
                 </div>
-                <p className="text-muted-foreground text-xs">
-                  The whole amount on top of the capital, for however long it runs.
-                </p>
               </div>
 
               <div className="space-y-2">
@@ -554,39 +536,42 @@ export function LoanForm({
   )
 }
 
-/** One of the two ways a loan can charge interest, as a card the admin picks. */
+/**
+ * One half of the interest switch.
+ *
+ * A real radio, hidden rather than replaced: the browser keeps arrow-key
+ * movement between the two, the label keeps the whole pill tappable, and the
+ * form still posts interestBasis without any script. Only the paint is ours.
+ */
 function BasisChoice({
   value,
   current,
   onSelect,
-  title,
-  hint,
+  label,
 }: {
   value: InterestBasis
   current: InterestBasis
   onSelect: (basis: InterestBasis) => void
-  title: string
-  hint: string
+  label: string
 }) {
   const selected = current === value
 
   return (
-    <label
-      className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 ${
-        selected ? 'border-brand-line bg-brand-bg' : 'border-border'
-      }`}
-    >
+    <label className="cursor-pointer">
       <input
         type="radio"
         name="interestBasis"
         value={value}
         checked={selected}
         onChange={() => onSelect(value)}
-        className="mt-0.5 size-4 shrink-0"
+        className="peer sr-only"
       />
-      <span>
-        <span className="block font-medium">{title}</span>
-        <span className="text-muted-foreground block text-xs">{hint}</span>
+      <span
+        className={`peer-focus-visible:ring-ring/50 flex h-9 items-center justify-center rounded-md text-sm font-medium transition-colors peer-focus-visible:ring-3 pointer-fine:h-7 ${
+          selected ? 'bg-brand-bg ring-brand-line text-foreground ring-1' : 'text-muted-foreground'
+        }`}
+      >
+        {label}
       </span>
     </label>
   )
