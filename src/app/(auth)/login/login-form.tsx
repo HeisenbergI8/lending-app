@@ -3,7 +3,7 @@
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 
-import { Cannabis } from 'lucide-react'
+import { Cannabis, LoaderCircle } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,14 @@ function SubmitButton() {
   const { pending } = useFormStatus()
   return (
     <Button type="submit" size="lg" className="mt-1 h-11 w-full rounded-xl" disabled={pending}>
-      {pending ? 'Signing in…' : 'Sign in'}
+      {pending ? (
+        <>
+          <LoaderCircle className="size-4 animate-spin" aria-hidden />
+          Signing in…
+        </>
+      ) : (
+        'Sign in'
+      )}
     </Button>
   )
 }

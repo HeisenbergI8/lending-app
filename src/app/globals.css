@@ -340,3 +340,59 @@
     }
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE LOADING MARK
+
+   One animation, used everywhere the app is waiting: the brand mark turning
+   inside a ring that turns the other way, with a halo breathing out behind it.
+   Two speeds in opposite directions is what stops it reading as a dead GIF —
+   the eye keeps finding new relative motion instead of locking onto one rate.
+
+   The spin is EASED rather than linear. A linear rotation is mechanical; a
+   gentle accelerate-and-settle each revolution reads as something working
+   rather than something stuck.
+
+   The reduced-motion rule below collapses all three to a still mark. That is
+   why every loader also prints a word — for anyone who asked the system for
+   less movement, the sentence is the whole of the signal.
+   ───────────────────────────────────────────────────────────────────────────── */
+@keyframes brand-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes brand-spin-reverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes brand-halo {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+
+/* @utility, not a bare class in @layer base. These three sit in the utilities
+   layer with Tailwind's own animate-* classes, so ordinary utility order decides
+   which wins. Declared in the base layer they would quietly lose to any utility
+   that touches `animation`, from anywhere in the app. */
+@utility animate-brand-spin {
+  animation: brand-spin 1.5s cubic-bezier(0.62, 0.05, 0.35, 0.95) infinite;
+}
+
+@utility animate-brand-spin-reverse {
+  animation: brand-spin-reverse 2.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+@utility animate-brand-halo {
+  animation: brand-halo 2s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}

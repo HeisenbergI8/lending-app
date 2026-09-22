@@ -5,7 +5,7 @@ import { useFormStatus } from 'react-dom'
 
 import { useRouter } from 'next/navigation'
 
-import { Plus } from 'lucide-react'
+import { LoaderCircle, Plus } from 'lucide-react'
 
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -42,6 +42,23 @@ import { cn } from '@/lib/utils'
 
 type Action = (state: FormState, form: FormData) => Promise<FormState>
 
+/**
+ * What a button says while its action is away.
+ *
+ * The turning ring matters more than the word on a phone: the label change is
+ * easy to miss under a thumb, and the whole reason these buttons disable
+ * themselves is that a second tap records the deposit twice. Movement is what
+ * makes "already working" readable at a glance.
+ */
+function Pending({ label }: { label: React.ReactNode }) {
+  return (
+    <>
+      <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      {label}
+    </>
+  )
+}
+
 export function SubmitButton({
   children,
   pendingLabel,
@@ -60,7 +77,7 @@ export function SubmitButton({
   const { pending } = useFormStatus()
   return (
     <Button type="submit" variant={variant} size={size} disabled={pending} className={className}>
-      {pending ? (pendingLabel ?? children) : children}
+      {pending ? <Pending label={pendingLabel ?? children} /> : children}
     </Button>
   )
 }
@@ -108,7 +125,7 @@ function ConfirmButton({
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button type="button" variant={variant} size={size} disabled={pending} className={className}>
-          {pending ? (pendingLabel ?? children) : children}
+          {pending ? <Pending label={pendingLabel ?? children} /> : children}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>

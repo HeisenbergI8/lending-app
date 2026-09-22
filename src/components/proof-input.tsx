@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Paperclip, X } from 'lucide-react'
+import { LoaderCircle, Paperclip, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -135,7 +135,12 @@ export function ProofInput({
       />
 
       {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
-      {working ? <p className="text-muted-foreground text-xs">Preparing files…</p> : null}
+      {working ? (
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+          Preparing files…
+        </p>
+      ) : null}
       {problem ? <p className="text-status-critical text-xs font-medium">{problem}</p> : null}
 
       {chosen.length > 0 ? (

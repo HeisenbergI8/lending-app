@@ -237,7 +237,7 @@ function ReportCard({
               </Link>
             </Button>
           </div>
-          <ReportFrame params={fileParams} title={title} />
+          <ReportFrame params={fileParams.toString()} title={title} />
         </div>
       ) : null}
 

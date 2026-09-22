@@ -57,7 +57,7 @@ export default async function ReportPreviewPage({ searchParams }: PageProps<'/re
         </Button>
       </div>
 
-      <ReportFrame params={file} title="Report" className="h-[78vh] min-h-[32rem]" />
+      <ReportFrame params={file.toString()} title="Report" className="h-[78vh] min-h-[32rem]" />
     </div>
   )
 }
