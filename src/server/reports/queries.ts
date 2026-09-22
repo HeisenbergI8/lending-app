@@ -151,7 +151,8 @@ export type BorrowerLoanRow = {
   capital: Centavos
   interest: Centavos
   total: Centavos
-  weeks: number
+  /** The term in days. Say it with describeTerm — "4 weeks" or "3 days". */
+  termDays: number
   startOn: Date
   dueOn: Date
   state: LoanState
@@ -488,7 +489,7 @@ export async function borrowerReport(
           capitalCentavos: true,
           interestCentavos: true,
           totalCentavos: true,
-          weeks: true,
+          termDays: true,
           startOn: true,
           dueOn: true,
           status: true,
@@ -534,7 +535,7 @@ export async function borrowerReport(
         capital: centavos(loan.capitalCentavos),
         interest: centavos(loan.interestCentavos),
         total: centavos(loan.totalCentavos),
-        weeks: loan.weeks,
+        termDays: loan.termDays,
         startOn: loan.startOn,
         dueOn: loan.dueOn,
         state: loanState(loan.status, loan.dueOn),

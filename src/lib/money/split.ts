@@ -42,12 +42,16 @@ export type LoanTerms = {
   fundings: Funding[]
 }
 
-export type SplitError =
+/** What can be wrong with the funding itself, whatever the loan charges. */
+export type FundingError =
   | { kind: 'no-fundings' }
   | { kind: 'fundings-do-not-match-capital'; capital: Centavos; funded: Centavos; difference: Centavos }
-  | { kind: 'rates-do-not-match-borrower-rate'; lenderId: string; lenderRateBps: number; adminCutBps: number; borrowerRateBps: number }
   | { kind: 'non-positive-principal'; lenderId: string; principal: Centavos }
   | { kind: 'duplicate-lender'; lenderId: string }
+
+export type SplitError =
+  | FundingError
+  | { kind: 'rates-do-not-match-borrower-rate'; lenderId: string; lenderRateBps: number; adminCutBps: number; borrowerRateBps: number }
 
 export type LenderShare = {
   lenderId: string
@@ -78,18 +82,14 @@ export type Split = {
 }
 
 /**
- * Both invariants that keep a split honest.
- *
- * 1. The fundings add up to exactly the capital. Not more, not less — money that
- *    does not come from a funder does not exist.
- * 2. On every row, lenderRate + adminCut equals the borrower's rate. This is what
- *    guarantees the shares add back up to the interest charged. Without it the
- *    admin could be silently over- or under-paying every lender and nothing would
- *    look wrong.
+ * The first invariant, and it holds for every loan: the fundings add up to
+ * exactly the capital. Not more, not less — money that does not come from a
+ * funder does not exist.
  */
-function validate(terms: LoanTerms): SplitError | null {
-  const { capital, borrowerRateBps, fundings } = terms
-
+function validateFundings(
+  capital: Centavos,
+  fundings: { lenderId: string; principal: Centavos }[],
+): FundingError | null {
   if (fundings.length === 0) return { kind: 'no-fundings' }
 
   const seen = new Set<string>()
@@ -100,15 +100,6 @@ function validate(terms: LoanTerms): SplitError | null {
     if (f.principal <= 0) {
       return { kind: 'non-positive-principal', lenderId: f.lenderId, principal: f.principal }
     }
-    if (f.lenderRateBps + f.adminCutBps !== borrowerRateBps) {
-      return {
-        kind: 'rates-do-not-match-borrower-rate',
-        lenderId: f.lenderId,
-        lenderRateBps: f.lenderRateBps,
-        adminCutBps: f.adminCutBps,
-        borrowerRateBps,
-      }
-    }
   }
 
   const funded = fundings.reduce<number>((sum, f) => sum + f.principal, 0)
@@ -118,6 +109,35 @@ function validate(terms: LoanTerms): SplitError | null {
       capital,
       funded: centavos(funded),
       difference: centavos(funded - capital),
+    }
+  }
+
+  return null
+}
+
+/**
+ * The second invariant, and it belongs to weekly-rate loans alone: on every row,
+ * lenderRate + adminCut equals the borrower's rate. That is what guarantees the
+ * shares add back up to the interest charged. Without it the admin could be
+ * silently over- or under-paying every lender and nothing would look wrong.
+ *
+ * A fixed-amount loan has no rates to reconcile — the admin typed the interest
+ * and the lenders' share of it — so splitFixed carves the figures out of the
+ * typed total instead, which cannot drift for the same reason.
+ */
+function validate(terms: LoanTerms): SplitError | null {
+  const funding = validateFundings(terms.capital, terms.fundings)
+  if (funding) return funding
+
+  for (const f of terms.fundings) {
+    if (f.lenderRateBps + f.adminCutBps !== terms.borrowerRateBps) {
+      return {
+        kind: 'rates-do-not-match-borrower-rate',
+        lenderId: f.lenderId,
+        lenderRateBps: f.lenderRateBps,
+        adminCutBps: f.adminCutBps,
+        borrowerRateBps: terms.borrowerRateBps,
+      }
     }
   }
 
@@ -137,12 +157,18 @@ type Share = { key: string; numerator: number }
  * Ties break by position, so the same loan always splits the same way. A split
  * that shuffles its remainder between runs is a reconciliation bug waiting to
  * happen, and an untestable one.
+ *
+ * `denominator` is the scale the numerators are expressed over, and the whole
+ * contract is that they sum to `total x denominator`. A rate loan weighs its
+ * rows by principal x rate x weeks over BPS_DENOMINATOR; a fixed-amount loan
+ * weighs them by amount x principal over the capital. Same arithmetic, same
+ * guarantee, one function.
  */
-function distribute(shares: Share[], total: Centavos): Map<string, Centavos> {
+function distribute(shares: Share[], total: Centavos, denominator: number): Map<string, Centavos> {
   const floors = shares.map((s) => ({
     key: s.key,
-    base: Math.floor(s.numerator / BPS_DENOMINATOR),
-    remainder: s.numerator % BPS_DENOMINATOR,
+    base: Math.floor(s.numerator / denominator),
+    remainder: s.numerator % denominator,
   }))
 
   const allocated = floors.reduce((sum, f) => sum + f.base, 0)
@@ -189,7 +215,7 @@ function adminCutPerRow(fundings: Funding[], weeks: number, adminEarnings: Centa
     .filter((share) => share.numerator > 0)
 
   if (chargeable.length === 0 || adminEarnings === 0) return new Map()
-  return distribute(chargeable, adminEarnings)
+  return distribute(chargeable, adminEarnings, BPS_DENOMINATOR)
 }
 
 /** Work out what every party earns, or why the loan's funding does not add up. */
@@ -212,7 +238,7 @@ export function splitLoan(terms: LoanTerms): Result<Split, SplitError> {
   )
   shares.push({ key: ADMIN_SHARE_KEY, numerator: adminNumerator })
 
-  const allocation = distribute(shares, totalInterest)
+  const allocation = distribute(shares, totalInterest, BPS_DENOMINATOR)
   const adminEarnings = allocation.get(ADMIN_SHARE_KEY) as Centavos
   const cuts = adminCutPerRow(fundings, weeks, adminEarnings)
 
@@ -226,6 +252,114 @@ export function splitLoan(terms: LoanTerms): Result<Split, SplitError> {
       adminCut: cuts.get(f.lenderId) ?? centavos(0),
     })),
     adminEarnings,
+  })
+}
+
+/**
+ * A loan whose interest is a peso amount the admin typed, not a rate.
+ *
+ * Some loans do not fit a weekly rate at all: three days, or a figure agreed
+ * with the borrower in conversation. ₱3,000 over three days for ₱500 is not 7%
+ * of anything, and forcing it through a rate would either round the term to a
+ * week or invent a percentage nobody agreed to.
+ *
+ * So both figures are typed. The admin says what the borrower pays on top, and
+ * how much of that the lenders keep between them. WHAT IS LEFT IS THE ADMIN'S —
+ * it is never a third typed number, because a third number can disagree with the
+ * first two and then the loan does not add up.
+ */
+export type FixedFunding = { lenderId: string; principal: Centavos; isSelf: boolean }
+
+export type FixedTerms = {
+  capital: Centavos
+  /** The whole interest the borrower pays on top of the capital. Typed, not derived. */
+  interest: Centavos
+  /** How much of that interest the lenders keep between them. The remainder is the Admin's. */
+  lenderInterest: Centavos
+  fundings: FixedFunding[]
+}
+
+export type FixedSplitError =
+  | FundingError
+  | { kind: 'non-positive-interest'; interest: Centavos }
+  | { kind: 'lender-share-exceeds-interest'; lenderInterest: Centavos; interest: Centavos }
+  | { kind: 'lender-share-without-lenders' }
+
+/**
+ * Work out what every party earns on a fixed-amount loan.
+ *
+ * Returns the SAME Split as the rate version, so nothing downstream — the loan
+ * page, the lender ledgers, the reports — needs to know which kind of loan it is
+ * looking at. Only the two typed figures differ; everything after them is the
+ * same arithmetic with the same guarantee that the parts sum to the whole.
+ */
+export function splitFixed(terms: FixedTerms): Result<Split, FixedSplitError> {
+  const { capital, interest, lenderInterest, fundings } = terms
+
+  const invalid = validateFundings(capital, fundings)
+  if (invalid) return err(invalid)
+
+  if (interest <= 0) return err({ kind: 'non-positive-interest', interest })
+  if (lenderInterest < 0 || lenderInterest > interest) {
+    return err({ kind: 'lender-share-exceeds-interest', lenderInterest, interest })
+  }
+
+  // The Admin pot is left out of this draw on purpose. The lenders' share was
+  // set aside for the people who are owed a share, and the admin's own money is
+  // not one of them — it takes its part through the remainder below instead.
+  const lenderRows = fundings.filter((f) => !f.isSelf)
+  if (lenderInterest > 0 && lenderRows.length === 0) {
+    return err({ kind: 'lender-share-without-lenders' })
+  }
+
+  const lenderCapital = lenderRows.reduce<number>((sum, f) => sum + f.principal, 0)
+  const lenderEarnings =
+    lenderInterest > 0
+      ? distribute(
+          lenderRows.map((f) => ({
+            key: f.lenderId,
+            numerator: checkedProduct(lenderInterest, f.principal),
+          })),
+          lenderInterest,
+          lenderCapital,
+        )
+      : new Map<string, Centavos>()
+
+  // Everything the lenders did not take is the admin's. It is spread across
+  // EVERY row by principal so each row can say what was earned on it, and lands
+  // as earnings on the admin's own row and as the cut on anybody else's —
+  // exactly where a weekly-rate loan puts it, so the ledgers need no new branch.
+  const adminAmount = centavos(interest - lenderInterest)
+  const adminShares =
+    adminAmount > 0
+      ? distribute(
+          fundings.map((f) => ({
+            key: f.lenderId,
+            numerator: checkedProduct(adminAmount, f.principal),
+          })),
+          adminAmount,
+          capital,
+        )
+      : new Map<string, Centavos>()
+
+  const lenders: LenderShare[] = fundings.map((f) => {
+    const adminShare = adminShares.get(f.lenderId) ?? centavos(0)
+    return {
+      lenderId: f.lenderId,
+      principal: f.principal,
+      earnings: centavos((lenderEarnings.get(f.lenderId) ?? 0) + (f.isSelf ? adminShare : 0)),
+      adminCut: f.isSelf ? centavos(0) : adminShare,
+    }
+  })
+
+  return ok({
+    totalInterest: interest,
+    borrowerTotal: centavos(capital + interest),
+    lenders,
+    // Added up from the rows rather than taken as interest - lenderInterest,
+    // because the admin's own funding row carries its share as earnings. Both
+    // routes give the same figure; this one cannot double-count it.
+    adminEarnings: centavos(lenders.reduce((sum, l) => sum + l.adminCut, 0)),
   })
 }
 

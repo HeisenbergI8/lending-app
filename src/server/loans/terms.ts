@@ -1,7 +1,20 @@
 import { type BasisPoints, type Centavos, parsePesos } from '../../lib/money/centavos.ts'
-import { type Split, type Funding, splitLoan } from '../../lib/money/split.ts'
+import { type InterestBasis } from '../../lib/money/interest.ts'
+import {
+  type FixedSplitError,
+  type FundingError,
+  type Split,
+  splitFixed,
+  splitLoan,
+} from '../../lib/money/split.ts'
 import { type Result, ok, err } from '../../lib/money/result.ts'
-import { describeWeeksError, weeksBetween } from '../../lib/money/weeks.ts'
+import {
+  DAYS_PER_WEEK,
+  describeTermError,
+  describeWeeksError,
+  termDaysBetween,
+  weeksBetween,
+} from '../../lib/money/weeks.ts'
 
 /**
  * Turning a filled-in loan form into the numbers that get stored.
@@ -14,6 +27,14 @@ import { describeWeeksError, weeksBetween } from '../../lib/money/weeks.ts'
  * loan's arithmetic can be tested without a database, and so the form and the
  * server cannot disagree about what a set of inputs means — both go through
  * here. The rules it enforces come straight from FEATURES.md sections 2 and 5.
+ *
+ * A loan charges interest one of two ways, and the choice is per loan:
+ *
+ *   WEEKLY_RATE   the usual. capital x rate x weeks, and the dates must land on
+ *                 whole weeks because the week count is a multiplier.
+ *   FIXED_AMOUNT  the admin types the interest and the lenders' share of it, and
+ *                 the loan may run any number of days. For the three-day loan
+ *                 that no weekly rate describes honestly.
  */
 
 /** The default spread. All three are per week, and the last two are set PER LOAN. */
@@ -27,21 +48,47 @@ export type FunderInput = {
   principal: Centavos
 }
 
+export type { InterestBasis }
+
+/**
+ * How this loan charges interest, with the figures that go with it.
+ *
+ * A discriminated union rather than every field on one object, because the two
+ * halves are not both meaningful at once: a fixed-amount loan has no weekly
+ * rate, and storing 0 for it would render as "0% a week" on the loan page.
+ */
+export type InterestInput =
+  | { basis: 'WEEKLY_RATE'; borrowerRateBps: BasisPoints; adminCutBps: BasisPoints }
+  | { basis: 'FIXED_AMOUNT'; interest: Centavos; lenderInterest: Centavos }
+
 export type LoanInput = {
   capital: Centavos
   startOn: Date
   dueOn: Date
-  borrowerRateBps: BasisPoints
-  adminCutBps: BasisPoints
+  interest: InterestInput
   funders: FunderInput[]
 }
 
+/** One funding row as it will be stored. The rates are null on a fixed-amount loan. */
+export type FundingTerms = {
+  lenderId: string
+  principal: Centavos
+  lenderRateBps: BasisPoints | null
+  adminCutBps: BasisPoints | null
+  earnings: Centavos
+  adminCut: Centavos
+}
+
 export type LoanTermsResult = {
-  weeks: number
+  /**
+   * The term in DAYS, for every loan. Weeks are derived from it for display and
+   * for the rate arithmetic; storing both would be two columns that can disagree.
+   */
+  termDays: number
   interest: Centavos
   total: Centavos
   split: Split
-  fundings: (Funding & { earnings: Centavos; adminCut: Centavos })[]
+  fundings: FundingTerms[]
 }
 
 /**
@@ -65,12 +112,24 @@ function ratesFor(funder: FunderInput, borrowerRateBps: BasisPoints, adminCutBps
  *
  * The error is a sentence the admin can act on, not a code. A refusal here is
  * the app doing its job — a due date that is not a whole number of weeks would
- * change what the borrower owes, so it is stopped rather than rounded.
+ * change what a rate-charged borrower owes, so it is stopped rather than
+ * rounded.
  */
 export function loanTerms(input: LoanInput): Result<LoanTermsResult, string> {
-  const { capital, startOn, dueOn, borrowerRateBps, adminCutBps, funders } = input
+  if (input.capital <= 0) return err('Enter a capital amount greater than zero.')
+  if (input.funders.length === 0) return err('Say whose money is funding this loan.')
 
-  if (capital <= 0) return err('Enter a capital amount greater than zero.')
+  return input.interest.basis === 'WEEKLY_RATE'
+    ? weeklyRateTerms(input, input.interest)
+    : fixedAmountTerms(input, input.interest)
+}
+
+function weeklyRateTerms(
+  input: LoanInput,
+  rates: Extract<InterestInput, { basis: 'WEEKLY_RATE' }>,
+): Result<LoanTermsResult, string> {
+  const { capital, startOn, dueOn, funders } = input
+  const { borrowerRateBps, adminCutBps } = rates
 
   if (!Number.isInteger(borrowerRateBps) || borrowerRateBps <= 0) {
     return err('Enter a borrower rate greater than zero.')
@@ -85,8 +144,6 @@ export function loanTerms(input: LoanInput): Result<LoanTermsResult, string> {
   const weeks = weeksBetween(startOn, dueOn)
   if (!weeks.ok) return err(describeWeeksError(weeks.error))
 
-  if (funders.length === 0) return err('Say whose money is funding this loan.')
-
   const split = splitLoan({
     capital,
     borrowerRateBps,
@@ -99,47 +156,110 @@ export function loanTerms(input: LoanInput): Result<LoanTermsResult, string> {
   })
   if (!split.ok) return err(describeSplitError(split.error, capital))
 
-  const byLender = new Map(split.value.lenders.map((share) => [share.lenderId, share]))
+  return ok(
+    assemble(split.value, weeks.value * DAYS_PER_WEEK, funders, (funder) =>
+      ratesFor(funder, borrowerRateBps, adminCutBps),
+    ),
+  )
+}
 
-  return ok({
-    weeks: weeks.value,
-    interest: split.value.totalInterest,
-    total: split.value.borrowerTotal,
-    split: split.value,
+function fixedAmountTerms(
+  input: LoanInput,
+  amounts: Extract<InterestInput, { basis: 'FIXED_AMOUNT' }>,
+): Result<LoanTermsResult, string> {
+  const { capital, startOn, dueOn, funders } = input
+
+  const termDays = termDaysBetween(startOn, dueOn)
+  if (!termDays.ok) return err(describeTermError(termDays.error))
+
+  const split = splitFixed({
+    capital,
+    interest: amounts.interest,
+    lenderInterest: amounts.lenderInterest,
+    fundings: funders.map((funder) => ({
+      lenderId: funder.lenderId,
+      principal: funder.principal,
+      isSelf: funder.isSelf,
+    })),
+  })
+  if (!split.ok) return err(describeFixedError(split.error, capital))
+
+  // No rate was used, so none is recorded. See InterestInput for why this is
+  // null rather than zero.
+  return ok(assemble(split.value, termDays.value, funders, () => ({ lenderRateBps: null, adminCutBps: null })))
+}
+
+/**
+ * Put the split back together with the funders it came from.
+ *
+ * Shared by both bases because from here on there is no difference between
+ * them: a row has a principal, what it earned, and the cut taken on it.
+ */
+function assemble(
+  split: Split,
+  termDays: number,
+  funders: FunderInput[],
+  ratesOf: (funder: FunderInput) => { lenderRateBps: BasisPoints | null; adminCutBps: BasisPoints | null },
+): LoanTermsResult {
+  const byLender = new Map(split.lenders.map((share) => [share.lenderId, share]))
+
+  return {
+    termDays,
+    interest: split.totalInterest,
+    total: split.borrowerTotal,
+    split,
     fundings: funders.map((funder) => {
       const share = byLender.get(funder.lenderId)
       if (!share) throw new Error(`The split returned no share for funder ${funder.lenderId}`)
       return {
         lenderId: funder.lenderId,
         principal: funder.principal,
-        ...ratesFor(funder, borrowerRateBps, adminCutBps),
+        ...ratesOf(funder),
         earnings: share.earnings,
         adminCut: share.adminCut,
       }
     }),
-  })
+  }
 }
 
-function describeSplitError(
-  error: Extract<ReturnType<typeof splitLoan>, { ok: false }>['error'],
-  capital: Centavos,
-): string {
-  const pesos = (value: number) => parsePesosLabel(value)
+/** The funding problems both bases share, in words the admin can act on. */
+function describeFundingError(error: FundingError, capital: Centavos): string {
   switch (error.kind) {
     case 'no-fundings':
       return 'Say whose money is funding this loan.'
     case 'fundings-do-not-match-capital': {
       const short = capital - error.funded
       return short > 0
-        ? `The funding is ${pesos(short)} short of the capital.`
-        : `The funding is ${pesos(-short)} more than the capital.`
+        ? `The funding is ${parsePesosLabel(short)} short of the capital.`
+        : `The funding is ${parsePesosLabel(-short)} more than the capital.`
     }
     case 'duplicate-lender':
       return 'The same lender is listed twice. Put their whole contribution on one line.'
     case 'non-positive-principal':
       return 'Every funder needs an amount greater than zero.'
-    case 'rates-do-not-match-borrower-rate':
-      return 'The lender rate and the Admin cut must add up to the borrower rate.'
+  }
+}
+
+function describeSplitError(
+  error: Extract<ReturnType<typeof splitLoan>, { ok: false }>['error'],
+  capital: Centavos,
+): string {
+  if (error.kind === 'rates-do-not-match-borrower-rate') {
+    return 'The lender rate and the Admin cut must add up to the borrower rate.'
+  }
+  return describeFundingError(error, capital)
+}
+
+function describeFixedError(error: FixedSplitError, capital: Centavos): string {
+  switch (error.kind) {
+    case 'non-positive-interest':
+      return 'Enter the interest in pesos, greater than zero.'
+    case 'lender-share-exceeds-interest':
+      return "The lenders' share cannot be more than the whole interest."
+    case 'lender-share-without-lenders':
+      return "Every peso of this loan is the Admin pot, so leave the lenders' share empty."
+    default:
+      return describeFundingError(error, capital)
   }
 }
 

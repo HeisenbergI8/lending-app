@@ -6,6 +6,7 @@ import { type LoanState } from '../../lib/loan-state.ts'
 import { describeRange } from '../../lib/report-range.ts'
 import { describeBytes } from '../../lib/proof.ts'
 import { describeTrackRecord } from '../../lib/track-record.ts'
+import { describeTerm } from '../../lib/money/weeks.ts'
 import {
   type BorrowerReport,
   type LenderReport,
@@ -535,9 +536,11 @@ function BorrowerDocument({ report }: { report: BorrowerReport }) {
         <Text style={styles.heading}>Loans</Text>
         <Table
           columns={[
-            { key: 'start', label: 'Started', width: 15 },
-            { key: 'due', label: 'Due', width: 15 },
-            { key: 'weeks', label: 'Weeks', width: 9, align: 'right' },
+            { key: 'start', label: 'Started', width: 14 },
+            { key: 'due', label: 'Due', width: 14 },
+            // "Term", not "Weeks": a loan charging a fixed amount can run any
+            // number of days, and this column now prints what it actually ran.
+            { key: 'term', label: 'Term', width: 11, align: 'right' },
             { key: 'capital', label: 'Capital', width: 16, align: 'right' },
             { key: 'interest', label: 'Interest', width: 15, align: 'right' },
             { key: 'total', label: 'Total', width: 16, align: 'right' },
@@ -548,7 +551,7 @@ function BorrowerDocument({ report }: { report: BorrowerReport }) {
             cells: [
               day.format(loan.startOn),
               day.format(loan.dueOn),
-              String(loan.weeks),
+              describeTerm(loan.termDays),
               money(loan.capital),
               money(loan.interest),
               money(loan.total),

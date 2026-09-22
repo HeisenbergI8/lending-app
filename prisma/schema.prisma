@@ -150,34 +150,55 @@ enum LenderTransactionType {
   WITHDRAWAL
 }
 
+/// How a loan charges interest. Chosen per loan, and it decides which columns
+/// below carry meaning.
+///
+/// WEEKLY_RATE is the usual: borrowerRateBps applies per week, termDays must be
+/// an exact multiple of 7, and interestCentavos is capital x rate x weeks.
+///
+/// FIXED_AMOUNT is for a loan no weekly rate describes honestly — three days, or
+/// a figure agreed in conversation. The admin types interestCentavos and the
+/// lenders' share of it directly, termDays can be any number of days, and every
+/// *RateBps column is NULL because no rate was used. Null rather than zero: a
+/// stored 0 renders as "0% a week" and reads as a rate somebody chose.
+enum InterestBasis {
+  WEEKLY_RATE
+  FIXED_AMOUNT
+}
+
 /// One loan to one borrower.
 ///
-/// weeks, interestCentavos and totalCentavos are computed ONCE by src/lib/money/
-/// when the loan is created, and stored. Nothing recalculates them afterwards —
-/// the total is fixed the day the loan is made, and a later change to a default
-/// rate must not silently rewrite what an existing borrower owes.
+/// termDays, interestCentavos and totalCentavos are computed ONCE by
+/// src/lib/money/ when the loan is created, and stored. Nothing recalculates
+/// them afterwards — the total is fixed the day the loan is made, and a later
+/// change to a default rate must not silently rewrite what an existing borrower
+/// owes.
 ///
-/// weeks is derived from the two dates, and (dueOn - startOn) must be an exact
-/// multiple of 7. The application enforces that; it is stored so a report never
-/// has to re-derive it.
+/// termDays is derived from the two dates and stored so a report never has to
+/// re-derive it. On a WEEKLY_RATE loan the application refuses anything that is
+/// not an exact multiple of 7, because the week count multiplies the interest.
+/// Weeks are derived back out of it for display; there is no weeks column,
+/// because two columns for one term can disagree.
 ///
 /// There is no OVERDUE value in LoanStatus. Overdue is ACTIVE with dueOn in the
 /// past — a fact about today, not a state someone has to remember to write.
 model Loan {
-  id               String     @id @default(cuid())
+  id               String        @id @default(cuid())
   userId           String
   borrowerId       String
   capitalCentavos  Int
-  borrowerRateBps  Int
-  startOn          DateTime   @db.Date
-  dueOn            DateTime   @db.Date
-  weeks            Int
+  interestBasis    InterestBasis @default(WEEKLY_RATE)
+  /// What the borrower is charged per week. NULL on a FIXED_AMOUNT loan.
+  borrowerRateBps  Int?
+  startOn          DateTime      @db.Date
+  dueOn            DateTime      @db.Date
+  termDays         Int
   interestCentavos Int
   totalCentavos    Int
-  status           LoanStatus @default(ACTIVE)
-  deletedAt        DateTime?  @map("archivedAt")
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  status           LoanStatus    @default(ACTIVE)
+  deletedAt        DateTime?     @map("archivedAt")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   borrower Borrower      @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
@@ -200,11 +221,16 @@ enum LoanStatus {
 /// tests in tests/money/split.test.ts:
 ///
 ///   1. principalCentavos across a loan's rows sums to exactly Loan.capitalCentavos
-///   2. lenderRateBps + adminCutBps == Loan.borrowerRateBps, on every row
+///   2. lenderRateBps + adminCutBps == Loan.borrowerRateBps, on every row of a
+///      WEEKLY_RATE loan
 ///
 /// The second is what guarantees the shares add back up to the interest charged.
 /// When the admin funds with their own money the row simply carries
 /// lenderRateBps = the full borrower rate and adminCutBps = 0.
+///
+/// On a FIXED_AMOUNT loan both rate columns are NULL and there is no invariant to
+/// check: earningsCentavos and adminCutCentavos are carved directly out of the
+/// interest the admin typed, which cannot drift from it for the same reason.
 ///
 /// Earnings are stored rather than recomputed because the split's remainder
 /// handling assigns leftover centavos deliberately; re-running it later against a
@@ -215,8 +241,10 @@ model LoanFunding {
   loanId            String
   lenderId          String
   principalCentavos Int
-  lenderRateBps     Int
-  adminCutBps       Int
+  /// Per week, on this funder's own principal. NULL on a FIXED_AMOUNT loan.
+  lenderRateBps     Int?
+  /// Per week, taken by the admin on this row. NULL on a FIXED_AMOUNT loan.
+  adminCutBps       Int?
   /// What this lender earns on their own principal.
   earningsCentavos  Int
   /// The admin's cut taken on this row's principal. Zero when the funder is the admin.

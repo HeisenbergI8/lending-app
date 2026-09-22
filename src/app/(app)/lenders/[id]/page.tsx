@@ -27,10 +27,15 @@ const percent = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximu
  * screen cannot back up — and the first loan written at another rate would make
  * it false without anything appearing to change.
  */
-function describeRates(rates: number[], isSelf: boolean): string {
+function describeRates(rates: number[], fixedAmountLoans: number, isSelf: boolean): string {
   const owner = isSelf ? 'The Admin pot' : null
 
   if (rates.length === 0) {
+    if (fixedAmountLoans > 0) {
+      return owner
+        ? `${owner}. Every loan it funds charges a fixed amount, not a rate.`
+        : 'Every loan of theirs charges a fixed amount, not a rate.'
+    }
     return owner ? `${owner}. Nothing lent out yet.` : 'Nothing of theirs is lent out yet.'
   }
 
@@ -39,9 +44,19 @@ function describeRates(rates: number[], isSelf: boolean): string {
       ? `${percent(rates[0])} a week`
       : `${percent(rates[0])} to ${percent(rates[rates.length - 1])} a week, depending on the loan`
 
+  // A loan charging a fixed amount has no rate to fold into that span, so it is
+  // named separately. Leaving it out would let the sentence describe part of the
+  // pot as though it were all of it.
+  const fixed =
+    fixedAmountLoans === 0
+      ? ''
+      : fixedAmountLoans === 1
+        ? ' One other loan charges a fixed amount instead.'
+        : ` ${fixedAmountLoans} other loans charge a fixed amount instead.`
+
   return owner
-    ? `${owner}. This money earns ${span}, the whole of what the borrower pays.`
-    : `Earns ${span} on their own capital.`
+    ? `${owner}. This money earns ${span}, the whole of what the borrower pays.${fixed}`
+    : `Earns ${span} on their own capital.${fixed}`
 }
 
 /** "2026-09-21" for <input type="date">, in the admin's own timezone. */
@@ -96,7 +111,7 @@ export default async function LenderPage({ params }: PageProps<'/lenders/[id]'>)
               {lender.firstName} {lender.lastName}
             </h1>
             <p className="text-muted-foreground text-sm">
-              {describeRates(lender.rates, lender.isSelf)}
+              {describeRates(lender.rates, lender.fixedAmountLoans, lender.isSelf)}
             </p>
           </div>
           <LenderSettings

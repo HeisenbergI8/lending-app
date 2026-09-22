@@ -17,6 +17,7 @@ import { PrismaClient, LenderTransactionType, LoanStatus, BorrowerLabel } from '
 import { scryptSync, randomBytes } from 'node:crypto'
 
 import { centavos } from '../../src/lib/money/centavos.ts'
+import { DAYS_PER_WEEK } from '../../src/lib/money/weeks.ts'
 import { splitLoan } from '../../src/lib/money/split.ts'
 import { calendarDate, dueDateAfterWeeks } from '../../src/lib/money/weeks.ts'
 
@@ -201,7 +202,7 @@ async function main() {
         borrowerRateBps: BORROWER_RATE_BPS,
         startOn,
         dueOn,
-        weeks: plan.weeks,
+        termDays: plan.weeks * DAYS_PER_WEEK,
         interestCentavos: split.totalInterest,
         totalCentavos: split.borrowerTotal,
         status: plan.paid ? LoanStatus.PAID : LoanStatus.ACTIVE,

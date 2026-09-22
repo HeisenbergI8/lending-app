@@ -12,6 +12,7 @@ import {
   DEFAULT_ADMIN_CUT_BPS,
   DEFAULT_BORROWER_RATE_BPS,
   type FunderInput,
+  type InterestInput,
   loanTerms,
   parseRate,
 } from './terms.ts'
@@ -75,9 +76,56 @@ type Parsed = {
   capital: Centavos
   startOn: Date
   dueOn: Date
-  borrowerRateBps: number
-  adminCutBps: number
+  interest: InterestInput
   funders: FunderRow[]
+}
+
+/**
+ * How this loan charges interest, as the form says it.
+ *
+ * The basis decides which pair of fields is read, and the other pair is not read
+ * at all. The form posts both — the fields it is not showing keep whatever was
+ * last typed in them — and a rate left behind in a hidden input must not reach a
+ * loan that is charging a fixed amount.
+ */
+function readInterest(form: FormData): Result<InterestInput, string> {
+  if (text(form, 'interestBasis') === 'FIXED_AMOUNT') {
+    const interest = amount(form, 'fixedInterest')
+    if (!interest.ok) return err(`Interest: ${interest.error.toLowerCase()}`)
+
+    // A blank share is refused rather than read as zero. Zero is a real answer —
+    // the Admin keeping the whole interest — but it is not the answer to a box
+    // nobody filled in, and the difference between them is a lender's entire
+    // share of the loan.
+    const typed = text(form, 'fixedLenderShare')
+    if (typed === '') {
+      return err("Say how much of the interest the lenders keep. Enter 0 if the Admin keeps all of it.")
+    }
+
+    const lenderInterest = parsePesos(typed)
+    if (!lenderInterest.ok) {
+      return err("The lenders' share must be an amount in pesos, like 300 or 300.50.")
+    }
+
+    return ok({
+      basis: 'FIXED_AMOUNT',
+      interest: interest.value,
+      lenderInterest: lenderInterest.value,
+    })
+  }
+
+  const borrowerRate = text(form, 'borrowerRate')
+  const adminCut = text(form, 'adminCut')
+  const borrowerRateBps = borrowerRate ? parseRate(borrowerRate) : ok(DEFAULT_BORROWER_RATE_BPS)
+  const adminCutBps = adminCut ? parseRate(adminCut) : ok(DEFAULT_ADMIN_CUT_BPS)
+  if (!borrowerRateBps.ok) return err(`Borrower rate: ${borrowerRateBps.error.toLowerCase()}`)
+  if (!adminCutBps.ok) return err(`Admin cut: ${adminCutBps.error.toLowerCase()}`)
+
+  return ok({
+    basis: 'WEEKLY_RATE',
+    borrowerRateBps: borrowerRateBps.value,
+    adminCutBps: adminCutBps.value,
+  })
 }
 
 /** Everything the form said, checked as far as it can be without the database. */
@@ -101,12 +149,8 @@ function readForm(form: FormData): Result<Parsed, string> {
   const dueOn = date(form, 'dueOn')
   if (!dueOn.ok) return err(`Due date: ${dueOn.error.toLowerCase()}`)
 
-  const borrowerRate = text(form, 'borrowerRate')
-  const adminCut = text(form, 'adminCut')
-  const borrowerRateBps = borrowerRate ? parseRate(borrowerRate) : ok(DEFAULT_BORROWER_RATE_BPS)
-  const adminCutBps = adminCut ? parseRate(adminCut) : ok(DEFAULT_ADMIN_CUT_BPS)
-  if (!borrowerRateBps.ok) return err(`Borrower rate: ${borrowerRateBps.error.toLowerCase()}`)
-  if (!adminCutBps.ok) return err(`Admin cut: ${adminCutBps.error.toLowerCase()}`)
+  const interest = readInterest(form)
+  if (!interest.ok) return err(interest.error)
 
   const funders = readFunderRows(form)
   if (!funders.ok) return err(funders.error)
@@ -116,8 +160,7 @@ function readForm(form: FormData): Result<Parsed, string> {
     capital: capital.value,
     startOn: startOn.value,
     dueOn: dueOn.value,
-    borrowerRateBps: borrowerRateBps.value,
-    adminCutBps: adminCutBps.value,
+    interest: interest.value,
     funders: funders.value,
   })
 }
@@ -205,8 +248,7 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
         capital: input.capital,
         startOn: input.startOn,
         dueOn: input.dueOn,
-        borrowerRateBps: input.borrowerRateBps,
-        adminCutBps: input.adminCutBps,
+        interest: input.interest,
         funders: funders.value,
       })
       if (!terms.ok) throw new LoanRefused(terms.error)
@@ -216,10 +258,14 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
           userId: user.id,
           borrowerId: borrowerId.value,
           capitalCentavos: input.capital,
-          borrowerRateBps: input.borrowerRateBps,
+          interestBasis: input.interest.basis,
+          // Null on a fixed-amount loan, because no rate was used. See the
+          // InterestBasis comment in the schema for why it is not zero.
+          borrowerRateBps:
+            input.interest.basis === 'WEEKLY_RATE' ? input.interest.borrowerRateBps : null,
           startOn: input.startOn,
           dueOn: input.dueOn,
-          weeks: terms.value.weeks,
+          termDays: terms.value.termDays,
           interestCentavos: terms.value.interest,
           totalCentavos: terms.value.total,
         },
@@ -285,8 +331,7 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
         capital: input.capital,
         startOn: input.startOn,
         dueOn: input.dueOn,
-        borrowerRateBps: input.borrowerRateBps,
-        adminCutBps: input.adminCutBps,
+        interest: input.interest,
         funders: funders.value,
       })
       if (!terms.ok) throw new LoanRefused(terms.error)
@@ -296,10 +341,14 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
         data: {
           borrowerId: borrowerId.value,
           capitalCentavos: input.capital,
-          borrowerRateBps: input.borrowerRateBps,
+          interestBasis: input.interest.basis,
+          // Null on a fixed-amount loan, because no rate was used. See the
+          // InterestBasis comment in the schema for why it is not zero.
+          borrowerRateBps:
+            input.interest.basis === 'WEEKLY_RATE' ? input.interest.borrowerRateBps : null,
           startOn: input.startOn,
           dueOn: input.dueOn,
-          weeks: terms.value.weeks,
+          termDays: terms.value.termDays,
           interestCentavos: terms.value.interest,
           totalCentavos: terms.value.total,
         },

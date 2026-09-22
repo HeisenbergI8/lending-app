@@ -37,6 +37,7 @@ export default async function EditLoanPage({ params }: PageProps<'/loans/[id]/ed
   // was never going to save.
   if (loan.state === 'paid') redirect(`/loans/${loan.id}`)
 
+  const onARate = loan.interestBasis === 'WEEKLY_RATE'
   const adminCutBps = loan.funders.find((funder) => !funder.isSelf)?.adminCutBps ?? 0
 
   return (
@@ -63,8 +64,14 @@ export default async function EditLoanPage({ params }: PageProps<'/loans/[id]/ed
           capital: pesosForInput(loan.capital),
           startOn: forInput(loan.startOn),
           dueOn: forInput(loan.dueOn),
-          borrowerRate: String(loan.borrowerRateBps / 100),
-          adminCut: String(adminCutBps / 100),
+          interestBasis: loan.interestBasis,
+          borrowerRate: onARate && loan.borrowerRateBps !== null ? String(loan.borrowerRateBps / 100) : '',
+          adminCut: onARate ? String(adminCutBps / 100) : '',
+          fixedInterest: onARate ? '' : pesosForInput(loan.interest),
+          // What the lenders keep, read back the way it was typed. lenderEarnings
+          // is the loan's interest minus everything the Admin took, which on a
+          // fixed-amount loan is exactly the figure that was entered here.
+          fixedLenderShare: onARate ? '' : pesosForInput(loan.lenderEarnings),
           funders: loan.funders.map((funder) => ({
             lenderId: funder.lenderId,
             amount: pesosForInput(funder.principal),

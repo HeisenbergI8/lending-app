@@ -11,8 +11,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native.tsx'
 import { type Centavos, centavos, formatPesos, parsePesos } from '@/lib/money/centavos.ts'
-import { computeInterest } from '@/lib/money/interest.ts'
-import { describeWeeksError, parseCalendarDate, weeksBetween } from '@/lib/money/weeks.ts'
+import { type InterestBasis, computeInterest } from '@/lib/money/interest.ts'
+import {
+  DAYS_PER_WEEK,
+  describeTerm,
+  describeTermError,
+  describeWeeksError,
+  parseCalendarDate,
+  termDaysBetween,
+  weeksBetween,
+} from '@/lib/money/weeks.ts'
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
 
 /**
@@ -37,9 +45,39 @@ export type LoanFormValues = {
   capital: string
   startOn: string
   dueOn: string
+  interestBasis: InterestBasis
   borrowerRate: string
   adminCut: string
+  /** Both blank on a weekly-rate loan. Pesos, as typed. */
+  fixedInterest: string
+  fixedLenderShare: string
   funders: { lenderId: string; amount: string }[]
+}
+
+/**
+ * How long the loan runs, in days, or what is wrong with the two dates.
+ *
+ * ONE function for both bases so the badge beside the due date has one shape to
+ * render. The rule they differ on is the whole point of the choice: a weekly
+ * rate multiplies by the week count, so the dates must divide by seven, and a
+ * fixed amount does not, so three days is simply three days.
+ */
+type Term = { ok: true; days: number } | { ok: false; message: string }
+
+function termOf(basis: InterestBasis, startOn: string, dueOn: string): Term | null {
+  const start = parseCalendarDate(startOn)
+  const due = parseCalendarDate(dueOn)
+  if (!start || !due) return null
+
+  if (basis === 'FIXED_AMOUNT') {
+    const days = termDaysBetween(start, due)
+    return days.ok ? { ok: true, days: days.value } : { ok: false, message: describeTermError(days.error) }
+  }
+
+  const weeks = weeksBetween(start, due)
+  return weeks.ok
+    ? { ok: true, days: weeks.value * DAYS_PER_WEEK }
+    : { ok: false, message: describeWeeksError(weeks.error) }
 }
 
 type FunderRow = {
@@ -88,8 +126,11 @@ export function LoanForm({
   const [capital, setCapital] = useState(initial.capital)
   const [startOn, setStartOn] = useState(initial.startOn)
   const [dueOn, setDueOn] = useState(initial.dueOn)
+  const [basis, setBasis] = useState<InterestBasis>(initial.interestBasis)
   const [borrowerRate, setBorrowerRate] = useState(initial.borrowerRate)
   const [adminCut, setAdminCut] = useState(initial.adminCut)
+  const [fixedInterest, setFixedInterest] = useState(initial.fixedInterest)
+  const [fixedLenderShare, setFixedLenderShare] = useState(initial.fixedLenderShare)
   const [rows, setRows] = useState<FunderRow[]>(
     initial.funders.length > 0
       ? initial.funders.map((funder, index) => ({
@@ -137,27 +178,29 @@ export function LoanForm({
 
   const preview = useMemo(() => {
     const capitalValue = readPesos(capital)
-    const start = parseCalendarDate(startOn)
-    const due = parseCalendarDate(dueOn)
     const rateBps = readRate(borrowerRate, 700)
 
-    const weeks = start && due ? weeksBetween(start, due) : null
+    const term = termOf(basis, startOn, dueOn)
     const funded = rows.reduce((sum, row) => sum + (readPesos(amounts.get(row.key) ?? '') ?? 0), 0)
 
+    // A fixed amount is not worked out at all — it is the figure the admin
+    // typed, shown back so the total beside it can be checked before saving.
     const interest =
-      capitalValue && capitalValue > 0 && rateBps && rateBps > 0 && weeks?.ok
-        ? computeInterest({ capital: capitalValue, rateBps, weeks: weeks.value })
-        : null
+      basis === 'FIXED_AMOUNT'
+        ? readPesos(fixedInterest)
+        : capitalValue && capitalValue > 0 && rateBps && rateBps > 0 && term?.ok
+          ? computeInterest({ capital: capitalValue, rateBps, weeks: term.days / DAYS_PER_WEEK })
+          : null
 
     return {
       capital: capitalValue,
-      weeks,
+      term,
       interest,
       total: interest !== null && capitalValue !== null ? centavos(capitalValue + interest) : null,
       funded: centavos(funded),
       remaining: capitalValue !== null ? centavos(capitalValue - funded) : null,
     }
-  }, [capital, startOn, dueOn, borrowerRate, rows, amounts])
+  }, [capital, startOn, dueOn, basis, borrowerRate, fixedInterest, rows, amounts])
 
   const creatingBorrower = borrowerId === NEW || borrowers.length === 0
 
@@ -249,62 +292,138 @@ export function LoanForm({
               type="date"
               value={dueOn}
               onChange={(event) => setDueOn(event.target.value)}
-              aria-invalid={preview.weeks !== null && !preview.weeks.ok}
-              aria-describedby="weeks-preview"
+              aria-invalid={preview.term !== null && !preview.term.ok}
+              aria-describedby="term-preview"
               required
             />
-            <WeeksBadge weeks={preview.weeks} />
+            <TermBadge basis={basis} term={preview.term} />
           </div>
         </div>
 
-        {/* THE RATES ARE NOT HIDDEN. They were behind a collapsed <details> and a
-            loan went out at 5% instead of 7% without anyone seeing it: a field
-            you have to open is a field nobody checks. Both sit on the form now,
-            pre-filled with the usual figures and changeable per loan. */}
-        <div className="text-sm">
-          <p className="text-muted-foreground text-xs">
-            Rates. The usual 7% to the borrower, 2% to the Admin. Change them for this loan only.
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="borrowerRate">Borrower pays, per week</Label>
-              <div className="relative">
-                <Input
-                  id="borrowerRate"
-                  name="borrowerRate"
-                  inputMode="decimal"
-                  placeholder="7"
-                  className="pr-7"
-                  value={borrowerRate}
-                  onChange={(event) => setBorrowerRate(event.target.value)}
-                />
-                <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
-                  %
-                </span>
+        {/* HOW THE INTEREST IS SET, chosen per loan and never hidden behind a
+            disclosure. The weekly rate is the default and covers nearly every
+            loan; a fixed amount is for the ones no rate describes honestly, like
+            three days for an amount agreed with the borrower. */}
+        <fieldset className="text-sm">
+          <legend className="text-muted-foreground text-xs">How the interest is set</legend>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <BasisChoice
+              value="WEEKLY_RATE"
+              current={basis}
+              onSelect={setBasis}
+              title="A weekly rate"
+              hint="The usual. Runs in whole weeks."
+            />
+            <BasisChoice
+              value="FIXED_AMOUNT"
+              current={basis}
+              onSelect={setBasis}
+              title="A fixed amount"
+              hint="Typed in pesos. Any number of days."
+            />
+          </div>
+        </fieldset>
+
+        {basis === 'FIXED_AMOUNT' ? (
+          <div className="text-sm">
+            <p className="text-muted-foreground text-xs">
+              Both figures are typed. The Admin keeps whatever the lenders do not.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="fixedInterest">Interest the borrower pays</Label>
+                <div className="relative">
+                  <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm" aria-hidden>
+                    ₱
+                  </span>
+                  <Input
+                    id="fixedInterest"
+                    name="fixedInterest"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="500"
+                    className="money-column pl-7"
+                    value={fixedInterest}
+                    onChange={(event) => setFixedInterest(event.target.value)}
+                    required
+                  />
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  The whole amount on top of the capital, for however long it runs.
+                </p>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="adminCut">Admin cut, per week</Label>
-              <div className="relative">
-                <Input
-                  id="adminCut"
-                  name="adminCut"
-                  inputMode="decimal"
-                  placeholder="2"
-                  className="pr-7"
-                  value={adminCut}
-                  onChange={(event) => setAdminCut(event.target.value)}
-                />
-                <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
-                  %
-                </span>
+
+              <div className="space-y-2">
+                <Label htmlFor="fixedLenderShare">Of that, the lenders keep</Label>
+                <div className="relative">
+                  <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm" aria-hidden>
+                    ₱
+                  </span>
+                  <Input
+                    id="fixedLenderShare"
+                    name="fixedLenderShare"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="0"
+                    className="money-column pl-7"
+                    value={fixedLenderShare}
+                    onChange={(event) => setFixedLenderShare(event.target.value)}
+                    required
+                  />
+                </div>
+                <AdminRemainder interest={fixedInterest} lenderShare={fixedLenderShare} />
               </div>
-              <p className="text-muted-foreground text-xs">
-                The Admin pot earns the whole {borrowerRate || '7'}%, with no one to pay a share to.
-              </p>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="text-sm">
+            {/* THE RATES ARE NOT HIDDEN. They were behind a collapsed <details>
+                and a loan went out at 5% instead of 7% without anyone seeing it:
+                a field you have to open is a field nobody checks. */}
+            <p className="text-muted-foreground text-xs">
+              Rates. The usual 7% to the borrower, 2% to the Admin. Change them for this loan only.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="borrowerRate">Borrower pays, per week</Label>
+                <div className="relative">
+                  <Input
+                    id="borrowerRate"
+                    name="borrowerRate"
+                    inputMode="decimal"
+                    placeholder="7"
+                    className="pr-7"
+                    value={borrowerRate}
+                    onChange={(event) => setBorrowerRate(event.target.value)}
+                  />
+                  <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
+                    %
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="adminCut">Admin cut, per week</Label>
+                <div className="relative">
+                  <Input
+                    id="adminCut"
+                    name="adminCut"
+                    inputMode="decimal"
+                    placeholder="2"
+                    className="pr-7"
+                    value={adminCut}
+                    onChange={(event) => setAdminCut(event.target.value)}
+                  />
+                  <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
+                    %
+                  </span>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  The Admin pot earns the whole {borrowerRate || '7'}%, with no one to pay a share to.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── Whose money ───────────────────────────────────────────────────── */}
@@ -420,7 +539,7 @@ export function LoanForm({
         </Button>
       </section>
 
-      <Preview capital={preview.capital} interest={preview.interest} total={preview.total} weeks={preview.weeks} />
+      <Preview capital={preview.capital} interest={preview.interest} total={preview.total} term={preview.term} />
 
       {state.error ? (
         <Alert variant="destructive" role="alert">
@@ -435,34 +554,113 @@ export function LoanForm({
   )
 }
 
+/** One of the two ways a loan can charge interest, as a card the admin picks. */
+function BasisChoice({
+  value,
+  current,
+  onSelect,
+  title,
+  hint,
+}: {
+  value: InterestBasis
+  current: InterestBasis
+  onSelect: (basis: InterestBasis) => void
+  title: string
+  hint: string
+}) {
+  const selected = current === value
+
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 ${
+        selected ? 'border-brand-line bg-brand-bg' : 'border-border'
+      }`}
+    >
+      <input
+        type="radio"
+        name="interestBasis"
+        value={value}
+        checked={selected}
+        onChange={() => onSelect(value)}
+        className="mt-0.5 size-4 shrink-0"
+      />
+      <span>
+        <span className="block font-medium">{title}</span>
+        <span className="text-muted-foreground block text-xs">{hint}</span>
+      </span>
+    </label>
+  )
+}
+
 /**
- * The live "= 4 weeks" badge.
+ * What the Admin keeps on a fixed-amount loan.
  *
- * The spec asks for this by name, and it is the reason the form refuses dates
- * that do not divide evenly rather than rounding them: a 30-day gap is 4.29
- * weeks, and rounding it silently moves ₱8,400 of interest to ₱10,500.
+ * NOTHING IS STORED OR QUERIED HERE. It is the two figures in the boxes above,
+ * subtracted — typed interest minus the typed lenders' share — shown so the
+ * admin can see the consequence of the second box before saving. The server
+ * works the same figure out again from the same two numbers and is what
+ * actually decides; this cannot disagree with it because it is the same
+ * subtraction, but it is also not the authority.
  */
-function WeeksBadge({ weeks }: { weeks: ReturnType<typeof weeksBetween> | null }) {
-  if (weeks === null) {
+function AdminRemainder({ interest, lenderShare }: { interest: string; lenderShare: string }) {
+  const total = readPesos(interest)
+  const lenders = readPesos(lenderShare)
+
+  if (total === null || lenders === null) {
     return (
-      <p id="weeks-preview" className="text-muted-foreground text-xs">
-        Must land on a whole number of weeks.
+      <p className="text-muted-foreground text-xs">
+        The Admin keeps the rest. Enter 0 if the Admin keeps all of it.
       </p>
     )
   }
 
-  if (weeks.ok) {
+  if (lenders > total) {
     return (
-      <p id="weeks-preview" className="text-status-good inline-flex items-center gap-1.5 text-sm font-semibold">
-        <CircleCheck className="size-4 shrink-0" aria-hidden />= {weeks.value === 1 ? '1 week' : `${weeks.value} weeks`}
+      <p className="text-status-critical inline-flex items-start gap-1.5 text-xs font-medium">
+        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        That is more than the whole interest.
       </p>
     )
   }
 
   return (
-    <p id="weeks-preview" className="text-status-critical inline-flex items-start gap-1.5 text-xs font-medium">
+    <p className="text-muted-foreground text-xs">
+      The Admin keeps{' '}
+      <span className="text-foreground font-medium">{formatPesos(centavos(total - lenders))}</span>.
+    </p>
+  )
+}
+
+/**
+ * The live "= 4 weeks" badge, and "= 3 days" on a fixed-amount loan.
+ *
+ * The spec asks for this by name. On a weekly rate it is also the reason the
+ * form refuses dates that do not divide evenly rather than rounding them: a
+ * 30-day gap is 4.29 weeks, and rounding it silently moves ₱8,400 of interest to
+ * ₱10,500. A fixed amount has no such multiplier, so it takes the dates as they
+ * are.
+ */
+function TermBadge({ basis, term }: { basis: InterestBasis; term: Term | null }) {
+  if (term === null) {
+    return (
+      <p id="term-preview" className="text-muted-foreground text-xs">
+        {basis === 'FIXED_AMOUNT' ? 'Any number of days.' : 'Must land on a whole number of weeks.'}
+      </p>
+    )
+  }
+
+  if (term.ok) {
+    return (
+      <p id="term-preview" className="text-status-good inline-flex items-center gap-1.5 text-sm font-semibold">
+        <CircleCheck className="size-4 shrink-0" aria-hidden />= {describeTerm(term.days)}
+      </p>
+    )
+  }
+
+  return (
+    <p id="term-preview" className="text-status-critical inline-flex items-start gap-1.5 text-xs font-medium">
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-      {describeWeeksError(weeks.error)}
+      {term.message}
     </p>
   )
 }
@@ -491,14 +689,14 @@ function Preview({
   capital,
   interest,
   total,
-  weeks,
+  term,
 }: {
   capital: Centavos | null
   interest: Centavos | null
   total: Centavos | null
-  weeks: ReturnType<typeof weeksBetween> | null
+  term: Term | null
 }) {
-  if (capital === null || interest === null || total === null || !weeks?.ok) {
+  if (capital === null || interest === null || total === null || !term?.ok) {
     return (
       <div className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-4 text-center text-sm">
         Fill in the capital and both dates to see what is owed.
@@ -516,9 +714,7 @@ function Preview({
           </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground text-xs">
-            Interest · {weeks.value === 1 ? '1 week' : `${weeks.value} weeks`}
-          </dt>
+          <dt className="text-muted-foreground text-xs">Interest · {describeTerm(term.days)}</dt>
           <dd className="mt-0.5 text-sm font-medium">
             <Money amount={interest} variant="display" />
           </dd>

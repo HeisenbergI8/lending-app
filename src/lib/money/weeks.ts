@@ -13,9 +13,17 @@ import { type Result, ok, err } from './result.ts'
 const MS_PER_DAY = 86_400_000
 export const DAYS_PER_WEEK = 7
 
+/**
+ * The two things wrong with a pair of dates whatever the loan charges.
+ *
+ * A loan whose interest is a fixed peso amount can run any number of days, so
+ * these two are the whole of its date rule. A loan on a weekly rate has a third
+ * — see WeeksError.
+ */
+export type TermError = { kind: 'due-before-start' } | { kind: 'same-day' }
+
 export type WeeksError =
-  | { kind: 'due-before-start' }
-  | { kind: 'same-day' }
+  | TermError
   | {
       kind: 'not-whole-weeks'
       days: number
@@ -87,6 +95,23 @@ export function weeksBetween(start: Date, due: Date): Result<number, WeeksError>
   return ok(days / DAYS_PER_WEEK)
 }
 
+/**
+ * The loan's term in days, for a loan whose interest is a fixed amount.
+ *
+ * NO WHOLE-WEEK RULE HERE, and that is the point of it. The refusal in
+ * weeksBetween exists because weeks are a multiplier — 30 days rounded to five
+ * weeks changes what the borrower owes. A fixed amount has no multiplier to
+ * round: the admin typed the interest, so three days is simply three days.
+ */
+export function termDaysBetween(start: Date, due: Date): Result<number, TermError> {
+  const days = daysBetween(start, due)
+
+  if (days < 0) return err({ kind: 'due-before-start' })
+  if (days === 0) return err({ kind: 'same-day' })
+
+  return ok(days)
+}
+
 /** The due date a given number of weeks after the start. The inverse of weeksBetween. */
 export function dueDateAfterWeeks(start: Date, weeks: number): Date {
   if (!Number.isInteger(weeks) || weeks < 1) {
@@ -116,6 +141,29 @@ export function describeWeeksError(error: WeeksError): string {
     case 'not-whole-weeks':
       return `${error.days} days is not a whole number of weeks. Try ${dayMonth.format(error.previousValidDue)} or ${dayMonth.format(error.nextValidDue)}.`
   }
+}
+
+/**
+ * How long a loan ran, in the words the admin would use.
+ *
+ * Weeks where the days divide evenly, days where they do not — so a loan on the
+ * usual weekly rate still reads "4 weeks" and a three-day one reads "3 days"
+ * rather than "0.43 weeks". The stored column is days for every loan; this is
+ * the only place that decides how to say it.
+ */
+export function describeTerm(days: number): string {
+  if (days % DAYS_PER_WEEK === 0) {
+    const weeks = days / DAYS_PER_WEEK
+    return weeks === 1 ? '1 week' : `${weeks} weeks`
+  }
+  return days === 1 ? '1 day' : `${days} days`
+}
+
+/** Why two dates do not work on a fixed-amount loan. The weekly twin is above. */
+export function describeTermError(error: TermError): string {
+  return error.kind === 'due-before-start'
+    ? 'The due date is before the start date.'
+    : 'A loan runs at least one day.'
 }
 
 /**

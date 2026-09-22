@@ -20,6 +20,7 @@ import { Money } from '@/components/money.tsx'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { formatPesos } from '@/lib/money/centavos.ts'
+import { describeTerm } from '@/lib/money/weeks.ts'
 import { describeBytes } from '@/lib/proof.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteLoan } from '@/server/loans/actions.ts'
@@ -31,6 +32,21 @@ import { AddProofForm, MarkPaidPanel } from './payment-panel.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 const percent = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`
+
+/**
+ * " 5%/wk", or nothing at all when the loan charges a fixed amount.
+ *
+ * A fixed-amount loan stores no rate — there was none — so the line says what
+ * was earned and stops. The alternative, printing a rate worked back out of the
+ * amount, would put a percentage on the screen that nobody agreed to.
+ */
+const perWeek = (bps: number | null) => (bps === null ? '' : ` ${percent(bps)}/wk`)
+
+/** How this loan charges, for the line under the borrower's name. */
+const chargeNote = (loan: { interestBasis: string; borrowerRateBps: number | null }) =>
+  loan.interestBasis === 'WEEKLY_RATE' && loan.borrowerRateBps !== null
+    ? `borrower pays ${percent(loan.borrowerRateBps)} a week`
+    : 'interest set as a fixed amount'
 
 /** "Maria Santos" → "Maria". The full name is already on the line above it. */
 const firstName = (name: string) => name.split(' ')[0]
@@ -80,8 +96,7 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
             </div>
             <p className="text-muted-foreground text-sm">
               {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.dueOn)} ·{' '}
-              {loan.weeks === 1 ? '1 week' : `${loan.weeks} weeks`} · borrower pays{' '}
-              {percent(loan.borrowerRateBps)} a week
+              {describeTerm(loan.termDays)} · {chargeNote(loan)}
             </p>
           </div>
 
@@ -124,7 +139,7 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
         note={
           paid && loan.paidOn
             ? `${formatPesos(loan.capital)} capital · paid ${dateFormat.format(loan.paidOn)}`
-            : `${formatPesos(loan.capital)} capital · ${loan.weeks === 1 ? '1 week' : `${loan.weeks} weeks`} · borrower pays ${percent(loan.borrowerRateBps)} a week`
+            : `${formatPesos(loan.capital)} capital · ${describeTerm(loan.termDays)} · ${chargeNote(loan)}`
         }
         tone={loan.state === 'overdue' ? 'critical' : undefined}
       />
@@ -190,7 +205,7 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
                   amount is already theirs, so the row says that instead. */}
               {funder.isSelf ? (
                 <p className="text-muted-foreground mt-2 text-xs">
-                  Admin earns {percent(funder.lenderRateBps)}/wk ·{' '}
+                  Admin earns{perWeek(funder.lenderRateBps)} ·{' '}
                   <span className="text-foreground font-medium">
                     <Money amount={funder.earnings} variant="display" />
                   </span>
@@ -202,13 +217,15 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
                    screen they wrapped into an unreadable stack of fragments. */
                 <dl className="text-muted-foreground mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-2 sm:gap-2">
                   <div className="flex items-center justify-between gap-1.5 sm:justify-start">
-                    <dt>{firstName(funder.name)} earns {percent(funder.lenderRateBps)}/wk</dt>
+                    <dt>
+                      {firstName(funder.name)} earns{perWeek(funder.lenderRateBps)}
+                    </dt>
                     <dd className="text-foreground shrink-0 font-medium">
                       <Money amount={funder.earnings} variant="display" />
                     </dd>
                   </div>
                   <div className="flex items-center justify-between gap-1.5 sm:justify-start">
-                    <dt>Admin cut {percent(funder.adminCutBps)}/wk</dt>
+                    <dt>Admin cut{perWeek(funder.adminCutBps)}</dt>
                     <dd className="text-foreground shrink-0 font-medium">
                       <Money amount={funder.adminCut} variant="display" />
                     </dd>

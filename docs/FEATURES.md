@@ -43,6 +43,32 @@ total    = capital + interest
 
 `weeks` comes from the dates (section 5). The rate is per week, always.
 
+### When a weekly rate does not fit — a fixed amount
+
+**Added 2026-09-22.** Some loans do not run in weeks. Angel borrows ₱3,000 on Monday and repays on
+Thursday; the ₱500 agreed is not 7% of anything, and no rate describes it honestly.
+
+So the interest is set one of two ways, **chosen per loan**:
+
+| Basis | What the admin types | Term |
+| --- | --- | --- |
+| **Weekly rate** (the default) | the rates, as above | must be whole weeks |
+| **Fixed amount** | the interest in pesos, and the lenders' share of it | any number of days |
+
+On a fixed amount:
+
+- **Both figures are typed.** The admin says what the borrower pays on top (₱500) and how much of
+  that the lenders keep (₱300). **The Admin keeps the rest** (₱200) — it is never a third typed
+  number, because a third number can disagree with the first two.
+- The lenders' share **splits between them by what each put in**, to the centavo.
+- The Admin pot is not in that draw. If the Admin also funded the loan, their own money takes its
+  share of the remainder instead.
+- **No rate is stored**, because none was used. The loan screen shows the amounts and no percentage.
+- The whole-weeks refusal does not apply. One day is the minimum; same-day is still refused.
+
+Everything downstream is unchanged: floating funds, earnings, the lender and borrower profiles and
+all four reports read peso amounts, not rates.
+
 ### Computed ONCE, at creation
 
 When the admin creates the loan, the app does the math immediately and the total is **fixed from
@@ -139,9 +165,10 @@ flow straight back into floating.
 | Capital | the money handed over. **"Amount" and "Capital" are the same thing — one field, not two.** |
 | Start date | typed by the admin — when the borrower actually received the money |
 | Due date | typed by the admin |
-| Weeks | **derived** from the two dates, not typed |
-| Borrower rate | default 7%/week |
-| Admin cut | default 2%/week, set per loan |
+| Term | **derived** from the two dates, not typed. Shown as weeks when it divides evenly, days when it does not |
+| Interest basis | weekly rate (default) or fixed amount, per loan |
+| Borrower rate | default 7%/week. Not used, and not stored, on a fixed-amount loan |
+| Admin cut | default 2%/week, set per loan. Same |
 | Funding | which lender(s) and/or the admin, and how much each put in |
 | Total | derived: capital + interest |
 
@@ -154,7 +181,8 @@ entered a few days after the money actually changed hands without the week count
 weeks = (due date − start date) ÷ 7
 ```
 
-**The result must be a whole number.**
+**On a weekly-rate loan the result must be a whole number.** A fixed-amount loan skips this rule
+entirely — see section 2 — because it has no week count to multiply by.
 
 - As the admin types, the app shows the derived figure **highlighted next to the field**: `= 4 weeks`.
 - If the dates don't divide into whole weeks, the app shows an **error and refuses to save**.

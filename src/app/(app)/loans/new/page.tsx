@@ -50,8 +50,13 @@ export default async function NewLoanPage() {
           capital: '',
           startOn: today(),
           dueOn: '',
+          // The weekly rate is the default, and the placeholders in the two rate
+          // boxes carry the usual 7 and 2 rather than the boxes being filled in.
+          interestBasis: 'WEEKLY_RATE',
           borrowerRate: '',
           adminCut: '',
+          fixedInterest: '',
+          fixedLenderShare: '',
           funders: [],
         }}
       />

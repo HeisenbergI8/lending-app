@@ -2,9 +2,11 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { centavos, type Centavos } from '../../src/lib/money/centavos.ts'
 import {
+  splitFixed,
   splitLoan,
   adminTakeOnLoan,
   adminTotalEarnings,
+  type FixedTerms,
   type LoanTerms,
   type Split,
 } from '../../src/lib/money/split.ts'
@@ -202,6 +204,112 @@ describe('THE INVARIANT — the shares always sum to the interest charged', () =
     const terms = cases[0][1]
     const first = JSON.stringify(mustSplit(terms))
     for (let i = 0; i < 20; i++) assert.equal(JSON.stringify(mustSplit(terms)), first)
+  })
+})
+
+describe('a fixed amount of interest reconciles the same way', () => {
+  function mustSplitFixed(terms: FixedTerms): Split {
+    const result = splitFixed(terms)
+    assert.equal(result.ok, true, `expected a valid split, got ${JSON.stringify(result)}`)
+    if (!result.ok) throw new Error('unreachable')
+    return result.value
+  }
+
+  test('nothing is derived: the total is exactly what was typed', () => {
+    const split = mustSplitFixed({
+      capital: peso(3_000),
+      interest: peso(500),
+      lenderInterest: peso(300),
+      fundings: [{ lenderId: 'john', principal: peso(3_000), isSelf: false }],
+    })
+    assert.equal(split.totalInterest, peso(500))
+    assert.equal(split.borrowerTotal, peso(3_500))
+    assert.equal(earningsOf(split, 'john'), peso(300))
+    assert.equal(split.adminEarnings, peso(200))
+  })
+
+  // THE REASON THIS FILE EXISTS, said again for the typed basis: an amount that
+  // does not divide evenly must still come out whole, with nothing dropped and
+  // nothing invented. ₱500 across three funders divides into recurring thirds.
+  test('exhaustive sweep: every interest from 1 to 2,000 centavos reconciles', () => {
+    for (let interest = 1; interest <= 2_000; interest++) {
+      const lenderShare = Math.floor(interest / 2)
+      const split = mustSplitFixed({
+        capital: centavos(3_000_00),
+        interest: centavos(interest),
+        lenderInterest: centavos(lenderShare),
+        fundings: [
+          { lenderId: 'a', principal: centavos(1_000_00), isSelf: false },
+          { lenderId: 'b', principal: centavos(1_000_01), isSelf: false },
+          { lenderId: 'admin', principal: centavos(999_99), isSelf: true },
+        ],
+      })
+
+      const handedOut = split.lenders.reduce((sum, l) => sum + l.earnings + l.adminCut, 0)
+      assert.equal(handedOut, centavos(interest), `interest ${interest} did not reconcile`)
+      for (const l of split.lenders) {
+        assert.ok(l.earnings >= 0 && l.adminCut >= 0, `${l.lenderId} went negative`)
+      }
+    }
+  })
+
+  test('the admin pot never charges itself a cut', () => {
+    const split = mustSplitFixed({
+      capital: peso(3_000),
+      interest: peso(500),
+      lenderInterest: peso(300),
+      fundings: [
+        { lenderId: 'admin', principal: peso(1_000), isSelf: true },
+        { lenderId: 'john', principal: peso(2_000), isSelf: false },
+      ],
+    })
+    const admin = split.lenders.find((l) => l.lenderId === 'admin')
+    assert.equal(admin?.adminCut, 0)
+    // Their share of the ₱200 remainder arrives as earnings on their own row,
+    // which is where adminTakeOnLoan looks for it.
+    assert.equal(
+      adminTakeOnLoan(
+        split.lenders.map((l) => ({
+          adminCut: l.adminCut,
+          earnings: l.earnings,
+          isSelf: l.lenderId === 'admin',
+        })),
+      ),
+      peso(200),
+    )
+  })
+
+  test('the same loan always splits the same way', () => {
+    const terms: FixedTerms = {
+      capital: peso(3_000),
+      interest: peso(500),
+      lenderInterest: peso(333),
+      fundings: [
+        { lenderId: 'a', principal: peso(1_000), isSelf: false },
+        { lenderId: 'b', principal: peso(1_000), isSelf: false },
+        { lenderId: 'c', principal: peso(1_000), isSelf: false },
+      ],
+    }
+    const first = JSON.stringify(mustSplitFixed(terms))
+    for (let i = 0; i < 20; i++) assert.equal(JSON.stringify(mustSplitFixed(terms)), first)
+  })
+
+  test('the figures that cannot be are refused', () => {
+    const base = {
+      capital: peso(3_000),
+      fundings: [{ lenderId: 'john', principal: peso(3_000), isSelf: false }],
+    }
+    assert.equal(splitFixed({ ...base, interest: centavos(0), lenderInterest: centavos(0) }).ok, false)
+    assert.equal(splitFixed({ ...base, interest: peso(500), lenderInterest: peso(501) }).ok, false)
+    assert.equal(
+      splitFixed({
+        capital: peso(3_000),
+        interest: peso(500),
+        lenderInterest: peso(1),
+        fundings: [{ lenderId: 'admin', principal: peso(3_000), isSelf: true }],
+      }).ok,
+      false,
+    )
   })
 })
 

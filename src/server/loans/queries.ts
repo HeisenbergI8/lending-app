@@ -1,4 +1,5 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
+import { type InterestBasis } from '../../lib/money/interest.ts'
 import { adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
@@ -26,8 +27,9 @@ export type LoanFunder = {
   principal: Centavos
   earnings: Centavos
   adminCut: Centavos
-  lenderRateBps: number
-  adminCutBps: number
+  /** Per week. Null on a fixed-amount loan, where no rate was used. */
+  lenderRateBps: number | null
+  adminCutBps: number | null
 }
 
 /** A funder on the list, where only the name and the amount fit. */
@@ -50,9 +52,12 @@ export type LoanRow = {
 // with it. An intersection of the two arrays type-checks and then means neither.
 export type LoanDetail = Omit<LoanRow, 'funders'> & {
   interest: Centavos
-  weeks: number
+  /** The term in days. Say it with describeTerm — "4 weeks" or "3 days". */
+  termDays: number
   startOn: Date
-  borrowerRateBps: number
+  interestBasis: InterestBasis
+  /** What the borrower pays per week. Null on a fixed-amount loan. */
+  borrowerRateBps: number | null
   paidOn: Date | null
   missingProof: boolean
   funders: LoanFunder[]
@@ -289,8 +294,9 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
       capitalCentavos: true,
       interestCentavos: true,
       totalCentavos: true,
+      interestBasis: true,
       borrowerRateBps: true,
-      weeks: true,
+      termDays: true,
       startOn: true,
       dueOn: true,
       status: true,
@@ -344,9 +350,10 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     capital: centavos(loan.capitalCentavos),
     interest: centavos(loan.interestCentavos),
     total: centavos(loan.totalCentavos),
-    weeks: loan.weeks,
+    termDays: loan.termDays,
     startOn: loan.startOn,
     dueOn: loan.dueOn,
+    interestBasis: loan.interestBasis,
     borrowerRateBps: loan.borrowerRateBps,
     state: loanState(loan.status, loan.dueOn),
     paidOn: payment?.paidOn ?? null,

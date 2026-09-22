@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowLeft, HandCoins } from 'lucide-react'
 import { BorrowerLabelBadge } from '@/components/borrower-rating.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Money } from '@/components/money.tsx'
+import { describeTerm } from '@/lib/money/weeks.ts'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { requireUser } from '@/server/auth/guard.ts'
 import { getBorrower } from '@/server/borrowers/queries.ts'
@@ -112,7 +113,7 @@ export default async function BorrowerPage({ params }: PageProps<'/borrowers/[id
                     <Money amount={loan.total} variant="display" className="text-base font-semibold" />
                     <div className="text-muted-foreground mt-0.5 text-xs">
                       <Money amount={loan.capital} variant="display" /> capital ·{' '}
-                      {loan.weeks === 1 ? '1 week' : `${loan.weeks} weeks`} · interest{' '}
+                      {describeTerm(loan.termDays)} · interest{' '}
                       <Money amount={loan.interest} variant="display" />
                     </div>
                   </div>

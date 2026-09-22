@@ -60,6 +60,15 @@ export type LenderDetail = LenderSummary & {
    * becomes false the first time a loan is written at anything else.
    */
   rates: number[]
+  /**
+   * How many of their funding rows are on loans charging a FIXED AMOUNT of
+   * interest, which carry no rate at all and so appear nowhere in `rates`.
+   *
+   * Counted rather than dropped: without it the profile would describe a pot
+   * using only the loans that happen to have a percentage, and say nothing about
+   * the rest.
+   */
+  fixedAmountLoans: number
   /** Where this lender's money is right now: one row per loan still running. */
   fundings: LenderFunding[]
   /** Loans of theirs that have been repaid. The track record, kept forever. */
@@ -340,7 +349,10 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
     lastName: lender.lastName,
     isSelf: lender.isSelf,
     position: lenderPosition(byLender.get(lender.id) ?? EMPTY_LEDGER),
-    rates: [...new Set(fundings.map((row) => row.lenderRateBps))].sort((a, b) => a - b),
+    rates: [
+      ...new Set(fundings.map((row) => row.lenderRateBps).filter((bps) => bps !== null)),
+    ].sort((a, b) => a - b),
+    fixedAmountLoans: fundings.filter((row) => row.lenderRateBps === null).length,
     fundings: rows.filter((row) => row.state !== 'paid'),
     settled: rows.filter((row) => row.state === 'paid'),
     transactions: transactions.map((row) => ({

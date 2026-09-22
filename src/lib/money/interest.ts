@@ -15,6 +15,16 @@ import { type BasisPoints, type Centavos, BPS_DENOMINATOR, centavos, checkedProd
  * admin — not that a job wakes up every week.
  */
 
+/**
+ * How a loan charges interest. Stored on the loan, chosen per loan.
+ *
+ * WEEKLY_RATE runs the arithmetic below. FIXED_AMOUNT does not run any: the
+ * admin types the interest and the lenders' share of it, and the loan may run
+ * any number of days. Here rather than beside either one because the client form
+ * and the server queries both name it.
+ */
+export type InterestBasis = 'WEEKLY_RATE' | 'FIXED_AMOUNT'
+
 export type InterestTerms = {
   capital: Centavos
   rateBps: BasisPoints
