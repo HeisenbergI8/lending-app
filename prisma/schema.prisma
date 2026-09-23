@@ -58,6 +58,7 @@ model User {
   payments           Payment[]
   proofFiles         ProofFile[]
   loanNotes          LoanNote[]
+  pendingLoans       PendingLoan[]
 }
 
 /// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
@@ -123,6 +124,49 @@ enum BorrowerLabel {
   GOOD
   OKAY
   BAD
+}
+
+/// Someone who has ASKED to borrow, before any lender's money is behind it.
+///
+/// Deliberately not a Borrower and not a Loan. A Borrower row is a person with a
+/// track record the app counts; a request that never gets funded would sit in
+/// that list forever as somebody who has borrowed nothing, and would drag an
+/// empty track record onto the borrowers screen. So the name is held as text
+/// here, and the Borrower is created by the loan form at the moment the loan is
+/// actually made.
+///
+/// NOTHING HERE IS STORED ARITHMETIC. The interest and the total shown on the
+/// pending list are computed on read from these three columns, unlike a Loan,
+/// whose figures are fixed the day it is created. The difference is the point:
+/// a Loan's total was agreed and must not move, and a request has agreed
+/// nothing yet — change the rate and the figures should change with it.
+///
+/// No deletedAt. Turning a request down destroys the row, because there is no
+/// money history in a loan that was never made — the same reasoning as LoanNote.
+/// A request that IS funded is destroyed too, in the same transaction that
+/// writes the loan: the loan is the record from then on.
+model PendingLoan {
+  id              String    @id @default(cuid())
+  userId          String
+  firstName       String
+  lastName        String
+  capitalCentavos Int
+  /// What the borrower would be charged per week. Never null: every request is
+  /// on a weekly rate, and a request needing a fixed amount is rare enough to be
+  /// entered straight as a loan.
+  borrowerRateBps Int
+  /// Always an exact multiple of 7 — the weekly rate is a multiplier, so the
+  /// same whole-weeks rule that governs a Loan governs a request for one.
+  termDays        Int
+  /// When the money is meant to change hands, if the Admin already knows. Null
+  /// on a request entered as a plain length ("3 weeks"), which is most of them.
+  startOn         DateTime? @db.Date
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 /// Money a lender puts in or takes out. Floating funds is derived from these

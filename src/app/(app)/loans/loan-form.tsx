@@ -44,7 +44,17 @@ export type LenderOption = PersonOption & { isSelf: boolean }
 
 export type LoanFormValues = {
   loanId?: string
+  /**
+   * The pending request this loan is being made from, when the admin arrived
+   * here by converting one. Carried through as a hidden field so the action can
+   * destroy the request in the SAME transaction that writes the loan — see
+   * createLoan. Absent on an ordinary new loan and on every edit.
+   */
+  pendingId?: string
   borrowerId: string
+  /** Pre-filled only when converting a request: the name that was taken down on it. */
+  borrowerFirstName?: string
+  borrowerLastName?: string
   capital: string
   startOn: string
   dueOn: string
@@ -265,6 +275,7 @@ export function LoanForm({
   return (
     <form action={formAction} className="space-y-6">
       {initial.loanId ? <input type="hidden" name="loanId" value={initial.loanId} /> : null}
+      {initial.pendingId ? <input type="hidden" name="pendingId" value={initial.pendingId} /> : null}
 
       {/* ── Who ───────────────────────────────────────────────────────────── */}
       <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
@@ -293,11 +304,23 @@ export function LoanForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="borrowerFirstName">First name</Label>
-              <Input id="borrowerFirstName" name="borrowerFirstName" autoComplete="off" required />
+              <Input
+                id="borrowerFirstName"
+                name="borrowerFirstName"
+                autoComplete="off"
+                defaultValue={initial.borrowerFirstName}
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="borrowerLastName">Last name</Label>
-              <Input id="borrowerLastName" name="borrowerLastName" autoComplete="off" required />
+              <Input
+                id="borrowerLastName"
+                name="borrowerLastName"
+                autoComplete="off"
+                defaultValue={initial.borrowerLastName}
+                required
+              />
             </div>
           </div>
         ) : null}

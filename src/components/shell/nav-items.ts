@@ -1,5 +1,6 @@
 import {
   FileText,
+  Inbox,
   LayoutDashboard,
   Trash2,
   Users,
@@ -27,6 +28,11 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', short: 'Home', icon: LayoutDashboard, primary: true },
   { href: '/loans', label: 'Loans', short: 'Loans', icon: HandCoins, primary: true },
   { href: '/borrowers', label: 'Borrowers', short: 'People', icon: Users, primary: true },
+  // Behind "More" on a phone, not in the tab bar. Five thumb-width tabs plus
+  // More is one too many on a narrow handset, and the four that are there are
+  // the ones opened every day. On the sidebar it sits under Loans, which is
+  // where it belongs in the sequence: a request becomes a loan.
+  { href: '/pending', label: 'Pending loans', short: 'Pending', icon: Inbox, primary: false },
   { href: '/lenders', label: 'Lenders', short: 'Funds', icon: Wallet, primary: true },
   { href: '/reports', label: 'Reports', short: 'Reports', icon: FileText, primary: false },
   { href: '/deleted', label: 'Recently Deleted', short: 'Deleted', icon: Trash2, primary: false },

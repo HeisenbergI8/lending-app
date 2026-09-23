@@ -241,10 +241,17 @@ async function resolveBorrower(
  *
  * On success this redirects to the loan, which throws by design in Next, so it
  * sits outside the transaction.
+ *
+ * `pendingId` arrives when the admin got here from a pending request. The
+ * request is DESTROYED IN THIS TRANSACTION, so the loan and the disappearance
+ * of the request it came from either both happen or neither does — a loan saved
+ * while the request survived would show the same person queued for money they
+ * have already been lent.
  */
 export async function createLoan(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
+  const pendingId = text(form, 'pendingId')
   const parsed = readForm(form)
   if (!parsed.ok) return failed(parsed.error)
   const input = parsed.value
@@ -297,6 +304,13 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
           adminCutCentavos: funding.adminCut,
         })),
       })
+
+      // deleteMany, not delete: a request already converted in another tab is
+      // not an error worth undoing a good loan for. userId is in the WHERE
+      // clause because the id came off a form, which proves nothing.
+      if (pendingId) {
+        await tx.pendingLoan.deleteMany({ where: { id: pendingId, userId: user.id } })
+      }
 
       return loan.id
     })
