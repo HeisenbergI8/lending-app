@@ -189,7 +189,35 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           "of it" is load-bearing, and without it the two invite subtraction that
           lands on the right number for the wrong reason. Neither figure is in
           Floating until the loan is repaid; `pending` never is. */}
-      <StatRow>
+      {/* POT TOTAL IS NOT THE OTHER TILES ADDED UP, and it must not be, because
+          two of them overlap: `earned` is already inside `floating` (a repayment
+          puts capital and profit straight back), and it is inside "Total
+          interest" as well. Adding the four figures on this row counts it three
+          times and lands on an amount that is nobody's money.
+
+          The sum that is true is floating + out on loan + interest still to
+          come, which is `deposits - withdrawals + earned + pending` with the
+          principal cancelling out. Verified that way against the database on
+          2026-09-23: the two expressions agreed on all eight live lenders,
+          including the Admin pot, where `earned` and `pending` each carry the
+          2% cut on other funders' capital.
+
+          Read forwards, it is what Floating BECOMES once every running loan is
+          repaid and nothing further is put in or taken out. That is the bound
+          and the note says it: a loan already overdue is still counted here at
+          its full value, because this ledger has no way to write one off. It is
+          an expectation, not cash, which is why Floating stays the hero above. */}
+      <StatRow className="sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          label="Pot total"
+          value={
+            <Money
+              amount={centavos(position.floating + position.outOnLoan + position.pending)}
+              variant="display"
+            />
+          }
+          note="once every running loan is paid in full"
+        />
         <StatTile label="Out on loan" value={<Money amount={position.outOnLoan} variant="display" />} />
         <StatTile
           label="Earned"
