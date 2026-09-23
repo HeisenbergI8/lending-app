@@ -18,6 +18,7 @@ import {
 import { ActionForm } from '@/components/forms.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Money } from '@/components/money.tsx'
+import { ProofPreview } from '@/components/proof-preview.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { formatPesos } from '@/lib/money/centavos.ts'
@@ -482,24 +483,34 @@ function PaymentSection({
         <ul className="space-y-2">
           {payment.files.map((file, index) => (
             <li key={file.id} className="flex items-center gap-3 rounded-lg border p-2.5">
-              <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
-                {file.isPdf ? <FileText className="size-4" aria-hidden /> : <ImageIcon className="size-4" aria-hidden />}
-              </span>
-
-              <div className="min-w-0 flex-1 text-sm">
-                {file.url ? (
-                  // Signed, and good for a few minutes only — the bucket is
-                  // private, so there is no lasting address to leak.
-                  <a href={file.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
-                    {file.isPdf ? 'Document' : 'Screenshot'} {index + 1}
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground font-medium">
-                    {file.isPdf ? 'Document' : 'Screenshot'} {index + 1} · link unavailable
+              {file.url && !file.isPdf ? (
+                <ProofPreview
+                  url={file.url}
+                  label={`Screenshot ${index + 1}`}
+                  meta={describeBytes(file.sizeBytes)}
+                />
+              ) : (
+                <>
+                  <span className="bg-muted text-muted-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
+                    {file.isPdf ? <FileText className="size-4" aria-hidden /> : <ImageIcon className="size-4" aria-hidden />}
                   </span>
-                )}
-                <div className="text-muted-foreground text-xs">{describeBytes(file.sizeBytes)}</div>
-              </div>
+
+                  <div className="min-w-0 flex-1 text-sm">
+                    {file.url ? (
+                      // Signed, and good for a few minutes only — the bucket is
+                      // private, so there is no lasting address to leak.
+                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+                        Document {index + 1}
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground font-medium">
+                        {file.isPdf ? 'Document' : 'Screenshot'} {index + 1} · link unavailable
+                      </span>
+                    )}
+                    <div className="text-muted-foreground text-xs">{describeBytes(file.sizeBytes)}</div>
+                  </div>
+                </>
+              )}
 
               <ActionForm
                 action={deleteProof}
