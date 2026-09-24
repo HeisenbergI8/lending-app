@@ -163,6 +163,79 @@ export async function recordTransaction(_prev: FormState, form: FormData): Promi
 }
 
 /**
+ * May this much be drawn against that loan? The sentence to show, or null.
+ *
+ * ONE RULE, TWO CALLERS. Recording an advance and correcting one later have to
+ * agree about the ceiling, and two copies of it would agree only until one of
+ * them was edited. The refusals read as instructions because that is what the
+ * admin needs from a refusal: what the limit is, and where the money they are
+ * actually after can be taken from instead.
+ *
+ * `excluding` is the advance being corrected. Its own old amount has to come out
+ * of the running total before the new one is measured, or the row would be
+ * checked against itself — and re-saving an advance without touching the amount
+ * would be refused for spending money it had already spent.
+ */
+async function advanceRefusal(
+  userId: string,
+  loanId: string,
+  wanted: number,
+  excluding?: string,
+): Promise<string | null> {
+  const loan = await db.loan.findFirst({
+    where: { id: loanId, userId, deletedAt: null },
+    select: {
+      status: true,
+      fundings: {
+        select: {
+          principalCentavos: true,
+          earningsCentavos: true,
+          adminCutCentavos: true,
+          lender: { select: { isSelf: true } },
+        },
+      },
+      advances: {
+        where: { deletedAt: null, type: 'WITHDRAWAL' },
+        select: { id: true, amountCentavos: true },
+      },
+    },
+  })
+  if (!loan) return 'That loan no longer exists.'
+
+  // Nothing to be in advance OF. Once the borrower has paid, the money really is
+  // in the pot and the plain withdrawal on the Admin pot's page is the right
+  // record — this one would claim the loan still owes what it has already paid.
+  if (loan.status === 'PAID') {
+    return 'That loan has been repaid, so there is nothing to draw in advance. Record a withdrawal on the Admin pot instead.'
+  }
+
+  const stake = adminStakeInLoan(
+    loan.fundings.map((funding) => ({
+      principal: centavos(funding.principalCentavos),
+      earnings: centavos(funding.earningsCentavos),
+      adminCut: centavos(funding.adminCutCentavos),
+      isSelf: funding.lender.isSelf,
+    })),
+    centavos(
+      loan.advances
+        .filter((row) => row.id !== excluding)
+        .reduce((total, row) => total + row.amountCentavos, 0),
+    ),
+  )
+
+  if (stake.stake === 0) {
+    return 'This loan returns nothing to the Admin pot, so there is nothing to draw against it.'
+  }
+  if (wanted > stake.headroom) {
+    return stake.advanced > 0
+      ? `That is more than this loan still owes the Admin pot. ${formatPesos(stake.headroom)} is left after the ${formatPesos(stake.advanced)} already drawn.`
+      : `That is more than this loan will return to the Admin pot. ${formatPesos(stake.headroom)} is the most that can be drawn against it.`
+  }
+
+  return null
+}
+
+/**
  * Money drawn against a loan before the borrower repays it.
  *
  * AN ADVANCE IS AN ORDINARY WITHDRAWAL. It is written to the same table, it is
@@ -200,50 +273,8 @@ export async function recordAdvance(_prev: FormState, form: FormData): Promise<F
   })
   if (!admin) return failed('There is no Admin pot to draw into. Add one on the Lenders page first.')
 
-  const loan = await db.loan.findFirst({
-    where: { id: loanId, userId: user.id, deletedAt: null },
-    select: {
-      status: true,
-      fundings: {
-        select: {
-          principalCentavos: true,
-          earningsCentavos: true,
-          adminCutCentavos: true,
-          lender: { select: { isSelf: true } },
-        },
-      },
-      advances: { where: { deletedAt: null, type: 'WITHDRAWAL' }, select: { amountCentavos: true } },
-    },
-  })
-  if (!loan) return failed('That loan no longer exists.')
-
-  // Nothing to be in advance OF. Once the borrower has paid, the money really is
-  // in the pot and the plain withdrawal on the Admin pot's page is the right
-  // record — this one would claim the loan still owes what it has already paid.
-  if (loan.status === 'PAID') {
-    return failed('That loan has been repaid, so there is nothing to draw in advance. Record a withdrawal on the Admin pot instead.')
-  }
-
-  const stake = adminStakeInLoan(
-    loan.fundings.map((funding) => ({
-      principal: centavos(funding.principalCentavos),
-      earnings: centavos(funding.earningsCentavos),
-      adminCut: centavos(funding.adminCutCentavos),
-      isSelf: funding.lender.isSelf,
-    })),
-    centavos(loan.advances.reduce((total, row) => total + row.amountCentavos, 0)),
-  )
-
-  if (stake.stake === 0) {
-    return failed('This loan returns nothing to the Admin pot, so there is nothing to draw against it.')
-  }
-  if (value.value > stake.headroom) {
-    return failed(
-      stake.advanced > 0
-        ? `That is more than this loan still owes the Admin pot. ${formatPesos(stake.headroom)} is left after the ${formatPesos(stake.advanced)} already drawn.`
-        : `That is more than this loan will return to the Admin pot. ${formatPesos(stake.headroom)} is the most that can be drawn against it.`,
-    )
-  }
+  const refusal = await advanceRefusal(user.id, loanId, value.value)
+  if (refusal) return failed(refusal)
 
   await db.lenderTransaction.create({
     data: {
@@ -256,6 +287,69 @@ export async function recordAdvance(_prev: FormState, form: FormData): Promise<F
       note: note || null,
     },
   })
+
+  refresh()
+  return NO_ERROR
+}
+
+/**
+ * Correcting an entry that was typed wrong.
+ *
+ * IT EDITS THE ROW rather than deleting it and recording a fresh one, and the
+ * difference matters to the history rather than to the figures. Delete and
+ * re-add leaves a deposit sitting in Recently Deleted that the admin never
+ * really took back, so the pot appears to have had one more movement than it
+ * had. One event that was mistyped is still one event.
+ *
+ * Nothing on the lender's page stores a balance, so Floating, Pot total and the
+ * month columns are all recomputed from this row on the next read. The corrected
+ * amount cannot leave a stale figure behind anywhere.
+ *
+ * AN ADVANCE STAYS AN ADVANCE. A row drawn against a loan keeps that loan and
+ * keeps its direction — money out is what an advance IS — so the form does not
+ * offer to flip it and this ignores the field if it arrives anyway. The loan's
+ * ceiling is re-checked against the new amount, with this row's own old amount
+ * taken out of the running total first.
+ */
+export async function updateTransaction(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+
+  const id = text(form, 'transactionId')
+
+  const value = amount(form, 'amount')
+  if (!value.ok) return failed(value.error)
+
+  const occurredOn = date(form, 'occurredOn')
+  if (!occurredOn.ok) return failed(occurredOn.error)
+
+  const note = text(form, 'note')
+
+  // Scoped by userId, and `deletedAt: null` because an entry already in Recently
+  // Deleted is restored from there, not edited back into life from a stale tab.
+  const existing = await db.lenderTransaction.findFirst({
+    where: { id, userId: user.id, deletedAt: null },
+    select: { id: true, loanId: true },
+  })
+  if (!existing) return failed('That entry no longer exists.')
+
+  const type = existing.loanId ? 'WITHDRAWAL' : text(form, 'type')
+  if (type !== 'DEPOSIT' && type !== 'WITHDRAWAL') return failed('Choose money in or money out.')
+
+  if (existing.loanId) {
+    const refusal = await advanceRefusal(user.id, existing.loanId, value.value, existing.id)
+    if (refusal) return failed(refusal)
+  }
+
+  const { count } = await db.lenderTransaction.updateMany({
+    where: { id, userId: user.id },
+    data: {
+      type,
+      amountCentavos: value.value,
+      occurredOn: occurredOn.value,
+      note: note || null,
+    },
+  })
+  if (count === 0) return failed('That entry no longer exists.')
 
   refresh()
   return NO_ERROR

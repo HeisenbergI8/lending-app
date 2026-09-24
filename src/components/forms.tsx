@@ -162,6 +162,7 @@ export function ActionForm({
   pendingLabel,
   confirm,
   buttonClassName,
+  onDone,
 }: {
   action: Action
   values: Record<string, string>
@@ -178,6 +179,12 @@ export function ActionForm({
    * of it would only train the admin to dismiss dialogs without reading them.
    */
   confirm?: Confirm
+  /**
+   * Ran, and worked. For a caller holding something open around this button —
+   * a dialog whose row is about to leave the list underneath it — waiting for
+   * the unmount would leave the admin looking at a form for a row that is gone.
+   */
+  onDone?: () => void
 }) {
   const router = useRouter()
   const formRef = useRef<HTMLFormElement>(null)
@@ -194,10 +201,13 @@ export function ActionForm({
   const submit = useCallback(
     async (previous: FormState, form: FormData): Promise<FormState> => {
       const result = await action(previous, form)
-      if (result.error === null) router.refresh()
+      if (result.error === null) {
+        onDone?.()
+        router.refresh()
+      }
       return result
     },
-    [action, router],
+    [action, onDone, router],
   )
 
   const [state, formAction] = useActionState(submit, NO_ERROR)
@@ -260,6 +270,7 @@ export function FormDialog({
   submitLabel,
   openLabel,
   children,
+  aside,
   open: controlledOpen,
   onOpenChange,
 }: {
@@ -270,6 +281,15 @@ export function FormDialog({
   /** Omit when the caller supplies its own trigger and drives `open` itself. */
   openLabel?: string
   children: React.ReactNode
+  /**
+   * A second action, rendered under the form and OUTSIDE it.
+   *
+   * Outside is the whole point: a delete is its own <form>, and a form inside a
+   * form is not markup a browser will keep. It sits below the save row rather
+   * than beside it, because the one in the corner should be the one the admin
+   * came to press.
+   */
+  aside?: React.ReactNode
   /** Omit to let the dialog own its own open state; pass it to drive it from outside. */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -352,6 +372,8 @@ export function FormDialog({
             </SubmitButton>
           </div>
         </form>
+
+        {aside ? <div className="border-border mt-4 border-t pt-4">{aside}</div> : null}
       </DialogContent>
     </Dialog>
   )

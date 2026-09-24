@@ -1,8 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, HandCoins, Scissors, Trash2, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, ChevronRight, HandCoins, Scissors, TrendingUp, Wallet } from 'lucide-react'
 
-import { ActionForm } from '@/components/forms.tsx'
 import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
@@ -13,11 +12,10 @@ import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { describeTerm } from '@/lib/money/weeks.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
-import { deleteTransaction } from '@/server/lenders/actions.ts'
 import { type LenderDetail, getLender } from '@/server/lenders/queries.ts'
 
 import { LenderSettings } from './lender-settings.tsx'
-import { TransactionForm } from './transaction-form.tsx'
+import { EditTransaction, TransactionForm } from './transaction-form.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 const percent = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`
@@ -627,12 +625,27 @@ function TransactionList({
           const isDeposit = entry.type === 'DEPOSIT'
           const Icon = isDeposit ? ArrowDownLeft : ArrowUpRight
           return (
-            <li key={entry.id} className="flex items-center gap-3 p-3">
+            /* RELATIVE, because the edit trigger is a layer over the whole row
+               rather than a button at the end of it — see EditTransaction. */
+            <li
+              key={entry.id}
+              className="hover:bg-muted/40 relative flex items-center gap-3 p-3 transition-colors duration-150"
+            >
+              <EditTransaction
+                entry={{
+                  id: entry.id,
+                  type: entry.type,
+                  amount: entry.amount,
+                  occurredOn: entry.occurredOn,
+                  note: entry.note,
+                  advance: entry.against !== null,
+                }}
+              />
               <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
                 <Icon className="size-4" aria-hidden />
               </span>
               {/* AN ADVANCE SAYS SO. It is an ordinary withdrawal in every other
-                  respect — same row, same effect on floating, same delete button —
+                  respect — same row, same effect on floating, same edit dialog —
                   but it was drawn against a loan that has not been repaid, and a
                   list that called it "Money out" like the rest would leave the
                   admin no way to tell which withdrawals are already spoken for. */}
@@ -650,7 +663,12 @@ function TransactionList({
                   {entry.against ? (
                     <>
                       {' · '}
-                      <Link href={`/loans/${entry.against.loanId}`} className="hover:text-foreground underline">
+                      {/* Lifted above the edit layer covering this row. Without
+                          the z-index it is a link nothing can reach. */}
+                      <Link
+                        href={`/loans/${entry.against.loanId}`}
+                        className="hover:text-foreground relative z-10 underline"
+                      >
                         open the loan
                       </Link>
                     </>
@@ -663,21 +681,7 @@ function TransactionList({
                 className="text-sm font-semibold"
                 muted={!isDeposit}
               />
-              <ActionForm
-                action={deleteTransaction}
-                values={{ transactionId: entry.id }}
-                variant="destructive"
-                size="sm"
-                pendingLabel="Deleting…"
-                confirm={{
-                  title: 'Delete this entry?',
-                  body: "It moves to Recently Deleted and can be restored for thirty days. The lender's balance changes right away.",
-                  action: 'Delete entry',
-                }}
-              >
-                <Trash2 className="size-4" aria-hidden />
-                Delete
-              </ActionForm>
+              <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
             </li>
           )
         })}
