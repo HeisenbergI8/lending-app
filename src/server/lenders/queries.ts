@@ -30,6 +30,8 @@ export type LenderFunding = {
   borrowerName: string
   principal: Centavos
   earnings: Centavos
+  /** How long the loan runs, start to due. Days for every loan; said in weeks. */
+  termDays: number
   dueOn: Date
   /** The day the borrower repaid, on a loan that has been settled. Null while it runs. */
   paidOn: Date | null
@@ -62,6 +64,8 @@ export type AdminCutRow = {
   /** Whose capital the cut was taken on. Never the Admin's own: that row's cut is zero. */
   lenderName: string
   cut: Centavos
+  /** How long the loan runs, start to due. Days for every loan; said in weeks. */
+  termDays: number
   dueOn: Date
   paidOn: Date | null
   state: LoanState
@@ -360,6 +364,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
             id: true,
             status: true,
             dueOn: true,
+            termDays: true,
             borrower: { select: { id: true, firstName: true, lastName: true } },
             payment: { select: { paidOn: true, deletedAt: true } },
           },
@@ -408,6 +413,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
                 id: true,
                 status: true,
                 dueOn: true,
+                termDays: true,
                 borrower: { select: { firstName: true, lastName: true } },
                 payment: { select: { paidOn: true, deletedAt: true } },
               },
@@ -429,6 +435,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
     borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
     principal: centavos(row.principalCentavos),
     earnings: centavos(row.earningsCentavos),
+    termDays: row.loan.termDays,
     dueOn: row.loan.dueOn,
     paidOn: settledOn(row.loan.payment),
     state: loanState(row.loan.status, row.loan.dueOn),
@@ -465,6 +472,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
         lenderName: `${row.lender.firstName} ${row.lender.lastName}`,
         cut: centavos(row.adminCutCentavos),
+        termDays: row.loan.termDays,
         dueOn: row.loan.dueOn,
         paidOn: settledOn(row.loan.payment),
         state: loanState(row.loan.status, row.loan.dueOn),

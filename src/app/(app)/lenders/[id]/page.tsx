@@ -10,6 +10,7 @@ import { Money } from '@/components/money.tsx'
 import { Pager } from '@/components/pager.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { describeTerm } from '@/lib/money/weeks.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteTransaction } from '@/server/lenders/actions.ts'
@@ -347,8 +348,8 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      due {dateFormat.format(funding.dueOn)} · earns{' '}
-                      <Money amount={funding.earnings} variant="display" />
+                      {describeTerm(funding.termDays)} · due {dateFormat.format(funding.dueOn)} ·
+                      earns <Money amount={funding.earnings} variant="display" />
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -399,6 +400,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
+                      {describeTerm(funding.termDays)} ·{' '}
                       {funding.paidOn ? `paid ${dateFormat.format(funding.paidOn)}` : 'paid'} · earned{' '}
                       <Money amount={funding.earnings} variant="display" />
                     </div>
@@ -535,7 +537,7 @@ function CutList({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{row.borrowerName}</div>
                   <div className="text-muted-foreground mt-0.5 truncate text-xs">
-                    on {row.lenderName}&rsquo;s money ·{' '}
+                    on {row.lenderName}&rsquo;s money · {describeTerm(row.termDays)} ·{' '}
                     {row.paidOn
                       ? `paid ${dateFormat.format(row.paidOn)}`
                       : `due ${dateFormat.format(row.dueOn)}`}

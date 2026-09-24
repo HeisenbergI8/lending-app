@@ -146,17 +146,23 @@ export function describeWeeksError(error: WeeksError): string {
 /**
  * How long a loan ran, in the words the admin would use.
  *
- * Weeks where the days divide evenly, days where they do not — so a loan on the
- * usual weekly rate still reads "4 weeks" and a three-day one reads "3 days"
- * rather than "0.43 weeks". The stored column is days for every loan; this is
- * the only place that decides how to say it.
+ * WEEKS FIRST, because that is the unit every rate on this app is quoted in: a
+ * term read as "17 days" has to be divided in the head before it means anything
+ * next to "5% a week". So the weeks are named, and the remainder is added only
+ * when there is one — "2 weeks 3 days", "4 weeks", "3 days" for a loan too
+ * short to make a week at all. The stored column is days for every loan; this
+ * is the only place that decides how to say it.
  */
 export function describeTerm(days: number): string {
-  if (days % DAYS_PER_WEEK === 0) {
-    const weeks = days / DAYS_PER_WEEK
-    return weeks === 1 ? '1 week' : `${weeks} weeks`
-  }
-  return days === 1 ? '1 day' : `${days} days`
+  const weeks = Math.floor(days / DAYS_PER_WEEK)
+  const rest = days % DAYS_PER_WEEK
+
+  const weekPart = weeks === 1 ? '1 week' : `${weeks} weeks`
+  const dayPart = rest === 1 ? '1 day' : `${rest} days`
+
+  if (weeks === 0) return dayPart
+  if (rest === 0) return weekPart
+  return `${weekPart} ${dayPart}`
 }
 
 /** Why two dates do not work on a fixed-amount loan. The weekly twin is above. */
