@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { CalendarRange, Expand, FileText, Printer } from 'lucide-react'
+import { CalendarRange, Download, Expand, FileSpreadsheet, FileText, Printer } from 'lucide-react'
 
 import { IconChip } from '@/components/stat-tile.tsx'
 import { cn } from '@/lib/utils'
@@ -134,11 +134,56 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
         />
       </div>
 
+      <BackupCard />
+
       <p className="text-muted-foreground text-xs">
         Floating funds, what is still out and what a borrower owes are always as of today, whatever
         period is picked — the ledger records movements, not nightly balances.
       </p>
     </div>
+  )
+}
+
+/**
+ * The whole loan book as an Excel file, for keeping rather than for handing over.
+ *
+ * SITS OUTSIDE THE GRID, and that is the design. The four cards above are
+ * reports about a period, and this is a copy of everything — putting it among
+ * them as a fifth card would make the period bar look like it applied to it.
+ * Below the grid, with its own heading and the period ruled out in words, it
+ * reads as the different kind of thing it is.
+ *
+ * A link, not a form: there is nothing to choose. No period, no person, no
+ * preview — a spreadsheet previews itself in the program that opens it.
+ */
+function BackupCard() {
+  return (
+    <section className="bg-card flex flex-col gap-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+      <div className="flex items-start gap-3">
+        <IconChip icon={FileSpreadsheet} tint="mint" />
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight">Backup spreadsheet</h2>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            Every loan on the account in one Excel file: active, paid and pending. The period above
+            does not apply.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-auto flex flex-wrap items-center gap-3">
+        <Button asChild>
+          <a href="/api/reports/backup">
+            <Download className="size-4" aria-hidden />
+            Download Excel
+          </a>
+        </Button>
+      </div>
+
+      {/* The one exclusion worth a line on screen. What else the file does and
+          does not cover is on its own Read me sheet, which is where somebody
+          opening it six months from now will look. */}
+      <p className="text-muted-foreground text-xs">Deleted loans are not in it.</p>
+    </section>
   )
 }
 

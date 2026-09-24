@@ -268,7 +268,20 @@ Four kinds:
 - **Any date range the admin picks.**
 - Output is a **PDF, saved to the device**. The admin sends it manually (Messenger, email).
   The app does **not** send anything.
-- No printing, no spreadsheet export in MVP.
+
+### Backup spreadsheet
+
+Not a fifth report, and deliberately not on the date range above. One **Excel (.xlsx) file
+holding the whole loan book**, for the admin to download monthly and keep, so the list is not
+also kept by hand.
+
+- Every loan on the account, whenever it started: **active, paid, and pending requests.**
+- Sheets: Loans · Funding (one row per funder per loan) · Payments · Pending requests · Notes ·
+  Read me.
+- Money is written as numbers with a peso format, so columns add up in Excel.
+- **Deleted loans are not in it**, the same as every other figure in the app. They live in
+  Recently Deleted until the purge.
+- Still saved to the device. The app sends nothing.
 
 ---
 
@@ -311,7 +324,7 @@ not overlooked:
 - Automatic SMS or messages to borrowers
 - Free-text notes on profiles
 - Warning prompts before lending to a poorly-rated borrower
-- Printing · spreadsheet/CSV export · sending reports from inside the app
+- Sending reports from inside the app
 - Any borrower detail beyond first and last name
 - A manual "delete permanently now" button
 
