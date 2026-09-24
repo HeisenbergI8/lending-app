@@ -114,6 +114,19 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
   const withdrawals = lender.transactions.filter((entry) => entry.type === 'WITHDRAWAL')
   const settledEarnings = centavos(lender.settled.reduce((total, row) => total + row.earnings, 0))
 
+  /* THE PRINCIPAL ON THE "Out with" ROWS, added up. `lender.fundings` is every
+     funding row of this pot on a loan not yet repaid, so this is the same sum as
+     the "Out on loan" tile above and over exactly the same rows — reconciled
+     that way in .claude/reconciliation/lenders.md, and checked again against the
+     database on 2026-09-24.
+
+     CAPITAL ONLY. Each row prints its own "earns" beside it, but the bold figure
+     on the right of every row is the principal, and a corner total must add up
+     the column beneath it. Folding the earnings in would total no column at all.
+
+     Paged lists, whole-list sums: this counts every row, not the ten on screen. */
+  const outPrincipal = centavos(lender.fundings.reduce((total, row) => total + row.principal, 0))
+
   /* SIX LISTS, SIX PAGE NUMBERS. Every list on this page is capped at ten rows,
      each with its own key in the query string, so paging the withdrawals does
      not send the loan lists back to the top.
@@ -345,7 +358,8 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           <h2 className="text-base font-semibold tracking-tight">Out with</h2>
           {lender.fundings.length > 0 ? (
             <p className="text-muted-foreground text-xs">
-              {lender.fundings.length === 1 ? '1 loan running' : `${lender.fundings.length} loans running`}
+              {lender.fundings.length === 1 ? '1 loan running' : `${lender.fundings.length} loans running`} ·{' '}
+              <Money amount={outPrincipal} variant="display" /> out
             </p>
           ) : null}
         </div>
