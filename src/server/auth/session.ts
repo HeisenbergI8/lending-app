@@ -91,7 +91,17 @@ export async function invalidateSessionToken(token: string): Promise<void> {
     .catch(() => undefined)
 }
 
-/** Log a user out of every device. */
-export async function invalidateAllSessions(userId: string): Promise<void> {
-  await db.session.deleteMany({ where: { userId } })
+/**
+ * Log a user out of every device EXCEPT the one asking.
+ *
+ * What a password change ends. If it were changed because a phone went missing,
+ * leaving that phone's session alive would make the change pointless — the token
+ * in its cookie is what keeps it in, not the password. The browser doing the
+ * asking keeps its own row, so the admin is not signed out of the screen she is
+ * standing on.
+ */
+export async function invalidateOtherSessions(userId: string, keepToken: string): Promise<void> {
+  await db.session.deleteMany({
+    where: { userId, NOT: { id: sessionIdFromToken(keepToken) } },
+  })
 }

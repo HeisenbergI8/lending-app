@@ -73,3 +73,29 @@ export async function fakeVerifyPassword(password: string): Promise<false> {
   await scrypt(password, 'timing-equalisation-salt', KEY_LENGTH)
   return false
 }
+
+/**
+ * Is there anything wrong with the new password the admin typed? The sentence to
+ * show her, or null when there is not.
+ *
+ * Pure, and separate from the action that uses it, so the rules can be tested
+ * without a database and the action is left reading as its three real steps:
+ * who is asking, is the current password right, write the new one.
+ *
+ * Nothing is trimmed anywhere in this file. A space at the end of a password is
+ * part of the password, and quietly removing it here would make a password that
+ * cannot be typed at the sign in screen.
+ */
+export function newPasswordProblem(
+  current: string,
+  next: string,
+  confirm: string,
+): string | null {
+  if (!current || !next || !confirm) return 'Fill in all three boxes.'
+  if (next.length < MIN_PASSWORD_LENGTH) {
+    return `The new password needs at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
+  if (next !== confirm) return 'The two new password boxes do not match.'
+  if (next === current) return 'The new password is the same as the current one.'
+  return null
+}

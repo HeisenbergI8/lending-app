@@ -4,6 +4,7 @@ import {
   hashPassword,
   verifyPassword,
   fakeVerifyPassword,
+  newPasswordProblem,
 } from '../../src/server/auth/password.ts'
 
 describe('password hashing', () => {
@@ -73,5 +74,40 @@ describe('password hashing', () => {
     assert.equal(await fakeVerifyPassword('anything'), false)
     const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
     assert.ok(elapsedMs > 1, `expected real work, took ${elapsedMs}ms`)
+  })
+})
+
+describe('the rules for a new password', () => {
+  const good = 'a-long-enough-one'
+
+  test('a valid change has no problem', () => {
+    assert.equal(newPasswordProblem('old-password', good, good), null)
+  })
+
+  test('every box is required', () => {
+    assert.ok(newPasswordProblem('', good, good))
+    assert.ok(newPasswordProblem('old-password', '', ''))
+    assert.ok(newPasswordProblem('old-password', good, ''))
+  })
+
+  test('the new one must be at least eight characters', () => {
+    assert.ok(newPasswordProblem('old-password', 'short12', 'short12'))
+    assert.equal(newPasswordProblem('old-password', 'exactly8', 'exactly8'), null)
+  })
+
+  test('the confirmation must match, character for character', () => {
+    assert.ok(newPasswordProblem('old-password', good, good + ' '))
+    assert.ok(newPasswordProblem('old-password', good, good.toUpperCase()))
+  })
+
+  test('the new one must differ from the current one', () => {
+    assert.ok(newPasswordProblem(good, good, good))
+  })
+
+  test('surrounding spaces are part of the password', () => {
+    // Not trimmed anywhere in the change, so " secret123" and "secret123" are
+    // two different passwords here and at the sign in screen alike.
+    assert.equal(newPasswordProblem('old-password', ' secret123', ' secret123'), null)
+    assert.ok(newPasswordProblem('old-password', ' secret123', 'secret123'))
   })
 })

@@ -2,11 +2,17 @@
 
 import { redirect } from 'next/navigation'
 
-import { type FormState } from '@/lib/form-state.ts'
+import { type FormState, NO_ERROR, failed } from '@/lib/form-state.ts'
 
 import { db } from '../db.ts'
 import { clearSessionCookie, readSessionCookie, setSessionCookie } from './cookie.ts'
-import { fakeVerifyPassword, verifyPassword } from './password.ts'
+import { requireUser } from './guard.ts'
+import {
+  fakeVerifyPassword,
+  hashPassword,
+  newPasswordProblem,
+  verifyPassword,
+} from './password.ts'
 import {
   checkRateLimit,
   clearAttempts,
@@ -14,7 +20,7 @@ import {
   recordFailedAttempt,
 } from './rate-limit.ts'
 import { requestIp } from './request-ip.ts'
-import { createSession, invalidateSessionToken } from './session.ts'
+import { createSession, invalidateOtherSessions, invalidateSessionToken } from './session.ts'
 
 export type LoginState = {
   error: string | null
@@ -98,4 +104,57 @@ export async function logout(_state: FormState, _form: FormData): Promise<FormSt
   if (token) await invalidateSessionToken(token)
   await clearSessionCookie()
   redirect('/login')
+}
+
+/**
+ * Change the signed-in account's password.
+ *
+ * THE CURRENT PASSWORD IS ASKED FOR AGAIN even though there is already a
+ * session. A browser left open on an unlocked phone is the case this protects
+ * against, and the old password is the only evidence that the person at the
+ * keyboard is the account holder rather than whoever picked the phone up.
+ *
+ * THE DEMO ACCOUNT IS REFUSED. Its username and password are printed on the
+ * sign in screen for anyone holding the CV link, so without this refusal any
+ * visitor could change them and lock out every visitor after them. The screen
+ * says so as well, but that is a courtesy — this is the rule.
+ *
+ * Every OTHER session is dropped once the password is written. Sessions are
+ * what keep a device signed in, not the password, so a password changed because
+ * a device went missing would otherwise change nothing about that device.
+ */
+export async function changePassword(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+  if (user.isDemo) {
+    return failed('The demo account keeps the password printed on the sign in screen.')
+  }
+
+  const current = String(form.get('currentPassword') ?? '')
+  const next = String(form.get('newPassword') ?? '')
+  const confirm = String(form.get('confirmPassword') ?? '')
+
+  const problem = newPasswordProblem(current, next, confirm)
+  if (problem) return failed(problem)
+
+  const account = await db.user.findUnique({
+    where: { id: user.id },
+    select: { passwordHash: true },
+  })
+  if (!account) return failed('That account no longer exists.')
+
+  if (!(await verifyPassword(current, account.passwordHash))) {
+    return failed('The current password is not correct.')
+  }
+
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await hashPassword(next) },
+  })
+
+  // Read back rather than passed in: the token is httpOnly and the browser
+  // cannot send it up with the form even if it wanted to.
+  const token = await readSessionCookie()
+  if (token) await invalidateOtherSessions(user.id, token)
+
+  return NO_ERROR
 }

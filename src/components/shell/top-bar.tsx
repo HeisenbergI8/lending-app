@@ -1,8 +1,6 @@
-import { Cannabis, LogOut } from 'lucide-react'
+import { Cannabis } from 'lucide-react'
 
-import { Avatar } from '@/components/avatar.tsx'
-import { ActionForm } from '@/components/forms.tsx'
-import { logout } from '@/server/auth/actions.ts'
+import { AccountMenu } from './account-menu.tsx'
 
 /**
  * The bar across the top of every signed-in screen.
@@ -13,6 +11,11 @@ import { logout } from '@/server/auth/actions.ts'
  * The demo badge is not decoration: the whole point of a separate demo account
  * is that nobody mistakes sample borrowers for real ones, and the only way that
  * holds is if the distinction is visible on every screen.
+ *
+ * THE AVATAR IS THE ACCOUNT, and everything that belongs to it lives in the menu
+ * behind it rather than in the sidebar: one thing to do does not earn a section
+ * next to Loans and Borrowers. This bar is on phones too, so that menu is the
+ * way in at every width and the phone tab bar keeps the sections it had.
  */
 export function TopBar({ username, isDemo }: { username: string; isDemo: boolean }) {
   return (
@@ -38,33 +41,11 @@ export function TopBar({ username, isDemo }: { username: string; isDemo: boolean
 
         {/* The signed-in person as a chip rather than a bare word: it gives the
             bar a right-hand anchor, and the avatar is the same one their name
-            carries everywhere else in the app. */}
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className="bg-card ring-border/70 shadow-rest hidden items-center gap-2 rounded-full py-1 pr-3 pl-1 ring-1 sm:inline-flex">
-            <Avatar name={username} className="size-7 text-[0.65rem]" />
-            <span className="max-w-32 truncate text-sm font-medium">{username}</span>
-          </span>
-
-          {/* A pill, not a bare ghost link: it sits next to the name chip and
-              the two should read as one pair of controls rather than a chip
-              and a stray word. It asks first, like delete and restore do —
-              this button is next to the avatar and easy to hit by accident. */}
-          <ActionForm
-            action={logout}
-            values={{}}
-            variant="outline"
-            size="sm"
-            buttonClassName="shadow-rest gap-1.5 rounded-full px-3.5"
-            pendingLabel="Signing out…"
-            confirm={{
-              title: 'Sign out?',
-              body: 'Admin will be sent back to the sign in screen. Nothing is lost, and signing back in brings everything up again.',
-              action: 'Sign out',
-            }}
-          >
-            <LogOut className="size-4" aria-hidden />
-            <span className="sr-only sm:not-sr-only">Sign out</span>
-          </ActionForm>
+            carries everywhere else in the app. Everything belonging to the
+            account, signing out included, is behind it — one control in the
+            corner rather than two side by side. */}
+        <div className="ml-auto flex items-center">
+          <AccountMenu username={username} isDemo={isDemo} />
         </div>
       </div>
     </header>

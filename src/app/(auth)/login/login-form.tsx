@@ -3,9 +3,10 @@
 import { useActionState, useEffect, useState, useSyncExternalStore } from 'react'
 import { useFormStatus } from 'react-dom'
 
-import { Cannabis, Eye, EyeOff, LoaderCircle } from 'lucide-react'
+import { Cannabis, LoaderCircle } from 'lucide-react'
 
 import { formatCountdown } from '@/lib/countdown.ts'
+import { PasswordInput } from '@/components/password-input.tsx'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -92,7 +93,6 @@ function Lockout({ until, onDone }: { until: number; onDone: () => void }) {
 
 export function LoginForm() {
   const [state, formAction] = useActionState(login, initialState)
-  const [revealed, setRevealed] = useState(false)
 
   /**
    * The lockout, DERIVED rather than copied into state by an effect.
@@ -172,37 +172,7 @@ export function LoginForm() {
 
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            {/* The eye sits INSIDE the field rather than beside it. Beside it,
-                the control takes width from the input on a phone and reads as a
-                second thing to fill in; inside, it is plainly part of the box it
-                acts on. The field keeps padding for it at all times, so nothing
-                shifts when it appears. */}
-            <div className="relative">
-              <Input
-                id="password"
-                name="password"
-                type={revealed ? 'text' : 'password'}
-                autoComplete="current-password"
-                required
-                className="pr-11"
-              />
-              <button
-                type="button"
-                onClick={() => setRevealed((shown) => !shown)}
-                // aria-pressed rather than a changing label: the button's job is
-                // constant, and a screen reader is told its state instead of
-                // being handed a new name each time it is used.
-                aria-pressed={revealed}
-                aria-label={revealed ? 'Hide password' : 'Show password'}
-                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-0 flex w-11 cursor-pointer items-center justify-center rounded-r-lg focus-visible:ring-2 focus-visible:outline-none"
-              >
-                {revealed ? (
-                  <EyeOff className="size-4" aria-hidden />
-                ) : (
-                  <Eye className="size-4" aria-hidden />
-                )}
-              </button>
-            </div>
+            <PasswordInput id="password" name="password" autoComplete="current-password" required />
           </div>
 
           {/* Checked by default. The admin runs this on her own phone and signs
