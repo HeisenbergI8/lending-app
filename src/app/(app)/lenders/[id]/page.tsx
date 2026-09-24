@@ -223,10 +223,28 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         <StatTile
           label="Earned"
           value={<Money amount={position.earned} variant="display" />}
+          /* WHAT THIS FIGURE IS, not where the money went. It is every peso
+             of profit ever received, so it does not fall when that money goes
+             out on the next loan — and a note reading "already in floating"
+             beside a Floating tile showing zero reads as a contradiction, which
+             is the one thing a note under a money figure must never do.
+
+             SO IT NAMES NO DESTINATION AT ALL. Profit stops being "the profit"
+             the moment it lands in the pot: every peso in there is the same
+             peso. Lend half of it and neither "sitting in Floating" nor "lent
+             out again" is true, and no sum available here can tell the two
+             apart. What is always true is the thing the note exists to stop the
+             admin doing, which is adding this figure to Floating and counting
+             the same money twice.
+
+             Zero gets its own line, because a pot that has earned nothing has
+             nothing to say about. */
           note={
-            position.adminCutEarned > 0
-              ? `received, includes ${formatPesos(position.adminCutEarned)} cut from other lenders' loans`
-              : 'received, already in floating'
+            position.earned === 0
+              ? 'no profit has come back yet'
+              : position.adminCutEarned > 0
+                ? `received, includes ${formatPesos(position.adminCutEarned)} cut from other lenders' loans`
+                : 'already counted in the pot, not money on top of it'
           }
         />
         <StatTile
