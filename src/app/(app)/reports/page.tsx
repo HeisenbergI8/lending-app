@@ -14,7 +14,7 @@ import { listLenderNames } from '@/server/lenders/queries.ts'
 
 import { ReportFrame } from './report-frame.tsx'
 
-export const metadata = { title: 'Reports · Consignment Kush' }
+export const metadata = { title: 'Reports' }
 
 /**
  * Four reports, shown on the page and then printed as PDFs.

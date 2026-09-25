@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { LoginForm } from '@/app/(auth)/login/login-form.tsx'
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
-export const metadata = { title: 'Sign in · Consignment Kush' }
+export const metadata = { title: 'Sign in' }
 
 export default async function LoginPage() {
   // Someone already signed in has no business on the login screen.

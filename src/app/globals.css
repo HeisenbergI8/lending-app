@@ -64,8 +64,8 @@
    uses is what lets both systems carry meaning at once.
    ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  --brand: oklch(0.511 0.196 276.3);
-  --brand-strong: oklch(0.445 0.196 276.3);
+  --brand: oklch(0.393 0.134 260.2);
+  --brand-strong: oklch(0.327 0.134 260.2);
   --brand-foreground: oklch(0.985 0 0);
   /* A wash of the same hue, for tinted surfaces and soft badges. */
   --brand-bg: color-mix(in oklab, var(--brand) 8%, transparent);
@@ -77,25 +77,25 @@
      separation is what makes a card look like an object sitting on a surface
      rather than an outline drawn on the same sheet — the flatness that no amount
      of border tuning can fix while both are #fff. */
-  --background: oklch(0.977 0.003 275);
-  --foreground: oklch(0.155 0.012 275);
+  --background: oklch(0.977 0.003 260);
+  --foreground: oklch(0.155 0.012 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.155 0.012 275);
+  --card-foreground: oklch(0.155 0.012 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.155 0.012 275);
+  --popover-foreground: oklch(0.155 0.012 260);
   --primary: var(--brand);
   --primary-foreground: var(--brand-foreground);
-  --secondary: oklch(0.965 0.005 275);
-  --secondary-foreground: oklch(0.235 0.015 275);
-  --muted: oklch(0.965 0.005 275);
-  --muted-foreground: oklch(0.545 0.018 275);
+  --secondary: oklch(0.965 0.005 260);
+  --secondary-foreground: oklch(0.235 0.015 260);
+  --muted: oklch(0.965 0.005 260);
+  --muted-foreground: oklch(0.545 0.018 260);
   --accent: var(--brand-bg);
   --accent-foreground: var(--brand-strong);
   --destructive: oklch(0.577 0.245 27.325);
   /* Softer than the old flat grey: with real elevation doing the separating, a
      hard border competes with the shadow instead of helping it. */
-  --border: oklch(0.925 0.006 275);
-  --input: oklch(0.912 0.008 275);
+  --border: oklch(0.925 0.006 260);
+  --input: oklch(0.912 0.008 260);
   --ring: var(--brand);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -108,9 +108,14 @@
      surface pushes it back and lets the white cards beside it come forward,
      which is most of the hierarchy this app was missing. A white sidebar against
      a white page had nothing to say about what mattered. */
-  --sidebar: oklch(0.216 0.032 274);
-  --sidebar-foreground: oklch(0.93 0.012 274);
-  --sidebar-primary: var(--brand);
+  --sidebar: oklch(0.216 0.042 260);
+  --sidebar-foreground: oklch(0.93 0.012 260);
+  /* THE ACTIVE PILL IS A LIGHTER STEP OF THE BRAND, not the brand itself. The
+     mark's navy is dark by design — it has to hold white text on a white page —
+     and dropped straight onto this dark sidebar it measures 1.8:1 against the
+     surface, which is not a highlight anyone can see. Lifting it to 0.535 gives
+     3.3:1 against the sidebar and still 5.3:1 for the white label on top. */
+  --sidebar-primary: oklch(0.535 0.15 260.2);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(1 0 0 / 8%);
   --sidebar-accent-foreground: oklch(0.99 0 0);
@@ -119,26 +124,26 @@
 }
 
 .dark {
-  /* The brand lightens in the dark theme. The light-mode indigo is a 4.5:1 text
+  /* The brand lightens in the dark theme. The light-mode navy is a 9:1 text
      colour on white and a muddy, low-contrast one on a dark surface. */
-  --brand: oklch(0.672 0.166 276.3);
-  --brand-strong: oklch(0.755 0.14 276.3);
-  --brand-foreground: oklch(0.16 0.02 275);
+  --brand: oklch(0.672 0.13 260.2);
+  --brand-strong: oklch(0.755 0.11 260.2);
+  --brand-foreground: oklch(0.16 0.02 260);
   --brand-bg: color-mix(in oklab, var(--brand) 16%, transparent);
   --brand-line: color-mix(in oklab, var(--brand) 32%, transparent);
 
-  --background: oklch(0.162 0.016 275);
-  --foreground: oklch(0.975 0.004 275);
-  --card: oklch(0.212 0.021 275);
-  --card-foreground: oklch(0.975 0.004 275);
-  --popover: oklch(0.212 0.021 275);
-  --popover-foreground: oklch(0.975 0.004 275);
+  --background: oklch(0.162 0.016 260);
+  --foreground: oklch(0.975 0.004 260);
+  --card: oklch(0.212 0.021 260);
+  --card-foreground: oklch(0.975 0.004 260);
+  --popover: oklch(0.212 0.021 260);
+  --popover-foreground: oklch(0.975 0.004 260);
   --primary: var(--brand);
   --primary-foreground: var(--brand-foreground);
-  --secondary: oklch(0.272 0.023 275);
-  --secondary-foreground: oklch(0.975 0.004 275);
-  --muted: oklch(0.272 0.023 275);
-  --muted-foreground: oklch(0.715 0.02 275);
+  --secondary: oklch(0.272 0.023 260);
+  --secondary-foreground: oklch(0.975 0.004 260);
+  --muted: oklch(0.272 0.023 260);
+  --muted-foreground: oklch(0.715 0.02 260);
   --accent: var(--brand-bg);
   --accent-foreground: var(--brand-strong);
   --destructive: oklch(0.704 0.191 22.216);
@@ -150,10 +155,10 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.178 0.024 274);
-  --sidebar-foreground: oklch(0.93 0.012 274);
+  --sidebar: oklch(0.178 0.032 260);
+  --sidebar-foreground: oklch(0.93 0.012 260);
   --sidebar-primary: var(--brand);
-  --sidebar-primary-foreground: oklch(0.16 0.02 275);
+  --sidebar-primary-foreground: oklch(0.16 0.02 260);
   --sidebar-accent: oklch(1 0 0 / 8%);
   --sidebar-accent-foreground: oklch(0.99 0 0);
   --sidebar-border: oklch(1 0 0 / 9%);
@@ -224,16 +229,16 @@
    from 2009, a wide one reads as a surface slightly above the page.
 
    Tinted with the brand hue rather than pure black, because a neutral-black
-   shadow over a faintly indigo page turns grey and muddy.
+   shadow over a faintly navy page turns grey and muddy.
    ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  --shadow-color: 274 40%;
+  --shadow-color: 260 40%;
   --elevation-rest:
-    0 1px 2px -1px oklch(0.2 0.03 274 / 6%), 0 2px 8px -2px oklch(0.2 0.03 274 / 6%);
+    0 1px 2px -1px oklch(0.2 0.03 260 / 6%), 0 2px 8px -2px oklch(0.2 0.03 260 / 6%);
   --elevation-hover:
-    0 2px 4px -2px oklch(0.2 0.03 274 / 8%), 0 8px 20px -4px oklch(0.2 0.03 274 / 10%);
+    0 2px 4px -2px oklch(0.2 0.03 260 / 8%), 0 8px 20px -4px oklch(0.2 0.03 260 / 10%);
   --elevation-float:
-    0 8px 16px -6px oklch(0.2 0.03 274 / 12%), 0 20px 40px -12px oklch(0.2 0.03 274 / 16%);
+    0 8px 16px -6px oklch(0.2 0.03 260 / 12%), 0 20px 40px -12px oklch(0.2 0.03 260 / 16%);
 }
 
 .dark {
@@ -385,55 +390,106 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    THE LOADING MARK
 
-   One animation, used everywhere the app is waiting: the brand mark turning
-   inside a ring that turns the other way, with a halo breathing out behind it.
-   Two speeds in opposite directions is what stops it reading as a dead GIF —
-   the eye keeps finding new relative motion instead of locking onto one rate.
+   One animation, used everywhere the app is waiting, and the MARK ITSELF is the
+   whole of it — no tile behind it, no ring around it, no halo. The logo is three
+   shapes: the tall bar, and the two blocks stacked beside it. Each one
+   compresses away from the gap between them and springs back a beat after the
+   one to its left, so a ripple travels left to right through the shape and the
+   gap in the middle breathes open and shut.
 
-   The spin is EASED rather than linear. A linear rotation is mechanical; a
-   gentle accelerate-and-settle each revolution reads as something working
-   rather than something stuck.
+   What it replaced was a rotation applied to a tile the mark was sitting in.
+   Two separate problems. A spin is motion done TO a logo — swap in any other
+   shape and the loader is unchanged. And the tile was the same navy square that
+   already sits in the top bar and the sidebar, so the loader read as more of the
+   app's furniture instead of as something happening.
 
-   The reduced-motion rule below collapses all three to a still mark. That is
-   why every loader also prints a word — for anyone who asked the system for
-   less movement, the sentence is the whole of the signal.
+   HOW FAST IT FEELS is tuned, not left to chance. A wait feels shorter when the
+   thing you are watching never stops and never settles into one rate, so three
+   numbers below are doing that work:
+
+     THE MARK NEVER RESTS. Each part is still for the last 24% of its cycle, but
+     the last part starts 0.24s after the first — so the first part restarts on
+     the exact frame the last one lands. At no instant is the whole mark still.
+     It used to sit dead for nearly half of every cycle, and dead air in a loader
+     reads as a hang.
+
+     THE RIPPLE ACCELERATES ACROSS THE MARK. The second part starts 0.14s after
+     the first, the third only 0.10s after the second. Motion that speeds up is
+     judged faster than the same motion at a steady rate, and the ripple leaving
+     quicker than it arrived is the cheapest place in the app to spend that.
+
+     EACH PART DROPS FASTER THAN IT RETURNS. The squash is 16% of the cycle, the
+     recovery 26%. Weight falls and is lifted back; a shape that moves both ways
+     at one rate reads as a slider being dragged.
+
+   The recovery overshoots and settles (the 42% and 58% steps pass 1 and dip back
+   under). A shape that stops exactly on its mark reads as mechanical.
+
+   The reduced-motion rule above collapses it to a still mark. That is why every
+   loader also prints a word — for anyone who asked the system for less movement,
+   the sentence is the whole of the signal.
    ───────────────────────────────────────────────────────────────────────────── */
-@keyframes brand-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
-@keyframes brand-spin-reverse {
-  to {
-    transform: rotate(-360deg);
-  }
-}
-
-@keyframes brand-halo {
+/* The per-step timing functions are the point of writing this out longhand: a
+   single curve on the whole animation would ease every segment the same way,
+   and the fall and the lift are not the same gesture. */
+@keyframes pondex-part {
   0% {
-    transform: scale(0.8);
-    opacity: 0.5;
+    transform: scaleY(1);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.4);
   }
-  70%,
+  16% {
+    transform: scaleY(0.38);
+    animation-timing-function: cubic-bezier(0.1, 0.9, 0.3, 1);
+  }
+  42% {
+    transform: scaleY(1.06);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1);
+  }
+  58% {
+    transform: scaleY(0.98);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.3, 1);
+  }
+  76%,
   100% {
-    transform: scale(1.75);
-    opacity: 0;
+    transform: scaleY(1);
   }
 }
 
-/* @utility, not a bare class in @layer base. These three sit in the utilities
-   layer with Tailwind's own animate-* classes, so ordinary utility order decides
+/* @utility, not a bare class in @layer base. These sit in the utilities layer
+   with Tailwind's own animate-* classes, so ordinary utility order decides
    which wins. Declared in the base layer they would quietly lose to any utility
    that touches `animation`, from anywhere in the app. */
-@utility animate-brand-spin {
-  animation: brand-spin 1.5s cubic-bezier(0.62, 0.05, 0.35, 0.95) infinite;
+
+/* `linear` here is not the motion — every keyframe above sets its own curve and
+   overrides it. A curve on this line would fight them.
+
+   transform-box: fill-box is what makes transform-origin mean "this rect's own
+   box" instead of the whole SVG's viewport. Without it all three parts pivot
+   around the same far-away point and the shape tears apart. */
+@utility animate-pondex-part {
+  transform-box: fill-box;
+  animation: pondex-part 1s linear infinite;
 }
 
-@utility animate-brand-spin-reverse {
-  animation: brand-spin-reverse 2.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+/* The bar and the lower block sit on the floor; the upper block hangs from the
+   ceiling. Each collapses AWAY from the middle of the mark, which is what opens
+   the central gap rather than sliding the parts around inside it. */
+@utility pondex-from-bottom {
+  transform-origin: 50% 100%;
 }
 
-@utility animate-brand-halo {
-  animation: brand-halo 2s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+@utility pondex-from-top {
+  transform-origin: 50% 0%;
+}
+
+/* 0.14s, then 0.10s: the ripple crosses the mark faster than it entered it. The
+   0.24s total is also what the rest phase above is sized against — change one
+   and the mark starts standing still between cycles. */
+@utility pondex-delay-1 {
+  animation-delay: 0.14s;
+}
+
+@utility pondex-delay-2 {
+  animation-delay: 0.24s;
 }

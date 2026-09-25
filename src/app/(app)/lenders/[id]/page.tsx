@@ -302,8 +302,8 @@ function EarnedOverPeriod({
 export async function generateMetadata({ params }: PageProps<'/lenders/[id]'>) {
   const user = await requireUser()
   const lender = await getLender(user.id, (await params).id)
-  if (!lender) return { title: 'Lender · Consignment Kush' }
-  return { title: `${lender.firstName} ${lender.lastName} · Consignment Kush` }
+  if (!lender) return { title: 'Lender' }
+  return { title: `${lender.firstName} ${lender.lastName}` }
 }
 
 /**

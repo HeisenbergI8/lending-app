@@ -11,7 +11,7 @@ import { listBorrowers } from '@/server/borrowers/queries.ts'
 
 import { AddBorrower } from './add-borrower.tsx'
 
-export const metadata = { title: 'Borrowers · Consignment Kush' }
+export const metadata = { title: 'Borrowers' }
 
 /**
  * Everyone who owes, or ever did.

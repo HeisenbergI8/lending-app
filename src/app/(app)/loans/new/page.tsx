@@ -9,7 +9,7 @@ import { addDays, calendarDate, toDateInput } from '@/lib/money/weeks.ts'
 
 import { LoanForm } from '../loan-form.tsx'
 
-export const metadata = { title: 'New loan · Consignment Kush' }
+export const metadata = { title: 'New loan' }
 
 /**
  * Recording a loan.

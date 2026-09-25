@@ -15,7 +15,7 @@ import { listPendingLoans } from '@/server/pending/queries.ts'
 
 import { AddPendingLoan } from './add-pending.tsx'
 
-export const metadata = { title: 'Pending loans · Consignment Kush' }
+export const metadata = { title: 'Pending loans' }
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 

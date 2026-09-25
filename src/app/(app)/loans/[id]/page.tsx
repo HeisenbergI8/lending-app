@@ -76,7 +76,7 @@ const firstName = (name: string) => name.split(' ')[0]
 export async function generateMetadata({ params }: PageProps<'/loans/[id]'>) {
   const user = await requireUser()
   const loan = await getLoan(user.id, (await params).id)
-  return { title: loan ? `${loan.borrowerName}'s loan · Consignment Kush` : 'Loan · Consignment Kush' }
+  return { title: loan ? `${loan.borrowerName}'s loan` : 'Loan' }
 }
 
 /**

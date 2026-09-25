@@ -3,10 +3,11 @@
 import { useActionState, useEffect, useState, useSyncExternalStore } from 'react'
 import { useFormStatus } from 'react-dom'
 
-import { Cannabis, LoaderCircle } from 'lucide-react'
+import { LoaderCircle } from 'lucide-react'
 
 import { formatCountdown } from '@/lib/countdown.ts'
 import { PasswordInput } from '@/components/password-input.tsx'
+import { PondexMark } from '@/components/shell/pondex-mark.tsx'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -147,9 +148,9 @@ export function LoginForm() {
           the whole of the branding: there is no sidebar and no top bar yet. */}
       <CardHeader className="text-center">
         <div className="bg-brand text-brand-foreground shadow-float ring-brand-line mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl ring-4">
-          <Cannabis className="size-7" aria-hidden />
+          <PondexMark className="size-6" />
         </div>
-        <CardTitle className="text-2xl tracking-tight">Consignment Kush</CardTitle>
+        <CardTitle className="text-2xl tracking-tight">Pondex</CardTitle>
         <CardDescription>
           Sign in to manage lenders, borrowers and loans.
         </CardDescription>

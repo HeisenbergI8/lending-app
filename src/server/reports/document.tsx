@@ -288,7 +288,7 @@ function Shell({ header, children }: { header: ReportHeader; children: React.Rea
   return (
     <Document
       title={`${header.title}${header.subject ? ` · ${header.subject}` : ''}`}
-      author="Consignment Kush"
+      author="Pondex"
     >
       <Page size="A4" style={styles.page}>
         <View>
@@ -304,7 +304,7 @@ function Shell({ header, children }: { header: ReportHeader; children: React.Rea
         {/* Every figure carries when it was measured, because a report outlives
             the screen it came from. */}
         <View style={styles.footer} fixed>
-          <Text>Consignment Kush · prepared {stamp.format(header.generatedAt)}</Text>
+          <Text>Pondex · prepared {stamp.format(header.generatedAt)}</Text>
           <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
         </View>
       </Page>

@@ -10,7 +10,7 @@ import { listLenders } from '@/server/lenders/queries.ts'
 
 import { AddLender } from './add-lender.tsx'
 
-export const metadata = { title: 'Lenders · Consignment Kush' }
+export const metadata = { title: 'Lenders' }
 
 /**
  * Whose money is in play, and where it is.

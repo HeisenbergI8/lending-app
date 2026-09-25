@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: { default: 'Consignment Kush', template: '%s · Consignment Kush' },
+  title: { default: 'Pondex', template: '%s · Pondex' },
   description: 'Track loans, lenders and repayments.',
 }
 
@@ -31,8 +31,8 @@ export const viewport: Viewport = {
   // the app is installed this colour IS the status bar, sitting directly above
   // the page — a shade off shows as a seam across the top of the screen.
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f7f7f9' },
-    { media: '(prefers-color-scheme: dark)', color: '#0c0d15' },
+    { media: '(prefers-color-scheme: light)', color: '#f6f7f9' },
+    { media: '(prefers-color-scheme: dark)', color: '#0a0e15' },
   ],
 }
 

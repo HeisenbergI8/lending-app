@@ -8,7 +8,7 @@ import { requireUser } from '@/server/auth/guard.ts'
 
 import { ReportFrame } from '../report-frame.tsx'
 
-export const metadata = { title: 'Report preview · Consignment Kush' }
+export const metadata = { title: 'Report preview' }
 
 const one = (value: string | string[] | undefined): string =>
   (Array.isArray(value) ? value[0] : value) ?? ''

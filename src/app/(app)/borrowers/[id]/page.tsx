@@ -19,8 +19,8 @@ const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'sh
 export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
   const borrower = await getBorrower(user.id, (await params).id)
-  if (!borrower) return { title: 'Borrower · Consignment Kush' }
-  return { title: `${borrower.firstName} ${borrower.lastName} · Consignment Kush` }
+  if (!borrower) return { title: 'Borrower' }
+  return { title: `${borrower.firstName} ${borrower.lastName}` }
 }
 
 /**

@@ -14,7 +14,7 @@ import { listLoans } from '@/server/loans/queries.ts'
 
 import { LoanSearch } from './search-form.tsx'
 
-export const metadata = { title: 'Loans · Consignment Kush' }
+export const metadata = { title: 'Loans' }
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 

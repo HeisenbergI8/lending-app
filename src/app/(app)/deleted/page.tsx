@@ -20,7 +20,7 @@ import { restoreBorrower } from '@/server/borrowers/actions.ts'
 import { restoreLender, restoreTransaction } from '@/server/lenders/actions.ts'
 import { restoreLoan } from '@/server/loans/actions.ts'
 
-export const metadata = { title: 'Recently Deleted · Consignment Kush' }
+export const metadata = { title: 'Recently Deleted' }
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 

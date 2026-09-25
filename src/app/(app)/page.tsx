@@ -11,7 +11,7 @@ import { borrowerCounts, topBorrowers } from '@/server/borrowers/queries.ts'
 import { listLenders } from '@/server/lenders/queries.ts'
 import { interestSummary, overdueSummary } from '@/server/loans/queries.ts'
 
-export const metadata = { title: 'Dashboard · Consignment Kush' }
+export const metadata = { title: 'Dashboard' }
 
 /** Borrowers shown on the home screen before it stops being a glance. The rest are one tap away. */
 const SHOWN = 6

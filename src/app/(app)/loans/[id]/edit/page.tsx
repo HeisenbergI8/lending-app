@@ -9,7 +9,7 @@ import { getLoan, loanFormOptions } from '@/server/loans/queries.ts'
 
 import { LoanForm } from '../../loan-form.tsx'
 
-export const metadata = { title: 'Edit loan · Consignment Kush' }
+export const metadata = { title: 'Edit loan' }
 
 /**
  * A stored Date back into the "2026-09-21" an <input type="date"> wants.
