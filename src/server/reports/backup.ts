@@ -3,7 +3,9 @@ import { BPS_DENOMINATOR } from '../../lib/money/centavos.ts'
 import { adminTakeOnLoan } from '../../lib/money/split.ts'
 import { daysBetween, describeTerm, toDateInput } from '../../lib/money/weeks.ts'
 import { loanState } from '../../lib/loan-state.ts'
+import { type InterestCollection } from '../../lib/money/interest.ts'
 import { db } from '../db.ts'
+import { liveWeeklyPayments, settlingPayment } from '../payments/settled.ts'
 import { requestFigures } from '../pending/queries.ts'
 import { type CellValue, type Sheet, buildWorkbook, excelSerialDate } from './xlsx.ts'
 
@@ -72,17 +74,20 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
         id: true,
         capitalCentavos: true,
         interestBasis: true,
+        interestCollection: true,
         borrowerRateBps: true,
         startOn: true,
         dueOn: true,
+        nextDueOn: true,
         termDays: true,
         interestCentavos: true,
         totalCentavos: true,
         status: true,
         createdAt: true,
         borrower: { select: { firstName: true, lastName: true } },
-        payment: {
+        payments: {
           select: {
+            weekNumber: true,
             paidOn: true,
             amountCentavos: true,
             deletedAt: true,
@@ -115,10 +120,16 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
   // An undone payment is archived but still attached to its loan. Resolving it
   // once here is what keeps every sheet below agreeing about whether a loan was
   // repaid.
+  //
+  // `payment` is the SETTLING one, which is what "was this loan repaid" means.
+  // `weeklyPayments` is the interest collected week by week on a weekly loan,
+  // which is money that arrived without the loan being repaid — the Payments
+  // sheet lists both and the Loans sheet keys off the first.
   const live = loans.map((loan) => ({
     ...loan,
     borrowerName: fullName(loan.borrower),
-    payment: loan.payment?.deletedAt === null ? loan.payment : null,
+    payment: settlingPayment(loan.payments),
+    weeklyPayments: liveWeeklyPayments(loan.payments),
   }))
 
   const loanRows: CellValue[][] = live.map((loan) => {
@@ -144,12 +155,17 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
       // Overdue is ACTIVE with a due date already past — a fact about the day
       // the file was made, not a column. Recomputing it from Due tomorrow gives
       // a different answer, which is why the Read me sheet dates the file.
-      loanState(loan.status, loan.dueOn, now) === 'overdue' ? 'Yes' : null,
+      loanState(loan.status, loan.nextDueOn, now) === 'overdue' ? 'Yes' : null,
       daysLate(loan.dueOn, paidOn, now),
       pesos(centavos(loan.capitalCentavos)),
       pesos(centavos(loan.interestCentavos)),
       pesos(centavos(loan.totalCentavos)),
       loan.interestBasis === 'WEEKLY_RATE' ? 'Weekly rate' : 'Fixed amount',
+      loan.interestCollection === 'WEEKLY' ? 'Every week' : 'All at the end',
+      // Blank rather than 0 on a loan collected at the end, where the idea of a
+      // collected week does not apply. A 0 would read as a weekly loan nobody
+      // has paid yet.
+      loan.interestCollection === 'WEEKLY' ? loan.weeklyPayments.length : null,
       // Null on a fixed-amount loan, where no rate was ever agreed. Blank rather
       // than 0%, which would read as a rate somebody chose.
       rateFraction(loan.borrowerRateBps),
@@ -184,22 +200,53 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
     ]),
   )
 
-  const paymentRows: CellValue[][] = live
-    .filter((loan) => loan.payment !== null)
-    .map((loan) => {
-      const payment = loan.payment!
-      return [
-        loan.borrowerName,
-        day(payment.paidOn),
-        pesos(centavos(payment.amountCentavos)),
-        payment.proofFiles.length,
-        // The path inside the storage bucket, not a link. The file itself is
-        // never in the database and a signed link would be dead within the hour.
-        payment.proofFiles.map((proof) => proof.storagePath).join(', '),
-        day(payment.createdAt),
-        loan.id,
-      ]
-    })
+/**
+ * What a payment was, in words, for the Payments sheet.
+ *
+ * Blank on a loan collected at the end: it has exactly one payment, the sheet
+ * already names the borrower and the amount, and "Repayment" beside every row
+ * adds a column of noise.
+ *
+ * On a weekly loan the rows are otherwise indistinguishable — twenty near-equal
+ * amounts and one large one — so each says which week it was, and the settling
+ * row says it carried the capital.
+ */
+function describePayment(
+  loan: { interestCollection: InterestCollection },
+  payment: { weekNumber: number | null },
+): string | null {
+  if (loan.interestCollection !== 'WEEKLY') return null
+  return payment.weekNumber === null
+    ? 'Capital and the last week'
+    : `Week ${payment.weekNumber} interest`
+}
+
+  // ONE ROW PER PAYMENT, not per loan. A weekly loan hands over twenty of them
+  // and the sheet has to show twenty, or a column that adds up in Excel adds up
+  // to less than was received. FEATURES.md section 5.
+  //
+  // Undone payments are still excluded, the same as before: `live` above resolved
+  // the settling one to null when it was undone, and weeklyPayments carries only
+  // the live weeks.
+  const paymentRows: CellValue[][] = live.flatMap((loan) => {
+    const payments = [...loan.weeklyPayments, ...(loan.payment === null ? [] : [loan.payment])]
+
+    return payments.map((payment) => [
+      loan.borrowerName,
+      // WHAT THIS PAYMENT WAS. Blank on an ordinary loan, where there is only
+      // ever one and naming it adds nothing; on a weekly loan it is the
+      // difference between one week's interest and the capital coming back.
+      describePayment(loan, payment),
+      day(payment.paidOn),
+      pesos(centavos(payment.amountCentavos)),
+      payment.proofFiles.length,
+      // The path inside the storage bucket, not a link. The file itself is
+      // never in the database and a signed link would be dead within the hour.
+      payment.proofFiles.map((proof) => proof.storagePath).join(', '),
+      day(payment.createdAt),
+      loan.id,
+    ])
+  })
 
   const noteRows: CellValue[][] = live.flatMap((loan) =>
     loan.notes.map((note) => [loan.borrowerName, day(note.createdAt), note.body, loan.id]),
@@ -232,6 +279,8 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
         { header: 'Interest', type: 'money', width: 14 },
         { header: 'Total due', type: 'money', width: 14 },
         { header: 'Interest basis', type: 'text', width: 14 },
+        { header: 'Interest collected', type: 'text', width: 16 },
+        { header: 'Weeks collected', type: 'number', width: 14 },
         { header: 'Borrower rate a week', type: 'percent', width: 18 },
         { header: 'Start', type: 'date', width: 12 },
         { header: 'Due', type: 'date', width: 12 },
@@ -267,6 +316,7 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
       name: 'Payments',
       columns: [
         { header: 'Borrower', type: 'text', width: 22 },
+        { header: 'What was paid', type: 'text', width: 26 },
         { header: 'Paid on', type: 'date', width: 12 },
         { header: 'Amount', type: 'money', width: 14 },
         { header: 'Proof files', type: 'number', width: 10 },
@@ -320,7 +370,14 @@ function readMe(now: Date, loanCount: number, pendingCount: number): Sheet {
     ['Covers', 'Every loan on this account, whenever it started. The period on the Reports page does not apply.'],
     ['Loans sheet', `${loanCount} loans, active and paid. One row each, with the funders named.`],
     ['Funding sheet', "One row per funder per loan: their principal, their rate, what they earned, and the Admin's cut on it."],
-    ['Payments sheet', 'Repayments that stand. A payment that was undone is not here and its loan reads Active.'],
+    [
+      'Payments sheet',
+      'Every payment that stands, one row each. A loan collecting its interest weekly has one row per week plus a final one carrying the capital, so it has many rows here and one on the Loans sheet. A payment that was undone is not here and its loan reads Active.',
+    ],
+    [
+      'Weekly loans',
+      'The Admin collects the interest every week and the capital comes back on the due date, with the last week. The total is the same as it would be collecting it all at once.',
+    ],
     ['Pending requests', `${pendingCount} requests nobody has funded yet. Their interest and total are worked out at the rate stored today, not fixed.`],
     ['Notes sheet', "The Admin's own remarks on a loan. No figure anywhere adds these up."],
     ['Not included', 'Deleted loans, payments and proofs. Those sit in Recently Deleted for thirty days and then go for good.'],

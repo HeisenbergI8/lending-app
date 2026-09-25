@@ -4,11 +4,16 @@ import { randomUUID } from 'node:crypto'
 
 import { revalidatePath } from 'next/cache'
 
-import { checkProofFiles, proofStoragePath } from '../../lib/proof.ts'
+import { type Centavos, centavos } from '../../lib/money/centavos.ts'
+import { DAYS_PER_WEEK } from '../../lib/money/weeks.ts'
+import { nextUnpaidWeek, weeklySchedule } from '../../lib/money/weekly.ts'
+import { checkProofFiles } from '../../lib/proof.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, date, failed, text } from '../forms.ts'
-import { StorageUnavailable, putProof, removeProof } from '../storage/proof-bucket.ts'
+import { StorageUnavailable } from '../storage/proof-bucket.ts'
+import { SETTLING, paidWeekNumbers } from './settled.ts'
+import { type Upload, discardUploads, filesFrom, proofRows, uploadAll } from './uploads.ts'
 
 /**
  * Recording that a loan was repaid, and keeping the proof.
@@ -17,6 +22,11 @@ import { StorageUnavailable, putProof, removeProof } from '../storage/proof-buck
  * are no partial payments and no installments, so the amount is never typed. It
  * is read from the loan, which means it cannot be mistyped and cannot drift from
  * what was agreed the day the loan was created.
+ *
+ * ON A WEEKLY LOAN THIS IS FEBRUARY: the capital plus the FINAL week's interest,
+ * in one payment. The weeks before it were collected one at a time by
+ * markWeekPaid in week-actions.ts, and the final week is never collected on its
+ * own. FEATURES.md section 5.
  *
  * PROOF IS OPTIONAL BUT FLAGGED. Marking a loan paid with nothing attached is
  * allowed and shows a warning until a file arrives. Requiring the file would
@@ -28,46 +38,38 @@ function refresh(): void {
   revalidatePath('/', 'layout')
 }
 
-type Upload = { fileId: string; path: string; mimeType: string; sizeBytes: number }
+type FundingRow = { lenderId: string; earningsCentavos: number; adminCutCentavos: number }
 
 /**
- * Put the files in the bucket BEFORE anything is written to the database.
+ * What the last week of a weekly loan charges.
  *
- * The order matters. Files first means a failure leaves nothing recorded and the
- * admin simply tries again; rows first would leave a payment claiming proof that
- * is not there. Anything already uploaded when a later file fails is removed, so
- * a retry does not silently leave orphans behind in a bucket nobody looks at.
+ * The remainder of the whole split lands on this week, which is why it is read
+ * off the schedule rather than divided out here. It is also why it is safe for
+ * it to be uneven: it never travels on its own, only bundled with the capital.
  */
-async function uploadAll(userId: string, paymentId: string, files: File[]): Promise<Upload[]> {
-  const done: Upload[] = []
-  try {
-    for (const file of files) {
-      const fileId = randomUUID()
-      const path = proofStoragePath(userId, paymentId, fileId, file.type)
-      await putProof(path, await file.arrayBuffer(), file.type)
-      done.push({ fileId, path, mimeType: file.type, sizeBytes: file.size })
-    }
-    return done
-  } catch (error) {
-    await Promise.all(done.map((upload) => removeProof(upload.path).catch(() => undefined)))
-    throw error
-  }
-}
-
-/** The files on a form field, minus the empty one a file input submits when untouched. */
-function filesFrom(form: FormData, field: string): File[] {
-  return form
-    .getAll(field)
-    .filter((entry): entry is File => entry instanceof File)
-    .filter((file) => file.size > 0)
+function finalWeekInterest(fundings: FundingRow[], weeks: number): Centavos {
+  const schedule = weeklySchedule(
+    fundings.map((funding) => ({
+      lenderId: funding.lenderId,
+      earnings: centavos(funding.earningsCentavos),
+      adminCut: centavos(funding.adminCutCentavos),
+    })),
+    weeks,
+  )
+  return schedule[weeks - 1].interest
 }
 
 /**
  * Mark a loan paid, with the proof attached in the same step.
  *
- * The payment row is upserted rather than created, because undoing a payment
- * soft-deletes the row instead of destroying it and `Payment.loanId` is unique — a
- * loan marked paid, undone and paid again must reuse the row it already has.
+ * Find-then-write rather than upsert. Payment.loanId is no longer unique, so
+ * there is no single-column key to upsert on, and the composite
+ * (loanId, weekNumber) key will not take a null week. The guarantee the old
+ * unique index gave is still enforced — by the partial unique index the
+ * migration wrote — so this can still only ever touch one row.
+ *
+ * A loan marked paid, undone and paid again reuses the row it already has,
+ * along with its proof files, exactly as before.
  */
 export async function markPaid(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
@@ -82,12 +84,45 @@ export async function markPaid(_prev: FormState, form: FormData): Promise<FormSt
 
   const loan = await db.loan.findFirst({
     where: { id: loanId, userId: user.id },
-    select: { id: true, status: true, totalCentavos: true, payment: { select: { id: true } } },
+    select: {
+      id: true,
+      status: true,
+      totalCentavos: true,
+      capitalCentavos: true,
+      startOn: true,
+      dueOn: true,
+      termDays: true,
+      interestCollection: true,
+      // Every payment, not just the settling one: the guard below has to know
+      // which weeks are still owed before it lets the loan settle.
+      payments: { select: { id: true, weekNumber: true, deletedAt: true } },
+      fundings: { select: { lenderId: true, earningsCentavos: true, adminCutCentavos: true } },
+    },
   })
   if (!loan) return failed('That loan no longer exists.')
   if (loan.status === 'PAID') return failed('That loan is already marked paid.')
 
-  const paymentId = loan.payment?.id ?? randomUUID()
+  const weeks = loan.termDays / DAYS_PER_WEEK
+  let settlingAmount = centavos(loan.totalCentavos)
+
+  if (loan.interestCollection === 'WEEKLY') {
+    // SETTLING A WEEKLY LOAN WITH WEEKS STILL OWED WOULD LOSE THEM. February is
+    // also the final week, so a loan whose weeks 12 and 13 were never collected
+    // would move to PAID carrying two weeks nobody recorded — money the Admin
+    // is owed and the app would stop asking for.
+    const next = nextUnpaidWeek(loan.startOn, weeks, paidWeekNumbers(loan.payments))
+    if (next && next.week < weeks) {
+      return failed(
+        `Week ${next.week} has not been collected yet. Record every week before marking the loan paid.`,
+      )
+    }
+    // The capital plus the FINAL week's interest, in one payment. The weeks
+    // before it were already handed over. FEATURES.md section 5.
+    settlingAmount = centavos(loan.capitalCentavos + finalWeekInterest(loan.fundings, weeks))
+  }
+
+  const existing = loan.payments.find((row) => row.weekNumber === null)
+  const paymentId = existing?.id ?? randomUUID()
 
   let uploads: Upload[] = []
   try {
@@ -99,36 +134,38 @@ export async function markPaid(_prev: FormState, form: FormData): Promise<FormSt
 
   try {
     await db.$transaction(async (tx) => {
-      await tx.payment.upsert({
-        where: { loanId },
-        create: {
-          id: paymentId,
-          userId: user.id,
-          loanId,
-          paidOn: paidOn.value,
-          // Never typed. The total was fixed the day the loan was created.
-          amountCentavos: loan.totalCentavos,
-        },
-        update: { paidOn: paidOn.value, amountCentavos: loan.totalCentavos, deletedAt: null },
-      })
-
-      if (uploads.length > 0) {
-        await tx.proofFile.createMany({
-          data: uploads.map((upload) => ({
-            id: upload.fileId,
+      if (existing) {
+        await tx.payment.update({
+          where: { id: existing.id },
+          data: { paidOn: paidOn.value, amountCentavos: settlingAmount, deletedAt: null },
+        })
+      } else {
+        await tx.payment.create({
+          data: {
+            id: paymentId,
             userId: user.id,
-            paymentId,
-            storagePath: upload.path,
-            mimeType: upload.mimeType,
-            sizeBytes: upload.sizeBytes,
-          })),
+            loanId,
+            weekNumber: null,
+            paidOn: paidOn.value,
+            // Never typed. The total was fixed the day the loan was created.
+            amountCentavos: settlingAmount,
+          },
         })
       }
 
-      await tx.loan.update({ where: { id: loanId }, data: { status: 'PAID' } })
+      if (uploads.length > 0) {
+        await tx.proofFile.createMany({ data: proofRows(user.id, paymentId, uploads) })
+      }
+
+      // nextDueOn goes back to the loan's own due date once it is settled.
+      // Nothing is owed, so nothing should read as owed on an earlier day.
+      await tx.loan.update({
+        where: { id: loanId },
+        data: { status: 'PAID', nextDueOn: loan.dueOn },
+      })
     })
   } catch (error) {
-    await Promise.all(uploads.map((upload) => removeProof(upload.path).catch(() => undefined)))
+    await discardUploads(uploads)
     throw error
   }
 
@@ -136,11 +173,18 @@ export async function markPaid(_prev: FormState, form: FormData): Promise<FormSt
   return NO_ERROR
 }
 
-/** Attach proof to a payment already recorded — the usual case for "it's on my phone". */
+/**
+ * Attach proof to a payment already recorded — the usual case for "it's on my phone".
+ *
+ * `paymentId` names which payment on a weekly loan, because there are up to
+ * twenty of them. Without it this attaches to the settling payment, which is
+ * what every caller meant back when a loan had only one.
+ */
 export async function addProof(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
   const loanId = text(form, 'loanId')
+  const paymentId = text(form, 'paymentId')
   const files = filesFrom(form, 'proof')
   if (files.length === 0) return failed('Choose a file to attach.')
 
@@ -148,7 +192,9 @@ export async function addProof(_prev: FormState, form: FormData): Promise<FormSt
   if (!checked.ok) return failed(checked.error)
 
   const payment = await db.payment.findFirst({
-    where: { loanId, userId: user.id, deletedAt: null },
+    where: paymentId
+      ? { id: paymentId, userId: user.id, deletedAt: null }
+      : { loanId, userId: user.id, deletedAt: null, ...SETTLING },
     select: { id: true },
   })
   if (!payment) return failed('That payment no longer exists.')
@@ -162,18 +208,9 @@ export async function addProof(_prev: FormState, form: FormData): Promise<FormSt
   }
 
   try {
-    await db.proofFile.createMany({
-      data: uploads.map((upload) => ({
-        id: upload.fileId,
-        userId: user.id,
-        paymentId: payment.id,
-        storagePath: upload.path,
-        mimeType: upload.mimeType,
-        sizeBytes: upload.sizeBytes,
-      })),
-    })
+    await db.proofFile.createMany({ data: proofRows(user.id, payment.id, uploads) })
   } catch (error) {
-    await Promise.all(uploads.map((upload) => removeProof(upload.path).catch(() => undefined)))
+    await discardUploads(uploads)
     throw error
   }
 
@@ -210,20 +247,42 @@ export async function deleteProof(_prev: FormState, form: FormData): Promise<For
  * files. The files are left attached rather than deleted alongside: if the payment was
  * recorded in error the screenshots usually still belong to it, and the admin
  * can remove them one at a time if they do not.
+ *
+ * THE SETTLING ROW ONLY. Undoing February on a weekly loan must not quietly
+ * archive twenty collected weeks with it — that money really was received, and
+ * a week is undone one at a time by its own button.
  */
 export async function undoPayment(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
   const loanId = text(form, 'loanId')
 
-  const loan = await db.loan.findFirst({ where: { id: loanId, userId: user.id }, select: { id: true } })
+  const loan = await db.loan.findFirst({
+    where: { id: loanId, userId: user.id },
+    select: {
+      id: true,
+      startOn: true,
+      dueOn: true,
+      termDays: true,
+      interestCollection: true,
+      payments: { select: { weekNumber: true, deletedAt: true } },
+    },
+  })
   if (!loan) return failed('That loan no longer exists.')
+
+  // Back to whatever is owed next now that the settling payment is gone. On a
+  // weekly loan that is the final week; on any other it is the loan's due date.
+  const weeks = loan.termDays / DAYS_PER_WEEK
+  const nextDueOn =
+    loan.interestCollection === 'WEEKLY'
+      ? (nextUnpaidWeek(loan.startOn, weeks, paidWeekNumbers(loan.payments))?.dueOn ?? loan.dueOn)
+      : loan.dueOn
 
   await db.$transaction(async (tx) => {
     await tx.payment.updateMany({
-      where: { loanId, userId: user.id },
+      where: { loanId, userId: user.id, ...SETTLING },
       data: { deletedAt: new Date() },
     })
-    await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE' } })
+    await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE', nextDueOn } })
   })
 
   refresh()

@@ -125,8 +125,26 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
             {/* Not "owed to you": on a loan a lender funded, most of this belongs
                 to them. What is yours either way is the job of collecting it. */}
             {/* SUM("totalCentavos") over the ACTIVE loans the filter matches,
-                across every page. There are no partial payments (FEATURES §12),
-                so a loan's total IS what is still outstanding on it. */}
+                across every page, MINUS the interest already collected on the
+                weekly ones.
+
+                The subtraction is new as of 2026-09-25 and the old sentence here
+                ("a loan's total IS what is still outstanding on it") stopped
+                being true when weekly collection arrived. There are still no
+                partial payments (FEATURES §12) — but a loan collecting its
+                interest weekly has genuinely handed some of its total over
+                already, and counting that as still to come would contradict the
+                lender tiles that have already spent it.
+
+                The collected part comes from the funding rows through
+                releasedOnFunding, NOT from summing Payment.amountCentavos, so
+                this figure and every other "collected" figure in the app
+                descend from one rule. See server/payments/collected.ts.
+
+                Measured 2026-09-25: no loan on any account collects weekly yet
+                (the interestCollection column did not exist in the database at
+                that point), so the subtrahend is zero everywhere and this tile
+                reads exactly as it did before. */}
             <StatTile
               icon={HandCoins}
               tint="indigo"
@@ -164,7 +182,11 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{loan.borrowerName}</div>
                       <div className="text-muted-foreground mt-0.5 text-xs">
-                        <Money amount={loan.capital} variant="display" /> · due {dateFormat.format(loan.dueOn)}
+                        <Money amount={loan.capital} variant="display" /> ·{' '}
+                        {/* "week due" is not decoration. Without it a ₱4,200
+                            week reads exactly like a ₱144,000 capital repayment
+                            falling on the same day. */}
+                        {loan.dueIsWeekly ? 'week due' : 'due'} {dateFormat.format(loan.dueOn)}
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">

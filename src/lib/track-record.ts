@@ -13,6 +13,17 @@
 
 export type BorrowerLoanRecord = {
   status: 'ACTIVE' | 'PAID'
+  /**
+   * THE NEXT DAY MONEY IS OWED, which is Loan.nextDueOn and not always
+   * Loan.dueOn. On an ordinary loan the two are the same. On one collecting its
+   * interest weekly, the loan is late the moment a WEEK is missed rather than
+   * when the capital comes due, and a reader who passes Loan.dueOn here counts
+   * a weekly borrower as on time for four months.
+   *
+   * Both uses below are right with it. A settled loan has nextDueOn back at its
+   * own due date — markPaid writes that — so "paid late" still compares the
+   * repayment against the day the capital was actually due.
+   */
   dueOn: Date
   /** When the repayment actually arrived. Null on an active loan. */
   paidOn: Date | null

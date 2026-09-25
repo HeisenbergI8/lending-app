@@ -314,6 +314,72 @@ function Shell({ header, children }: { header: ReportHeader; children: React.Rea
 
 const money = (amount: Centavos) => formatPesos(amount)
 
+/**
+ * Weeks of interest collected, on a statement.
+ *
+ * Both statements list these, because a weekly loan is twenty events and a
+ * statement showing one repayment would describe five months of collections as
+ * nothing having happened. FEATURES.md section 5.
+ *
+ * Rendered only when there are any: a borrower with no weekly loan should not
+ * read a heading about weeks followed by "none", which invites the question of
+ * what they were supposed to have paid.
+ */
+function WeeksPaidSection({
+  weeks,
+  heading,
+  note,
+  withProof = false,
+}: {
+  weeks: {
+    borrowerName: string
+    week: number
+    paidOn: Date
+    amount: Centavos
+    proofs: { reference: string; mimeType: string; sizeBytes: number; uploadedAt: Date }[]
+    missingProof: boolean
+  }[]
+  heading: string
+  note: string
+  /** The full borrower file lists each week's evidence under its row. */
+  withProof?: boolean
+}) {
+  if (weeks.length === 0) return null
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.heading}>{heading}</Text>
+      <Table
+        columns={[
+          { key: 'borrower', label: 'Borrower', width: 34 },
+          { key: 'week', label: 'Week', width: 14 },
+          { key: 'paidOn', label: 'Collected', width: 26 },
+          { key: 'amount', label: 'Amount', width: 26, align: 'right' },
+        ]}
+        rows={weeks.map((row, index) => ({
+          key: `${row.borrowerName}-${row.week}-${index}`,
+          cells: [row.borrowerName, String(row.week), day.format(row.paidOn), money(row.amount)],
+          under: withProof ? (
+            <View>
+              {row.proofs.map((proof) => (
+                <Text key={proof.reference} style={styles.proof}>
+                  Proof: {proof.reference} · {proof.mimeType} · {describeBytes(proof.sizeBytes)} ·
+                  uploaded {day.format(proof.uploadedAt)}
+                </Text>
+              ))}
+              {row.missingProof ? (
+                <Text style={[styles.proof, styles.late]}>Collected with no proof attached.</Text>
+              ) : null}
+            </View>
+          ) : undefined,
+        }))}
+        empty=""
+      />
+      <Text style={styles.note}>{note}</Text>
+    </View>
+  )
+}
+
 function SummaryDocument({ report }: { report: SummaryReport }) {
   return (
     <Shell header={report.header}>
@@ -332,7 +398,14 @@ function SummaryDocument({ report }: { report: SummaryReport }) {
           <Figure
             label="Collected"
             value={money(report.collected)}
-            note={report.loansPaid === 1 ? '1 loan repaid' : `${report.loansPaid} loans repaid`}
+            /* NOT "N loans repaid". Since 2026-09-25 this figure also carries the
+               weeks collected on loans that are still running, and a caption
+               under a figure reads as a description of it. */
+            note={
+              report.loansPaid === 1
+                ? 'every payment received, across 1 loan repaid and any weeks collected'
+                : `every payment received, across ${report.loansPaid} loans repaid and any weeks collected`
+            }
           />
           {/* `earned` is adminTakeOnLoan summed over loans repaid in the range:
               the Admin's cut on other funders' principal, plus the INTEREST the
@@ -374,7 +447,11 @@ function SummaryDocument({ report }: { report: SummaryReport }) {
             key: `${row.borrowerName}-${index}`,
             cells: [
               row.borrowerName,
-              day.format(row.dueOn),
+              // THE DATE THIS LOAN IS LATE ON, which on a weekly loan is the
+              // missed week and not the day the capital is due. The word says
+              // which, because "was due 8 Sep" beside a ₱33,600 total otherwise
+              // reads as the whole loan having been due in September.
+              row.dueIsWeekly ? `${day.format(row.dueOn)} (week)` : day.format(row.dueOn),
               String(row.daysLate),
               money(row.total),
             ],
@@ -446,7 +523,13 @@ function AdminCutDocument({ report }: { report: AdminCutReport }) {
           <Figure
             label="Cut collected"
             value={money(report.collected)}
-            note={report.repaid.length === 1 ? 'from 1 loan repaid here' : `from ${report.repaid.length} loans repaid here`}
+            /* Also carries the cut inside each week collected here, not only the
+               cut on loans repaid here. */
+            note={
+              report.repaid.length === 1
+                ? 'from 1 loan repaid here, plus any weeks collected'
+                : `from ${report.repaid.length} loans repaid here, plus any weeks collected`
+            }
           />
         </View>
         <Text style={styles.note}>
@@ -536,7 +619,15 @@ function LenderDocument({ report }: { report: LenderReport }) {
         <View style={styles.figures}>
           <Figure label="Money in" value={money(report.putIn)} />
           <Figure label="Money out" value={money(report.tookOut)} />
-          {/* `earnedInPeriod` is this lender's own earnings on loans repaid in
+          {/* `earnedInPeriod` is this lender's own earnings inside every payment
+              received in the range — a settled loan's repayment AND each week
+              collected on a loan still running, which is money that reached them
+              without anything being repaid. It used to read loans repaid only, and
+              a statement covering five months of a weekly loan paying every week
+              reported that the reader had earned nothing.
+
+              The old note follows, because the rest of it still holds:
+              `earnedInPeriod` is this lender's own earnings on loans repaid in
               the range, plus — on the Admin pot only — the 2% cut charged on the
               other funders' share of those same loans. The cut sits on no row of
               this statement, so the note prints it rather than letting the total
@@ -546,8 +637,8 @@ function LenderDocument({ report }: { report: LenderReport }) {
             value={money(report.earnedInPeriod)}
             note={
               report.adminCutInPeriod > 0
-                ? `on loans repaid in this period, includes ${money(report.adminCutInPeriod)} cut from other lenders' loans`
-                : 'on loans repaid in this period'
+                ? `on every payment received in this period, includes ${money(report.adminCutInPeriod)} cut from other lenders' loans`
+                : 'on every payment received in this period'
             }
           />
         </View>
@@ -629,6 +720,12 @@ function LenderDocument({ report }: { report: LenderReport }) {
           Capital and earnings both return to floating funds when a loan is repaid.
         </Text>
       </View>
+
+      <WeeksPaidSection
+        weeks={report.weeksPaid}
+        heading="Weekly interest collected in this period"
+        note="On loans still running. The capital on these stays out until the loan is repaid, and each week's share reached floating funds the day it was collected."
+      />
     </Shell>
   )
 }
@@ -712,6 +809,13 @@ function BorrowerDocument({ report }: { report: BorrowerReport }) {
           </Text>
         ) : null}
       </View>
+
+      <WeeksPaidSection
+        weeks={report.weeksPaid}
+        heading="Weekly interest paid in this period"
+        note="Interest on a loan that is still running. The capital on it comes back on the due date, with the last week."
+        withProof={withProof}
+      />
     </Shell>
   )
 }

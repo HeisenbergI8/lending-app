@@ -428,18 +428,43 @@ export type AdminStake = {
   stake: Centavos
   /** Already drawn against it. */
   advanced: Centavos
+  /**
+   * Of the stake, what has ALREADY been paid into the pot by weeks collected on
+   * a loan that collects its interest weekly. Zero on every other loan.
+   */
+  released: Centavos
   /** What is left to draw. Never negative. */
   headroom: Centavos
 }
 
+/**
+ * `released` is the half a weekly loan adds, and leaving it out lets the Admin
+ * draw the same money twice. The stake is everything the loan returns to the
+ * pot; on a weekly loan part of that has already BEEN returned, week by week,
+ * and is sitting in floating where it can be spent directly. Counting it in the
+ * headroom as well would offer it a second time as an advance against a loan
+ * that has already paid it.
+ *
+ * IT HAS NO DEFAULT, deliberately. It had one for a few hours on 2026-09-25 and
+ * that was the whole bug: the display path passed it, the path that actually
+ * REFUSES an over-draw did not, and a defaulted zero meant the compiler said
+ * nothing. Pass centavos(0) explicitly on a loan collected at the end — the
+ * typing is the point.
+ */
 export function adminStakeInLoan(
   fundings: { principal: Centavos; adminCut: Centavos; earnings: Centavos; isSelf: boolean }[],
   advanced: Centavos,
+  released: Centavos,
 ): AdminStake {
   const stake = centavos(
     adminTakeOnLoan(fundings) +
       fundings.reduce((total, funding) => total + (funding.isSelf ? funding.principal : 0), 0),
   )
 
-  return { stake, advanced, headroom: centavos(Math.max(0, stake - advanced)) }
+  return {
+    stake,
+    advanced,
+    released,
+    headroom: centavos(Math.max(0, stake - advanced - released)),
+  }
 }

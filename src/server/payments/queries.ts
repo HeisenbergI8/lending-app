@@ -1,5 +1,6 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { db } from '../db.ts'
+import { SETTLING } from './settled.ts'
 import { signProof, storageConfigured } from '../storage/proof-bucket.ts'
 
 /**
@@ -26,9 +27,23 @@ export type PaymentView = {
   files: ProofFileView[]
 }
 
+/**
+ * The payment that SETTLED a loan, with its proof. Null while it is running.
+ *
+ * `...SETTLING` is load-bearing and was not needed before weekly loans. Without
+ * it this is a findFirst over up to twenty rows with no ordering, so the loan
+ * page would show whichever one Postgres handed back — a weekly instalment
+ * sitting where the settlement belongs. Every loan made before this feature has
+ * exactly one payment, so no test written before it could catch this.
+ *
+ * It is also what keeps the signing cheap. A weekly loan's twenty payments can
+ * carry forty files between them, and minting forty signed links on one render
+ * is not what the comment below means by "a handful". A week's own proof is
+ * fetched when that week is opened; the schedule only carries a flag.
+ */
 export async function paymentForLoan(userId: string, loanId: string): Promise<PaymentView | null> {
   const payment = await db.payment.findFirst({
-    where: { loanId, userId, deletedAt: null },
+    where: { loanId, userId, deletedAt: null, ...SETTLING },
     select: {
       paidOn: true,
       amountCentavos: true,

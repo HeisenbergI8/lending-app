@@ -63,8 +63,12 @@ export default async function EditLoanPage({ params }: PageProps<'/loans/[id]/ed
           borrowerId: loan.borrowerId,
           capital: pesosForInput(loan.capital),
           startOn: forInput(loan.startOn),
-          dueOn: forInput(loan.dueOn),
+          // capitalDueOn, NOT loan.dueOn. On a weekly loan the latter is the
+          // next unpaid week, and prefilling the edit form with it would
+          // silently reprice the loan the first time the Admin pressed Save.
+          dueOn: forInput(loan.capitalDueOn),
           interestBasis: loan.interestBasis,
+          interestCollection: loan.interestCollection,
           borrowerRate: onARate && loan.borrowerRateBps !== null ? String(loan.borrowerRateBps / 100) : '',
           adminCut: onARate ? String(adminCutBps / 100) : '',
           fixedInterest: onARate ? '' : pesosForInput(loan.interest),

@@ -2,7 +2,10 @@ import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
 import { type TrackRecord, trackRecord } from '../../lib/track-record.ts'
 import { PAGE_SIZE, type PageWindow } from '../../lib/pagination.ts'
+import { type InterestCollection } from '../../lib/money/interest.ts'
 import { db } from '../db.ts'
+import { sumReleased } from '../payments/collected.ts'
+import { settledOn, settlingPayment } from '../payments/settled.ts'
 
 /**
  * Reading borrowers and their history.
@@ -70,12 +73,23 @@ const SUMMARY_ROW = {
   loans: {
     where: { deletedAt: null },
     select: {
+      id: true,
       status: true,
       dueOn: true,
+      nextDueOn: true,
+      termDays: true,
+      interestCollection: true,
       totalCentavos: true,
       // deletedAt comes back so an UNDONE payment can be dropped: the loan is
       // running again, and it must not count as paid in the track record.
-      payment: { select: { paidOn: true, deletedAt: true } },
+      // weekNumber narrows to the SETTLING payment: a collected week is a real
+      // payment and does not mean the loan was repaid.
+      payments: { select: { paidOn: true, deletedAt: true, weekNumber: true, amountCentavos: true } },
+      // The stored split, for the weeks already collected on a weekly loan.
+      // What a borrower still owes is their total MINUS those weeks, and the
+      // figure comes from the funding rows for the reason collected.ts gives:
+      // one rule behind every "collected" figure in the app.
+      fundings: { select: { earningsCentavos: true, adminCutCentavos: true } },
     },
   },
 } as const
@@ -86,18 +100,51 @@ type SummaryRow = {
   lastName: string
   manualLabel: BorrowerLabel | null
   loans: {
+    id: string
     status: 'ACTIVE' | 'PAID'
     dueOn: Date
+    /** The next day money is owed. Loan.dueOn at the end, the earliest unpaid week when weekly. */
+    nextDueOn: Date
+    termDays: number
+    interestCollection: InterestCollection
     totalCentavos: number
-    payment: { paidOn: Date; deletedAt: Date | null } | null
+    payments: { paidOn: Date; deletedAt: Date | null; weekNumber: number | null; amountCentavos: number }[]
+    fundings: { earningsCentavos: number; adminCutCentavos: number }[]
   }[]
+}
+
+/**
+ * What a borrower still owes across their running loans.
+ *
+ * The totals, minus the weeks already collected on the weekly ones. A loan
+ * fifteen weeks in has had fifteen weeks of interest handed over, and counting
+ * that as still to come would contradict the lender tiles that already spent it.
+ */
+function stillOwed(loans: SummaryRow['loans']): Centavos {
+  const active = loans.filter((loan) => loan.status === 'ACTIVE')
+  const totals = active.reduce((sum, loan) => sum + loan.totalCentavos, 0)
+
+  const weekly = active.filter((loan) => loan.interestCollection === 'WEEKLY')
+  const collected = sumReleased(
+    weekly.flatMap((loan) =>
+      loan.fundings.map((funding) => ({ ...funding, loan: { id: loan.id, termDays: loan.termDays } })),
+    ),
+    weekly.flatMap((loan) =>
+      loan.payments
+        .filter((payment) => payment.deletedAt === null)
+        .map((payment) => ({ loanId: loan.id, weekNumber: payment.weekNumber })),
+    ),
+  )
+
+  return centavos(totals - collected)
 }
 
 function toSummary(borrower: SummaryRow): BorrowerSummary {
   const loans = borrower.loans.map((loan) => ({
     status: loan.status,
-    dueOn: loan.dueOn,
-    paidOn: loan.payment?.deletedAt === null ? loan.payment.paidOn : null,
+    // The next owed date, not the capital date — see BorrowerLoanRecord.
+    dueOn: loan.nextDueOn,
+    paidOn: settledOn(loan.payments),
   }))
 
   return {
@@ -106,17 +153,13 @@ function toSummary(borrower: SummaryRow): BorrowerSummary {
     lastName: borrower.lastName,
     label: borrower.manualLabel,
     record: trackRecord(loans),
-    outstanding: centavos(
-      borrower.loans
-        .filter((loan) => loan.status === 'ACTIVE')
-        .reduce((sum, loan) => sum + loan.totalCentavos, 0),
-    ),
+    outstanding: stillOwed(borrower.loans),
     // Overdue is ACTIVE with dueOn before today — derived here from the rows
     // already fetched rather than by a second query. `trackRecord` counts the
     // same loans; this sums what they are worth.
     overdueOutstanding: centavos(
       borrower.loans
-        .filter((loan) => loanState(loan.status, loan.dueOn) === 'overdue')
+        .filter((loan) => loanState(loan.status, loan.nextDueOn) === 'overdue')
         .reduce((sum, loan) => sum + loan.totalCentavos, 0),
     ),
   }
@@ -267,13 +310,18 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
           totalCentavos: true,
           interestCentavos: true,
           termDays: true,
+          interestCollection: true,
           startOn: true,
           dueOn: true,
+          nextDueOn: true,
           status: true,
-          payment: {
+          payments: {
             select: {
+              id: true,
+              weekNumber: true,
               paidOn: true,
               deletedAt: true,
+              amountCentavos: true,
               proofFiles: { where: { deletedAt: null }, select: { id: true } },
             },
           },
@@ -281,6 +329,9 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
             select: {
               lenderId: true,
               principalCentavos: true,
+              // The stored split, for the weeks already collected — see stillOwed.
+              earningsCentavos: true,
+              adminCutCentavos: true,
               lender: { select: { firstName: true, lastName: true, isSelf: true } },
             },
           },
@@ -290,10 +341,12 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
   })
   if (!borrower) return null
 
-  // An undone payment is soft-deleted rather than destroyed, and Prisma cannot
-  // filter a to-one relation in a select — so it is dropped here.
-  const livePayment = <T extends { deletedAt: Date | null }>(loan: { payment: T | null }): T | null =>
-    loan.payment?.deletedAt === null ? loan.payment : null
+  // The settling payment, live only. An undone payment is soft-deleted rather
+  // than destroyed, so it is still attached to its loan; and on a weekly loan
+  // the array also carries collected weeks, which are not the repayment.
+  const livePayment = <T extends { deletedAt: Date | null; weekNumber: number | null }>(loan: {
+    payments: T[]
+  }): T | null => settlingPayment(loan.payments)
 
   const loans: BorrowerLoan[] = borrower.loans.map((loan) => ({
     id: loan.id,
@@ -303,7 +356,7 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     termDays: loan.termDays,
     startOn: loan.startOn,
     dueOn: loan.dueOn,
-    state: loanState(loan.status, loan.dueOn),
+    state: loanState(loan.status, loan.nextDueOn),
     paidOn: livePayment(loan)?.paidOn ?? null,
     missingProof: livePayment(loan) !== null && livePayment(loan)!.proofFiles.length === 0,
     funders: loan.fundings.map((funding) => ({
@@ -321,15 +374,12 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     record: trackRecord(
       borrower.loans.map((loan) => ({
         status: loan.status,
-        dueOn: loan.dueOn,
+        // The next owed date, not the capital date — see BorrowerLoanRecord.
+        dueOn: loan.nextDueOn,
         paidOn: livePayment(loan)?.paidOn ?? null,
       })),
     ),
-    outstanding: centavos(
-      borrower.loans
-        .filter((loan) => loan.status === 'ACTIVE')
-        .reduce((sum, loan) => sum + loan.totalCentavos, 0),
-    ),
+    outstanding: stillOwed(borrower.loans),
     // Same split as the list: `loans` above already carries each loan's state,
     // so this reuses that rather than re-deriving overdue from the dates twice.
     overdueOutstanding: centavos(

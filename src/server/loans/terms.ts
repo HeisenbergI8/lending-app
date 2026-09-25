@@ -1,5 +1,5 @@
 import { type BasisPoints, type Centavos, parsePesos } from '../../lib/money/centavos.ts'
-import { type InterestBasis } from '../../lib/money/interest.ts'
+import { type InterestBasis, type InterestCollection } from '../../lib/money/interest.ts'
 import {
   type FixedSplitError,
   type FundingError,
@@ -8,8 +8,10 @@ import {
   splitLoan,
 } from '../../lib/money/split.ts'
 import { type Result, ok, err } from '../../lib/money/result.ts'
+import { MIN_WEEKLY_WEEKS } from '../../lib/money/weekly.ts'
 import {
   DAYS_PER_WEEK,
+  addDays,
   describeTermError,
   describeWeeksError,
   termDaysBetween,
@@ -48,7 +50,7 @@ export type FunderInput = {
   principal: Centavos
 }
 
-export type { InterestBasis }
+export type { InterestBasis, InterestCollection }
 
 /**
  * How this loan charges interest, with the figures that go with it.
@@ -66,6 +68,12 @@ export type LoanInput = {
   startOn: Date
   dueOn: Date
   interest: InterestInput
+  /**
+   * Whether the interest is collected weekly or all at the end. Read from the
+   * form, defaulted by the caller, and refused below on a loan that cannot
+   * carry it.
+   */
+  collection: InterestCollection
   funders: FunderInput[]
 }
 
@@ -87,6 +95,15 @@ export type LoanTermsResult = {
   termDays: number
   interest: Centavos
   total: Centavos
+  /**
+   * The next day money is owed. On an AT_END loan it is the due date; on a
+   * WEEKLY loan, one week after the start, because a new loan has no paid weeks.
+   *
+   * Computed here rather than in the action so that the one rule deciding
+   * Loan.nextDueOn lives beside the one deciding termDays — two answers about
+   * the same pair of dates, from the same place.
+   */
+  nextDueOn: Date
   split: Split
   fundings: FundingTerms[]
 }
@@ -144,6 +161,14 @@ function weeklyRateTerms(
   const weeks = weeksBetween(startOn, dueOn)
   if (!weeks.ok) return err(describeWeeksError(weeks.error))
 
+  // A one-week loan collected weekly is a one-week loan. Its single instalment
+  // would fall on the due date and carry the capital with it, which is the
+  // ordinary loan the app already makes — so this is refused as a mistake
+  // rather than accepted as a second way to spell the same thing.
+  if (input.collection === 'WEEKLY' && weeks.value < MIN_WEEKLY_WEEKS) {
+    return err('A loan collected weekly runs at least two weeks. This one is one week.')
+  }
+
   const split = splitLoan({
     capital,
     borrowerRateBps,
@@ -157,8 +182,14 @@ function weeklyRateTerms(
   if (!split.ok) return err(describeSplitError(split.error, capital))
 
   return ok(
-    assemble(split.value, weeks.value * DAYS_PER_WEEK, funders, (funder) =>
-      ratesFor(funder, borrowerRateBps, adminCutBps),
+    assemble(
+      split.value,
+      weeks.value * DAYS_PER_WEEK,
+      funders,
+      (funder) => ratesFor(funder, borrowerRateBps, adminCutBps),
+      // A brand new weekly loan owes its first week one week after it started.
+      // Nothing is paid yet, so there is no schedule to consult.
+      input.collection === 'WEEKLY' ? addDays(startOn, DAYS_PER_WEEK) : dueOn,
     ),
   )
 }
@@ -168,6 +199,13 @@ function fixedAmountTerms(
   amounts: Extract<InterestInput, { basis: 'FIXED_AMOUNT' }>,
 ): Result<LoanTermsResult, string> {
   const { capital, startOn, dueOn, funders } = input
+
+  // FEATURES.md section 5: only a weekly-rate loan can be weekly-collected. A
+  // fixed amount has no week count to instal against, and the whole-weeks rule
+  // that guarantees the schedule divides evenly does not apply to it.
+  if (input.collection === 'WEEKLY') {
+    return err('A loan charging a fixed amount of interest cannot be collected weekly.')
+  }
 
   const termDays = termDaysBetween(startOn, dueOn)
   if (!termDays.ok) return err(describeTermError(termDays.error))
@@ -186,7 +224,9 @@ function fixedAmountTerms(
 
   // No rate was used, so none is recorded. See InterestInput for why this is
   // null rather than zero.
-  return ok(assemble(split.value, termDays.value, funders, () => ({ lenderRateBps: null, adminCutBps: null })))
+  return ok(
+    assemble(split.value, termDays.value, funders, () => ({ lenderRateBps: null, adminCutBps: null }), dueOn),
+  )
 }
 
 /**
@@ -200,6 +240,7 @@ function assemble(
   termDays: number,
   funders: FunderInput[],
   ratesOf: (funder: FunderInput) => { lenderRateBps: BasisPoints | null; adminCutBps: BasisPoints | null },
+  nextDueOn: Date,
 ): LoanTermsResult {
   const byLender = new Map(split.lenders.map((share) => [share.lenderId, share]))
 
@@ -207,6 +248,7 @@ function assemble(
     termDays,
     interest: split.totalInterest,
     total: split.borrowerTotal,
+    nextDueOn,
     split,
     fundings: funders.map((funder) => {
       const share = byLender.get(funder.lenderId)

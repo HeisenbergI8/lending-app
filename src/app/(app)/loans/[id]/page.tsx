@@ -33,6 +33,8 @@ import { paymentForLoan } from '@/server/payments/queries.ts'
 import { AdvanceForm } from './advance-form.tsx'
 import { NoteForm } from './note-form.tsx'
 import { AddProofForm, MarkPaidPanel } from './payment-panel.tsx'
+import { ConvertToWeekly } from './convert-to-weekly.tsx'
+import { WeeklySchedule } from './weekly-schedule.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 // A note is often several in one day, so it carries the time as well as the date.
@@ -115,7 +117,10 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
               <LoanStatusBadge state={loan.state} />
             </div>
             <p className="text-muted-foreground text-sm">
-              {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.dueOn)} ·{' '}
+              {/* capitalDueOn, never loan.dueOn. On a weekly loan the latter is
+                  the next unpaid WEEK, and this line is the term that was
+                  agreed — FEATURES.md section 5 puts the capital date here. */}
+              {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.capitalDueOn)} ·{' '}
               {describeTerm(loan.termDays)} · {chargeNote(loan)}
             </p>
           </div>
@@ -196,10 +201,31 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
 
       {/* Paying is the one thing this page is for once a loan is running, so it
           sits above the funding breakdown rather than under it. */}
+      {/* The schedule sits ABOVE mark-as-paid on a weekly loan, because
+          collecting a week is the thing the Admin comes here to do twenty times
+          and settling it is the thing they do once. */}
+      {loan.interestCollection === 'WEEKLY' && !paid ? <WeeklySchedule loan={loan} /> : null}
+
+      {/* Switching a loan that was not created weekly. Offered only when the
+          server would accept it, so the button never leads to a refusal. */}
+      {loan.convertible ? (
+        <ConvertToWeekly
+          loanId={loan.id}
+          weeks={loan.convertible.weeks}
+          weeklyAmount={formatPesos(loan.convertible.weeklyInterest)}
+          capitalDueOn={loan.capitalDueOn}
+          weekDates={loan.convertible.weekDates}
+        />
+      ) : null}
+
       {paid ? (
         <PaymentSection loanId={loan.id} payment={payment} missingProof={loan.missingProof} />
       ) : (
-        <MarkPaidPanel loanId={loan.id} total={formatPesos(loan.total)} />
+        <MarkPaidPanel
+          loanId={loan.id}
+          total={formatPesos(loan.interestCollection === 'WEEKLY' ? loan.weeklyOutstanding : loan.total)}
+          weekly={loan.interestCollection === 'WEEKLY'}
+        />
       )}
 
       {/* DRAWING EARLY ON WHAT THIS LOAN WILL RETURN. Rendered only when there

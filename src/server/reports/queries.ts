@@ -5,6 +5,9 @@ import { type TrackRecord, trackRecord } from '../../lib/track-record.ts'
 import { type LenderPosition } from '../../lib/money/floating.ts'
 import { adminTakeOnLoan } from '../../lib/money/split.ts'
 import { db } from '../db.ts'
+import { adminShareOf, weeksCollectedIn } from '../payments/collected.ts'
+import { adminTakeIn, cashIn, lenderTakeIn, paymentsReceivedIn } from '../payments/received.ts'
+import { SETTLING, settledOn, settlingPayment } from '../payments/settled.ts'
 import { getLender, listLenders } from '../lenders/queries.ts'
 
 /**
@@ -67,8 +70,17 @@ export type ReportPreview = {
 export type OverdueRow = {
   borrowerName: string
   total: Centavos
+  /**
+   * THE DATE THAT MADE IT LATE, which on a weekly loan is the missed WEEK and
+   * not the day the capital is due. Printing the capital date here gave Rico
+   * Mendoza "Jan 19, 2027 · 116 days late" on a report — a date in the future
+   * beside a negative count, on a document somebody reads.
+   */
   dueOn: Date
+  /** Days past `dueOn` above. Never negative: an overdue loan is late by definition. */
   daysLate: number
+  /** True when the date above is a missed week rather than the loan's own due date. */
+  dueIsWeekly: boolean
 }
 
 export type SummaryReport = {
@@ -169,6 +181,11 @@ export type LenderReport = {
   funded: LenderLoanRow[]
   /** Loans of theirs repaid during the period, and what those earned them. */
   repaid: LenderLoanRow[]
+  /**
+   * Weeks of interest collected during the period, on loans still running.
+   * Empty unless the reader's money is in a loan that collects weekly.
+   */
+  weeksPaid: WeekPaidRow[]
   earnedInPeriod: Centavos
   /**
    * The slice of `earnedInPeriod` that is the admin's 2% cut on OTHER funders'
@@ -187,6 +204,34 @@ export type ProofRow = {
   mimeType: string
   sizeBytes: number
   uploadedAt: Date
+}
+
+/**
+ * One week of interest collected, on a statement.
+ *
+ * Both the lender's statement and the borrower's list these now, because a
+ * weekly loan is twenty events rather than one and a statement showing a single
+ * repayment would describe five months of collections as nothing having
+ * happened. FEATURES.md section 5.
+ */
+export type WeekPaidRow = {
+  borrowerName: string
+  week: number
+  paidOn: Date
+  /** The whole week's interest on a borrower's statement; the reader's share on a lender's. */
+  amount: Centavos
+  /**
+   * The proof attached to this week, on the full borrower FILE only. Empty
+   * everywhere else, and empty on a week collected with nothing attached.
+   *
+   * The file is the artefact handed over as evidence, so a weekly loan's twenty
+   * weeks of screenshots have to be in it. Listing only the settling payment's
+   * proof would hand somebody a file that looks like five months of unevidenced
+   * collections.
+   */
+  proofs: ProofRow[]
+  /** A collected week with nothing attached. Flagged on the file, never blocked. */
+  missingProof: boolean
 }
 
 export type BorrowerLoanRow = {
@@ -212,6 +257,8 @@ export type BorrowerReport = {
   label: 'GOOD' | 'OKAY' | 'BAD' | null
   record: TrackRecord
   loans: BorrowerLoanRow[]
+  /** Weeks of interest this borrower handed over during the period. */
+  weeksPaid: WeekPaidRow[]
   borrowedInPeriod: Centavos
   paidInPeriod: Centavos
   /** As of today, across every loan — not only the ones in this range. */
@@ -284,7 +331,7 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
   const period = rangeFilter(range)
   const now = new Date()
 
-  const [made, paid, active, lenders] = await Promise.all([
+  const [made, paid, active, lenders, received] = await Promise.all([
     db.loan.findMany({
       where: { userId, deletedAt: null, startOn: period },
       select: { capitalCentavos: true, interestCentavos: true, startOn: true },
@@ -295,7 +342,11 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
         userId,
         deletedAt: null,
         status: 'PAID',
-        payment: { deletedAt: null, paidOn: period },
+        // payments/some, NOT payment. weekNumber: null is load-bearing: without
+        // it, a loan whose week 3 was collected in March reads as REPAID in
+        // March. The partial unique index means at most one row matches, so
+        // `some` and the old to-one ask the same question.
+        payments: { some: { weekNumber: null, deletedAt: null, paidOn: period } },
       },
       select: {
         totalCentavos: true,
@@ -313,36 +364,37 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
       select: {
         totalCentavos: true,
         dueOn: true,
+        nextDueOn: true,
+        interestCollection: true,
         borrower: { select: { firstName: true, lastName: true } },
       },
       orderBy: { dueOn: 'asc' },
     }),
     listLenders(userId),
+    // EVERY PAYMENT RECEIVED IN THE PERIOD — collected weeks and settlements
+    // alike. Not "loans repaid in the period", which on a weekly loan counts
+    // nineteen weeks that were handed over months earlier and, if they also fell
+    // in this period, counts them twice. See payments/received.ts.
+    paymentsReceivedIn(userId, period),
   ])
 
-  // The admin's take on a repaid loan comes from the same rule the loan screen
-  // uses — see adminTakeOnLoan. A report must not be a second opinion.
-  const earned = sum(
-    paid.map((loan) =>
-      adminTakeOnLoan(
-        loan.fundings.map((funding) => ({
-          adminCut: centavos(funding.adminCutCentavos),
-          earnings: centavos(funding.earningsCentavos),
-          isSelf: funding.lender.isSelf,
-        })),
-      ),
-    ),
-  )
-
   const overdue: OverdueRow[] = active
-    .filter((loan) => loanState('ACTIVE', loan.dueOn, now) === 'overdue')
+    .filter((loan) => loanState('ACTIVE', loan.nextDueOn, now) === 'overdue')
     .map((loan) => ({
       borrowerName: fullName(loan.borrower),
       total: centavos(loan.totalCentavos),
-      dueOn: loan.dueOn,
+      // nextDueOn, the date this loan is actually late on. The filter above
+      // already reads it; printing loan.dueOn beside it is what produced a
+      // future date and a negative day count on the same row.
+      dueOn: loan.nextDueOn,
+      dueIsWeekly: loan.interestCollection === 'WEEKLY',
       daysLate: Math.round(
         (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
-          new Date(loan.dueOn.getFullYear(), loan.dueOn.getMonth(), loan.dueOn.getDate()).getTime()) /
+          new Date(
+            loan.nextDueOn.getFullYear(),
+            loan.nextDueOn.getMonth(),
+            loan.nextDueOn.getDate(),
+          ).getTime()) /
           DAY_MS,
       ),
     }))
@@ -352,8 +404,12 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
     kind: 'summary',
     header: { title: 'Overall summary', subject: null, range, generatedAt: now },
     lentOut: sum(made.map((loan) => loan.capitalCentavos)),
-    collected: sum(paid.map((loan) => loan.totalCentavos)),
-    earned,
+    // WHAT CAME IN, read off the payments themselves. One figure, one source,
+    // no arithmetic about which loans happen to be repaid.
+    collected: cashIn(received),
+    // The Admin's share of those same payments: their cut inside each, plus what
+    // their own capital earned inside each.
+    earned: adminTakeIn(received),
     loansMade: made.length,
     loansPaid: paid.length,
     outOnLoan: sum(lenders.map((lender) => lender.position.outOnLoan)),
@@ -390,14 +446,18 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
   const period = rangeFilter(range)
   const now = new Date()
 
-  const [inPeriod, running] = await Promise.all([
+  const [inPeriod, running, received, releasedOnRunning] = await Promise.all([
     db.loan.findMany({
       where: {
         userId,
         deletedAt: null,
         // Started in the period, or repaid in it. One query for both, so a loan
         // that did both is fetched once and appears in both lists from one row.
-        OR: [{ startOn: period }, { payment: { deletedAt: null, paidOn: period } }],
+        OR: [
+          { startOn: period },
+          // weekNumber: null — see the note at the summary report's where clause.
+          { payments: { some: { weekNumber: null, deletedAt: null, paidOn: period } } },
+        ],
       },
       select: {
         id: true,
@@ -406,9 +466,10 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
         totalCentavos: true,
         startOn: true,
         dueOn: true,
+        nextDueOn: true,
         status: true,
         borrower: { select: { firstName: true, lastName: true } },
-        payment: { select: { paidOn: true, deletedAt: true } },
+        payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
         fundings: {
           select: {
             earningsCentavos: true,
@@ -434,6 +495,13 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
         },
       },
     }),
+    // Every payment received in the period, for what the Admin took from them.
+    paymentsReceivedIn(userId, period),
+    // What the collected weeks have ALREADY put in the pot, on loans STILL
+    // RUNNING. Subtracted from "still to come" below. ACTIVE-only matters: a
+    // repaid loan's weeks belong to no figure here, and subtracting them
+    // understated what is still owed.
+    weeksCollectedIn(userId, undefined, 'ACTIVE'),
   ])
 
   const cutOf = (fundings: { earningsCentavos: number; adminCutCentavos: number; lender: { isSelf: boolean } }[]) =>
@@ -448,7 +516,7 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
   // An undone payment is soft-deleted, not destroyed, so it is still attached to
   // its loan and would otherwise read as a repayment that happened.
   const livePaidOn = (loan: (typeof inPeriod)[number]) =>
-    loan.payment?.deletedAt === null ? loan.payment.paidOn : null
+    settledOn(loan.payments)
 
   const rows: AdminCutLoanRow[] = inPeriod.map((loan) => ({
     loanId: loan.id,
@@ -459,7 +527,7 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
     startOn: loan.startOn,
     dueOn: loan.dueOn,
     paidOn: livePaidOn(loan),
-    state: loanState(loan.status, loan.dueOn, now),
+    state: loanState(loan.status, loan.nextDueOn, now),
     funders: loan.fundings.map((funding) =>
       funding.lender.isSelf ? 'Admin' : fullName(funding.lender),
     ),
@@ -477,8 +545,16 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
     started,
     repaid,
     agreed: sum(started.map((row) => row.adminCut)),
-    collected: sum(repaid.map((row) => row.adminCut)),
-    outstandingToday: sum(running.map((loan) => cutOf(loan.fundings))),
+    // What the Admin actually took in the period, read off the payments. Not
+    // "the cut on loans repaid here", which on a weekly loan is nineteen weeks
+    // of cut that arrived earlier.
+    collected: adminTakeIn(received),
+    // Still to come, MINUS what the running loans' collected weeks have already
+    // handed over. Both sides are ACTIVE-only, so nothing is subtracted from a
+    // loan that is not in the first sum.
+    outstandingToday: centavos(
+      sum(running.map((loan) => cutOf(loan.fundings))) - adminShareOf(releasedOnRunning),
+    ),
   }
 }
 
@@ -493,7 +569,7 @@ export async function lenderReport(
   // getLender rather than listLenders: it carries where the money is TODAY, and
   // it finds a deleted lender too — somebody who has just been deleted is
   // exactly who needs a closing statement.
-  const [lender, fundings, cutRows] = await Promise.all([
+  const [lender, fundings, received] = await Promise.all([
     getLender(userId, lenderId),
     db.loanFunding.findMany({
       where: {
@@ -503,7 +579,11 @@ export async function lenderReport(
           deletedAt: null,
           // Either the loan started in the period, or it was repaid in it. One
           // query for both, so a loan that did both is fetched once.
-          OR: [{ startOn: period }, { payment: { deletedAt: null, paidOn: period } }],
+          OR: [
+            { startOn: period },
+            // weekNumber: null — see the note at the summary report's where clause.
+            { payments: { some: { weekNumber: null, deletedAt: null, paidOn: period } } },
+          ],
         },
       },
       select: {
@@ -513,26 +593,16 @@ export async function lenderReport(
           select: {
             startOn: true,
             dueOn: true,
+            nextDueOn: true,
             status: true,
-            payment: { select: { paidOn: true, deletedAt: true } },
+            payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
             borrower: { select: { firstName: true, lastName: true } },
           },
         },
       },
       orderBy: { loan: { startOn: 'asc' } },
     }),
-    // EVERY funder's rows on loans repaid in the period, not just this lender's,
-    // because the admin's cut is charged on money that is not theirs and so
-    // appears on nobody's funding row but the other lender's. Only the admin pot
-    // is ever credited with it — see the isSelf guard below. A plain lender's
-    // statement discards this list untouched.
-    db.loanFunding.findMany({
-      where: {
-        userId,
-        loan: { deletedAt: null, payment: { deletedAt: null, paidOn: period } },
-      },
-      select: { adminCutCentavos: true },
-    }),
+    paymentsReceivedIn(userId, period),
   ])
   if (!lender) return null
 
@@ -548,22 +618,55 @@ export async function lenderReport(
     earnings: centavos(funding.earningsCentavos),
     startOn: funding.loan.startOn,
     dueOn: funding.loan.dueOn,
-    state: loanState(funding.loan.status, funding.loan.dueOn),
+    state: loanState(funding.loan.status, funding.loan.nextDueOn),
   })
 
   // An undone payment is soft-deleted, not destroyed, so it is dropped rather than
   // read as a repayment — the loan is running again.
   const paidOn = (funding: (typeof fundings)[number]) =>
-    funding.loan.payment?.deletedAt === null ? funding.loan.payment.paidOn : null
+    settledOn(funding.loan.payments)
 
   const repaid = fundings.filter((funding) => inRange(paidOn(funding), range))
   const funded = fundings.filter((funding) => inRange(funding.loan.startOn, range)).map(row)
 
+  // WEEKS COLLECTED IN THE PERIOD, on loans still running. Without these a
+  // statement covering five months of a weekly loan paying every single week
+  // reports that the reader earned nothing, because no loan was repaid.
+  //
+  // The reader's own share, not the whole week: on a lender's statement the
+  // interest IS their earnings. The Admin pot's statement adds the cut, which is
+  // handled by adminCutInPeriod below for the same reason it always was.
+  const weeksMine = received.filter(
+    (payment) =>
+      payment.week !== null &&
+      payment.lenders.some((share) => share.lenderId === lenderId && share.earnings > 0),
+  )
+  const weeksPaid: WeekPaidRow[] = weeksMine
+    .map((payment) => ({
+      borrowerName: payment.borrowerName,
+      week: payment.week as number,
+      paidOn: payment.paidOn,
+      amount: lenderTakeIn([payment], lenderId),
+      // A lender's statement has never listed proof of payment and does not
+      // start now: the screenshots are the Admin's record of the borrower, and
+      // the borrower FILE is where they belong.
+      proofs: [],
+      missingProof: false,
+    }))
+    // By date, then by WEEK. Several weeks are often recorded in one sitting, and
+    // on equal dates a raw date sort leaves them in whatever order the rows came
+    // back — which printed "2, 1, 4, 3, 5" down a statement.
+    .sort((a, b) => a.paidOn.getTime() - b.paidOn.getTime() || a.week - b.week)
+
   // The cut belongs to the admin pot and to nobody else. `adminCutCentavos` is
   // already 0 on the admin's own funding rows, so this never double-counts the
   // loans the pot funded itself.
+  // The Admin's cut inside every payment received in the period — collected
+  // weeks and settlements alike. Read off the payments rather than off "loans
+  // repaid here", which on a weekly loan is nineteen weeks of cut that arrived
+  // earlier and would be counted again beside the weeks below.
   const adminCutInPeriod = lender.isSelf
-    ? sum(cutRows.map((funding) => funding.adminCutCentavos))
+    ? centavos(received.reduce((total, payment) => total + payment.adminCut, 0))
     : centavos(0)
 
   return {
@@ -593,15 +696,18 @@ export async function lenderReport(
     })),
     funded,
     repaid: repaid.map(row),
+    weeksPaid,
     // "Earned on loans repaid in this period" is everything the pot took from
     // those repayments. For the admin that is their own earnings PLUS their cut
     // on the other funders' share, and the cut is the larger half whenever the
     // pot's own capital was not in the loan. Summing only this lender's funding
     // rows reported a statement short by exactly SUM("adminCutCentavos"), with
     // no line anywhere admitting the gap.
-    earnedInPeriod: centavos(
-      sum(repaid.map((funding) => funding.earningsCentavos)) + adminCutInPeriod,
-    ),
+    // Their own capital's earnings inside every payment received in the period,
+    // plus the cut when this is the Admin pot. One source, no overlap: a weekly
+    // loan's earlier weeks are their own payments and its settlement carries only
+    // the final one.
+    earnedInPeriod: centavos(lenderTakeIn(received, lenderId) + adminCutInPeriod),
     adminCutInPeriod,
     putIn: sum(moves.filter((move) => move.type === 'DEPOSIT').map((move) => move.amount)),
     tookOut: sum(moves.filter((move) => move.type === 'WITHDRAWAL').map((move) => move.amount)),
@@ -630,7 +736,8 @@ export async function borrowerReport(
   // No range filter in the query: a borrower's file is a handful of rows, and
   // the record and what they owe are counted across ALL of them. The range
   // decides which loans are LISTED, further down.
-  const borrower = await db.borrower.findFirst({
+  const [borrower, receivedEver, weeksOnRunning] = await Promise.all([
+    db.borrower.findFirst({
     where: { id: borrowerId, userId },
     select: {
       firstName: true,
@@ -646,10 +753,13 @@ export async function borrowerReport(
           termDays: true,
           startOn: true,
           dueOn: true,
+          nextDueOn: true,
           status: true,
-          payment: {
+          payments: {
             select: {
+              weekNumber: true,
               paidOn: true,
+              amountCentavos: true,
               deletedAt: true,
               proofFiles: {
                 where: { deletedAt: null },
@@ -664,11 +774,47 @@ export async function borrowerReport(
         },
       },
     },
-  })
+    }),
+    // Every payment this borrower has ever made, for the list below.
+    paymentsReceivedIn(userId),
+    // The weeks already collected on their loans that are STILL RUNNING, which
+    // is what "still owes today" subtracts. ACTIVE-only: a repaid loan's weeks
+    // are not part of any debt, and subtracting them understated what the
+    // borrower owes on a statement handed to them.
+    weeksCollectedIn(userId, undefined, 'ACTIVE'),
+  ])
   if (!borrower) return null
 
+  const mine = receivedEver.filter((payment) => payment.borrowerId === borrowerId)
+  const weeksPaid: WeekPaidRow[] = mine
+    .filter((payment) => payment.week !== null && inRange(payment.paidOn, range))
+    .map((week) => ({
+      borrowerName: week.borrowerName,
+      week: week.week as number,
+      paidOn: week.paidOn,
+      // The WHOLE week on a borrower's statement: what they handed over, not
+      // anybody's share of it.
+      amount: week.amount,
+      // Only on the full FILE, the same rule the loans above follow — the plain
+      // statement is for the borrower and lists what they paid, the file is the
+      // Admin's own record and lists the evidence.
+      proofs: withProof
+        ? week.proofs.map((file) => ({
+            reference: file.storagePath.split('/').pop() ?? file.storagePath,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes,
+            uploadedAt: file.uploadedAt,
+          }))
+        : [],
+      missingProof: week.proofs.length === 0,
+    }))
+    // By date, then by WEEK. Several weeks are often recorded in one sitting, and
+    // on equal dates a raw date sort leaves them in whatever order the rows came
+    // back — which printed "2, 1, 4, 3, 5" down a statement.
+    .sort((a, b) => a.paidOn.getTime() - b.paidOn.getTime() || a.week - b.week)
+
   const livePayment = (loan: (typeof borrower.loans)[number]) =>
-    loan.payment?.deletedAt === null ? loan.payment : null
+    settlingPayment(loan.payments)
 
   // The record and what is owed are counted across EVERY loan, not only the ones
   // in the range: a track record that changed with the dates on a report would
@@ -676,7 +822,8 @@ export async function borrowerReport(
   const record = trackRecord(
     borrower.loans.map((loan) => ({
       status: loan.status,
-      dueOn: loan.dueOn,
+      // The next owed date, not the capital date — see BorrowerLoanRecord.
+      dueOn: loan.nextDueOn,
       paidOn: livePayment(loan)?.paidOn ?? null,
     })),
   )
@@ -692,7 +839,7 @@ export async function borrowerReport(
         termDays: loan.termDays,
         startOn: loan.startOn,
         dueOn: loan.dueOn,
-        state: loanState(loan.status, loan.dueOn),
+        state: loanState(loan.status, loan.nextDueOn),
         paidOn: payment?.paidOn ?? null,
         funders: loan.fundings.map((funding) =>
           funding.lender.isSelf ? 'Admin' : fullName(funding.lender),
@@ -721,12 +868,29 @@ export async function borrowerReport(
     label: borrower.manualLabel,
     record,
     loans,
+    weeksPaid,
     borrowedInPeriod: sum(
       loans.filter((loan) => inRange(loan.startOn, range)).map((loan) => loan.capital),
     ),
-    paidInPeriod: sum(loans.filter((loan) => inRange(loan.paidOn, range)).map((loan) => loan.total)),
-    owedToday: sum(
-      borrower.loans.filter((loan) => loan.status === 'ACTIVE').map((loan) => loan.totalCentavos),
+    // WHAT THEY HANDED OVER IN THE PERIOD, read off their payments. Every
+    // collected week and every settlement, each counted once.
+    //
+    // NOT "loans settled in the period, plus the weeks". On a weekly loan the
+    // settling payment is the capital plus the FINAL week, while the loan's total
+    // is the capital plus all twenty — so reading the total counted nineteen
+    // weeks that were handed over earlier, and counted them twice when they fell
+    // inside this period too.
+    paidInPeriod: cashIn(mine.filter((payment) => inRange(payment.paidOn, range))),
+    // What they still owe: the totals on their RUNNING loans, minus the weeks
+    // already collected on those same running loans. Both sides are ACTIVE-only,
+    // so nothing is subtracted from a loan that is not in the first sum.
+    owedToday: centavos(
+      sum(borrower.loans.filter((loan) => loan.status === 'ACTIVE').map((loan) => loan.totalCentavos)) -
+        sum(
+          weeksOnRunning
+            .filter((week) => week.borrowerId === borrowerId)
+            .map((week) => week.interest),
+        ),
     ),
     // Only loans that STARTED in the range. A loan listed because it was repaid
     // in the range had its capital handed over earlier, and counting it here

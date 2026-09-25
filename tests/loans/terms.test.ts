@@ -12,6 +12,10 @@ const base = {
   startOn: on(2026, 2, 1),
   dueOn: on(2026, 3, 1), // 28 days
   interest: { basis: 'WEEKLY_RATE', borrowerRateBps: 700, adminCutBps: 200 },
+  // Collected all at once on the due date, which is what every loan in this
+  // file describes and what every loan the app made before 2026-09-25 did.
+  // The weekly alternative has its own describe block at the end.
+  collection: 'AT_END',
 } as const
 
 /** The same loan with one rate changed. Keeps the tests reading as one sentence. */
@@ -220,7 +224,8 @@ describe('a fixed amount of interest, for the loans no rate describes', () => {
     capital: peso(3_000),
     startOn: on(2026, 2, 1),
     dueOn: on(2026, 2, 4),
-  }
+    collection: 'AT_END',
+  } as const
 
   test('three days is accepted, where a weekly rate would refuse it', () => {
     const result = loanTerms({
@@ -401,5 +406,60 @@ describe('reading a rate the admin typed', () => {
     for (const input of ['', 'seven', '-2']) {
       assert.equal(parseRate(input).ok, false, `expected "${input}" to be refused`)
     }
+  })
+})
+
+describe('collecting the interest weekly', () => {
+  const funders = [{ lenderId: 'john', isSelf: false, principal: peso(30_000) }]
+
+  test('the figures are identical to collecting it all at the end', () => {
+    const atEnd = loanTerms({ ...base, funders })
+    const weekly = loanTerms({ ...base, collection: 'WEEKLY', funders })
+    if (!atEnd.ok || !weekly.ok) return assert.fail('both should be accepted')
+
+    // The whole point: WHEN the money is collected, never how much it is.
+    assert.equal(weekly.value.interest, atEnd.value.interest)
+    assert.equal(weekly.value.total, atEnd.value.total)
+    assert.equal(weekly.value.termDays, atEnd.value.termDays)
+    assert.deepEqual(weekly.value.fundings, atEnd.value.fundings)
+  })
+
+  test('a new weekly loan owes its first week one week after it started', () => {
+    const result = loanTerms({ ...base, collection: 'WEEKLY', funders })
+    if (!result.ok) return assert.fail(result.error)
+    assert.equal(result.value.nextDueOn.getTime(), on(2026, 2, 8).getTime())
+  })
+
+  test('a loan collected at the end owes on its due date', () => {
+    const result = loanTerms({ ...base, funders })
+    if (!result.ok) return assert.fail(result.error)
+    assert.equal(result.value.nextDueOn.getTime(), base.dueOn.getTime())
+  })
+
+  test('one week is refused: that is just a loan', () => {
+    const result = loanTerms({
+      ...base,
+      dueOn: on(2026, 2, 8), // 7 days
+      collection: 'WEEKLY',
+      funders,
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) assert.match(result.error, /at least two weeks/)
+  })
+
+  test('two weeks is the shortest that is accepted', () => {
+    const result = loanTerms({ ...base, dueOn: on(2026, 2, 15), collection: 'WEEKLY', funders })
+    assert.equal(result.ok, true)
+  })
+
+  test('a fixed amount of interest cannot be collected weekly', () => {
+    const result = loanTerms({
+      ...base,
+      interest: fixed(500, 300),
+      collection: 'WEEKLY',
+      funders,
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) assert.match(result.error, /fixed amount of interest cannot be collected weekly/)
   })
 })

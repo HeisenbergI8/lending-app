@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Agent working files, not source. The architect's plan reviews under
+    // .claude/plans/*/references/ are ANNOTATED EXCERPTS saved with .ts and
+    // .tsx extensions — deliberately partial, so they do not parse. Linting
+    // them turns every plan directory into seven parse errors and makes
+    // `npm run verify` red for a reason that has nothing to do with the app.
+    ".claude/**",
   ]),
 ]);
 

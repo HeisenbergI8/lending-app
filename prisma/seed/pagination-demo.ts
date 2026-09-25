@@ -230,6 +230,9 @@ async function main() {
         borrowerRateBps: BORROWER_RATE_BPS,
         startOn,
         dueOn,
+        // Every seeded loan is collected at the end, so the next day money is
+        // owed on it is its own due date.
+        nextDueOn: dueOn,
         termDays: plan.weeks * DAYS_PER_WEEK,
         interestCentavos: split.totalInterest,
         totalCentavos: split.borrowerTotal,

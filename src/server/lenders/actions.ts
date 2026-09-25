@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation'
 
 import { centavos, formatPesos } from '../../lib/money/centavos.ts'
 import { adminStakeInLoan } from '../../lib/money/split.ts'
+import { DAYS_PER_WEEK } from '../../lib/money/weeks.ts'
+import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, personName, text } from '../forms.ts'
@@ -186,6 +188,8 @@ async function advanceRefusal(
     where: { id: loanId, userId, deletedAt: null },
     select: {
       status: true,
+      termDays: true,
+      interestCollection: true,
       fundings: {
         select: {
           principalCentavos: true,
@@ -198,6 +202,13 @@ async function advanceRefusal(
         where: { deletedAt: null, type: 'WITHDRAWAL' },
         select: { id: true, amountCentavos: true },
       },
+      // The weeks already collected. On a weekly loan part of what this loan
+      // will return to the Admin pot is ALREADY IN IT, and the ceiling has to
+      // know that or the same pesos can be drawn twice.
+      payments: {
+        where: { deletedAt: null, weekNumber: { not: null } },
+        select: { weekNumber: true },
+      },
     },
   })
   if (!loan) return 'That loan no longer exists.'
@@ -208,6 +219,33 @@ async function advanceRefusal(
   if (loan.status === 'PAID') {
     return 'That loan has been repaid, so there is nothing to draw in advance. Record a withdrawal on the Admin pot instead.'
   }
+
+  // WHAT THE COLLECTED WEEKS HAVE ALREADY PAID INTO THE POT.
+  //
+  // THE THIRD ARGUMENT IS WHAT STOPS THE SAME PESOS BEING DRAWN TWICE. This
+  // function is the only thing that refuses an over-draw; the loan page merely
+  // displays the ceiling. It was omitted here for a few hours on 2026-09-25,
+  // while the parameter still had a default of zero, and the server accepted an
+  // advance covering money the collected weeks had already handed over — once
+  // out of floating, and again as an advance against the loan that put it there.
+  // The parameter has no default now, so leaving it out is a compile error.
+  const paidWeeks = new Set(
+    loan.payments.map((payment) => payment.weekNumber).filter((week): week is number => week !== null),
+  )
+  const released =
+    loan.interestCollection === 'WEEKLY'
+      ? loan.fundings.reduce((total, funding) => {
+          const share = releasedOnFunding(
+            {
+              earnings: centavos(funding.earningsCentavos),
+              adminCut: centavos(funding.adminCutCentavos),
+            },
+            loan.termDays / DAYS_PER_WEEK,
+            paidWeeks,
+          )
+          return total + share.adminCut + (funding.lender.isSelf ? share.earnings : 0)
+        }, 0)
+      : 0
 
   const stake = adminStakeInLoan(
     loan.fundings.map((funding) => ({
@@ -221,6 +259,7 @@ async function advanceRefusal(
         .filter((row) => row.id !== excluding)
         .reduce((total, row) => total + row.amountCentavos, 0),
     ),
+    centavos(released),
   )
 
   if (stake.stake === 0) {

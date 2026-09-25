@@ -1,7 +1,11 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
+import { type InterestCollection } from '../../lib/money/interest.ts'
+import { DAYS_PER_WEEK } from '../../lib/money/weeks.ts'
+import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
 import { db } from '../db.ts'
+import { SETTLING, liveWeeklyPayments, settledOn } from '../payments/settled.ts'
 
 /**
  * Reading lenders and their money.
@@ -139,7 +143,7 @@ export type LenderDetail = LenderSummary & {
  * millions; clarity wins at this size.
  */
 async function ledgers(userId: string): Promise<Map<string, LenderLedger>> {
-  const [transactions, fundings, self] = await Promise.all([
+  const [transactions, fundings, self, weeksPaid] = await Promise.all([
     db.lenderTransaction.groupBy({
       by: ['lenderId', 'type'],
       where: { userId, deletedAt: null },
@@ -152,11 +156,33 @@ async function ledgers(userId: string): Promise<Map<string, LenderLedger>> {
         principalCentavos: true,
         earningsCentavos: true,
         adminCutCentavos: true,
-        loan: { select: { status: true } },
+        loan: { select: { id: true, status: true, termDays: true, interestCollection: true } },
       },
     }),
     db.lender.findFirst({ where: { userId, isSelf: true }, select: { id: true } }),
+    // WHICH WEEKS HAVE BEEN COLLECTED, for every weekly loan on the account, in
+    // one query. Not one per loan and not a join: an account has a handful of
+    // weekly loans carrying twenty rows each, so this is tens of rows, and
+    // fetching the week NUMBERS rather than a count lets the caller decide what
+    // a gap means instead of having Postgres guess.
+    db.payment.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        weekNumber: { not: null },
+        loan: { deletedAt: null, interestCollection: 'WEEKLY' },
+      },
+      select: { loanId: true, weekNumber: true },
+    }),
   ])
+
+  const paidByLoan = new Map<string, Set<number>>()
+  for (const row of weeksPaid) {
+    if (row.weekNumber === null) continue
+    const weeks = paidByLoan.get(row.loanId) ?? new Set<number>()
+    weeks.add(row.weekNumber)
+    paidByLoan.set(row.loanId, weeks)
+  }
 
   const byLender = new Map<string, LenderLedger>()
   const ledger = (id: string): LenderLedger => {
@@ -178,10 +204,25 @@ async function ledgers(userId: string): Promise<Map<string, LenderLedger>> {
     const entry = ledger(row.lenderId)
     const settled = row.loan.status === 'PAID'
 
+    // A WEEKLY LOAN IS SETTLED AND PENDING AT THE SAME TIME, and that is the
+    // whole feature. FEATURES.md section 5: a paid week releases that week's
+    // money immediately, while the capital stays out on loan until February.
+    //
+    // So the row is split three ways rather than two. The capital is out until
+    // the loan is PAID, exactly as before. The earnings are divided at the line
+    // between weeks collected and weeks still owed, which realisedThrough
+    // answers from the loan's own stored figures — no rate, no recomputation.
+    //
+    // On a loan collected at the end this is zero while it runs, so those loans
+    // go down the same two paths they always did and no branch below has to ask
+    // which kind of loan it is looking at.
+    const released = releasedOnRow(row, paidByLoan)
+
     if (settled) entry.settledEarnings = centavos(entry.settledEarnings + row.earningsCentavos)
     else {
       entry.activePrincipal = centavos(entry.activePrincipal + row.principalCentavos)
-      entry.pendingEarnings = centavos(entry.pendingEarnings + row.earningsCentavos)
+      entry.settledEarnings = centavos(entry.settledEarnings + released.earnings)
+      entry.pendingEarnings = centavos(entry.pendingEarnings + row.earningsCentavos - released.earnings)
     }
 
     // The cut on this row is the ADMIN's, wherever the principal came from. On a
@@ -189,11 +230,49 @@ async function ledgers(userId: string): Promise<Map<string, LenderLedger>> {
     if (self) {
       const admin = ledger(self.id)
       if (settled) admin.settledAdminCuts = centavos(admin.settledAdminCuts + row.adminCutCentavos)
-      else admin.pendingAdminCuts = centavos(admin.pendingAdminCuts + row.adminCutCentavos)
+      else {
+        // The Admin's cut follows the same line, week for week. It reaches Admin
+        // earnings the day the week is collected, not when the loan settles —
+        // the other half of the same sentence in the spec.
+        admin.settledAdminCuts = centavos(admin.settledAdminCuts + released.adminCut)
+        admin.pendingAdminCuts = centavos(
+          admin.pendingAdminCuts + row.adminCutCentavos - released.adminCut,
+        )
+      }
     }
   }
 
   return byLender
+}
+
+type ReleasableRow = {
+  earningsCentavos: number
+  adminCutCentavos: number
+  loan: { id: string; termDays: number; interestCollection: InterestCollection }
+}
+
+/**
+ * What of this funding row has actually reached its owner.
+ *
+ * Zero on a loan collected at the end, and on a weekly loan with no week
+ * collected yet. Never more than the row's stored figures, whatever the payments
+ * say, because the stored figures are what was agreed.
+ *
+ * Both halves come back together because both are decided by the same week
+ * count. Working them out separately would be two places to get the division by
+ * DAYS_PER_WEEK wrong.
+ */
+function releasedOnRow(
+  row: ReleasableRow,
+  paidByLoan: Map<string, Set<number>>,
+): { earnings: Centavos; adminCut: Centavos } {
+  if (row.loan.interestCollection !== 'WEEKLY') return { earnings: centavos(0), adminCut: centavos(0) }
+
+  return releasedOnFunding(
+    { earnings: centavos(row.earningsCentavos), adminCut: centavos(row.adminCutCentavos) },
+    row.loan.termDays / DAYS_PER_WEEK,
+    paidByLoan.get(row.loan.id) ?? new Set(),
+  )
 }
 
 const MONTH_LABEL = new Intl.DateTimeFormat('en-PH', { month: 'short' })
@@ -227,15 +306,43 @@ function monthEnd(today: Date, back: number): Date {
  * their own rows for principal and earnings. That is the rule in `ledgers`, said
  * again over time.
  */
+type HistoryRow = {
+  lenderId: string
+  principalCentavos: number
+  earningsCentavos: number
+  adminCutCentavos: number
+  loan: {
+    startOn: Date
+    paidOn: Date | null
+    termDays: number
+    interestCollection: InterestCollection
+    /** The week numbers collected, with the day each was handed over. */
+    weeksPaid: { week: number; paidOn: Date }[]
+  }
+}
+
+/**
+ * What a weekly loan's funding row had released by a given day.
+ *
+ * The weeks collected ON OR BEFORE that day, which is the same rule
+ * releasedOnRow uses for today, applied to a month end. A week collected later
+ * this year must not appear in March's column.
+ */
+function releasedByDate(row: HistoryRow, end: Date): { earnings: number; adminCut: number } {
+  if (row.loan.interestCollection !== 'WEEKLY') return { earnings: 0, adminCut: 0 }
+
+  const byThen = new Set(row.loan.weeksPaid.filter((week) => week.paidOn <= end).map((week) => week.week))
+
+  return releasedOnFunding(
+    { earnings: centavos(row.earningsCentavos), adminCut: centavos(row.adminCutCentavos) },
+    row.loan.termDays / DAYS_PER_WEEK,
+    byThen,
+  )
+}
+
 function buildHistory(
   isSelf: boolean,
-  rows: {
-    lenderId: string
-    principalCentavos: number
-    earningsCentavos: number
-    adminCutCentavos: number
-    loan: { startOn: Date; paidOn: Date | null }
-  }[],
+  rows: HistoryRow[],
   moves: { type: 'DEPOSIT' | 'WITHDRAWAL'; amountCentavos: number; occurredOn: Date }[],
   lenderId: string,
   today: Date = new Date(),
@@ -261,10 +368,18 @@ function buildHistory(
       const started = row.loan.startOn <= end
       const repaid = row.loan.paidOn !== null && row.loan.paidOn <= end
 
-      if (isSelf && repaid) pot += row.adminCutCentavos
+      // Weeks collected BY the end of this month. A weekly loan drips into the
+      // pot month after month while its capital stays in `out` — which is the
+      // shape this chart exists to show.
+      const weeklyByThen = releasedByDate(row, end)
+
+      if (isSelf) pot += repaid ? row.adminCutCentavos : weeklyByThen.adminCut
       if (!mine || !started) continue
       if (repaid) pot += row.earningsCentavos
-      else out += row.principalCentavos
+      else {
+        pot += weeklyByThen.earnings
+        out += row.principalCentavos
+      }
     }
 
     months.push({
@@ -292,6 +407,18 @@ function buildHistory(
  * repayment on top, because a history is read from the end.
  */
 function splitCuts(rows: AdminCutRow[]): { running: AdminCutRow[]; settled: AdminCutRow[] } {
+  // SETTLED STILL MEANS THE LOAN IS PAID, including for a weekly loan with
+  // nineteen of its twenty weeks collected. Its capital is still out, so the row
+  // belongs under running, which is what that list means.
+  //
+  // The consequence is deliberate and is NOT a bug to fix here: the two lists
+  // reconcile against position.adminCutEarned and position.adminCutPending, and
+  // those two are now split at the WEEK line rather than the loan line. So a
+  // running weekly loan's cut appears in both tiles while its row appears once,
+  // under running, showing the whole loan's cut. The row says what the loan will
+  // pay; the tiles say what has arrived. The loan page is where the week by week
+  // breakdown lives, and the screen prints the difference rather than hiding it
+  // — the same thing LenderDetail.adminCuts already exists to do.
   return {
     running: rows.filter((row) => row.state !== 'paid'),
     settled: rows
@@ -364,9 +491,10 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
             id: true,
             status: true,
             dueOn: true,
+            nextDueOn: true,
             termDays: true,
             borrower: { select: { id: true, firstName: true, lastName: true } },
-            payment: { select: { paidOn: true, deletedAt: true } },
+            payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
           },
         },
       },
@@ -389,7 +517,12 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         loan: {
           select: {
             startOn: true,
-            payment: { select: { paidOn: true, deletedAt: true } },
+            termDays: true,
+            interestCollection: true,
+            // EVERY live payment, not only the settling one. A weekly loan's
+            // interest arrives month after month, and the chart's whole job is
+            // to show that — it cannot while every peso lands on one day.
+            payments: { where: { deletedAt: null }, select: { paidOn: true, deletedAt: true, weekNumber: true } },
           },
         },
       },
@@ -413,9 +546,10 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
                 id: true,
                 status: true,
                 dueOn: true,
+                nextDueOn: true,
                 termDays: true,
                 borrower: { select: { firstName: true, lastName: true } },
-                payment: { select: { paidOn: true, deletedAt: true } },
+                payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
               },
             },
           },
@@ -423,11 +557,6 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         })
       : Promise.resolve([]),
   ])
-
-  // An undone payment is soft-deleted rather than destroyed, so it is still
-  // attached to its loan and would otherwise read as money that came back.
-  const settledOn = (payment: { paidOn: Date; deletedAt: Date | null } | null) =>
-    payment && payment.deletedAt === null ? payment.paidOn : null
 
   const rows: LenderFunding[] = fundings.map((row) => ({
     loanId: row.loan.id,
@@ -437,8 +566,8 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
     earnings: centavos(row.earningsCentavos),
     termDays: row.loan.termDays,
     dueOn: row.loan.dueOn,
-    paidOn: settledOn(row.loan.payment),
-    state: loanState(row.loan.status, row.loan.dueOn),
+    paidOn: settledOn(row.loan.payments),
+    state: loanState(row.loan.status, row.loan.nextDueOn),
   }))
 
   return {
@@ -474,8 +603,8 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         cut: centavos(row.adminCutCentavos),
         termDays: row.loan.termDays,
         dueOn: row.loan.dueOn,
-        paidOn: settledOn(row.loan.payment),
-        state: loanState(row.loan.status, row.loan.dueOn),
+        paidOn: settledOn(row.loan.payments),
+        state: loanState(row.loan.status, row.loan.nextDueOn),
       })),
     ),
     notYetStarted: centavos(
@@ -483,7 +612,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         .filter(
           (row) =>
             row.lenderId === lender.id &&
-            settledOn(row.loan.payment) === null &&
+            settledOn(row.loan.payments) === null &&
             row.loan.startOn > new Date(),
         )
         .reduce((total, row) => total + row.principalCentavos, 0),
@@ -495,7 +624,16 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         principalCentavos: row.principalCentavos,
         earningsCentavos: row.earningsCentavos,
         adminCutCentavos: row.adminCutCentavos,
-        loan: { startOn: row.loan.startOn, paidOn: settledOn(row.loan.payment) },
+        loan: {
+          startOn: row.loan.startOn,
+          paidOn: settledOn(row.loan.payments),
+          termDays: row.loan.termDays,
+          interestCollection: row.loan.interestCollection,
+          weeksPaid: liveWeeklyPayments(row.loan.payments).map((payment) => ({
+            week: payment.weekNumber as number,
+            paidOn: payment.paidOn,
+          })),
+        },
       })),
       transactions,
       lender.id,

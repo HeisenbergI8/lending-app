@@ -3,8 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
-import { type Centavos, parsePesos } from '../../lib/money/centavos.ts'
+import { type Centavos, centavos, formatPesos, parsePesos } from '../../lib/money/centavos.ts'
+import { computeInterest } from '../../lib/money/interest.ts'
 import { type Result, ok, err } from '../../lib/money/result.ts'
+import { DAYS_PER_WEEK, weeksBetween } from '../../lib/money/weeks.ts'
+import { nextUnpaidWeek } from '../../lib/money/weekly.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
@@ -13,7 +16,9 @@ import {
   DEFAULT_ADMIN_CUT_BPS,
   DEFAULT_BORROWER_RATE_BPS,
   type FunderInput,
+  type InterestCollection,
   type InterestInput,
+  type LoanTermsResult,
   loanTerms,
   parseRate,
 } from './terms.ts'
@@ -78,6 +83,7 @@ type Parsed = {
   startOn: Date
   dueOn: Date
   interest: InterestInput
+  collection: InterestCollection
   funders: FunderRow[]
 }
 
@@ -153,6 +159,10 @@ function readForm(form: FormData): Result<Parsed, string> {
   const interest = readInterest(form)
   if (!interest.ok) return err(interest.error)
 
+  // Anything but the exact string is AT_END. The form posts a checkbox, and an
+  // unticked checkbox posts nothing at all.
+  const collection: InterestCollection = text(form, 'interestCollection') === 'WEEKLY' ? 'WEEKLY' : 'AT_END'
+
   const funders = readFunderRows(form)
   if (!funders.ok) return err(funders.error)
 
@@ -162,6 +172,7 @@ function readForm(form: FormData): Result<Parsed, string> {
     startOn: startOn.value,
     dueOn: dueOn.value,
     interest: interest.value,
+    collection,
     funders: funders.value,
   })
 }
@@ -270,6 +281,7 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
         startOn: input.startOn,
         dueOn: input.dueOn,
         interest: input.interest,
+        collection: input.collection,
         funders: funders.value,
       })
       if (!terms.ok) throw new LoanRefused(terms.error)
@@ -286,6 +298,8 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
             input.interest.basis === 'WEEKLY_RATE' ? input.interest.borrowerRateBps : null,
           startOn: input.startOn,
           dueOn: input.dueOn,
+          interestCollection: input.collection,
+          nextDueOn: terms.value.nextDueOn,
           termDays: terms.value.termDays,
           interestCentavos: terms.value.interest,
           totalCentavos: terms.value.total,
@@ -335,6 +349,80 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
  * handed over; changing the total underneath it would leave the two disagreeing
  * with nothing to say which is right.
  */
+type CollectedWeek = { weekNumber: number | null; amountCentavos: number }
+
+/**
+ * Editing a loan whose weeks have already been collected.
+ *
+ * THE RULE THE OWNER SET, 2026-09-25: the weeks already collected stay exactly
+ * as they were paid, and only the weeks still owed are re-priced. Money that
+ * changed hands is never rewritten by an edit.
+ *
+ * That rule needs these three refusals to hold, because without them an edit
+ * can leave the loan describing something that did not happen:
+ *
+ *   1. Switching a weekly loan back to collecting at the end would leave its
+ *      collected weeks pointing at a schedule the loan no longer has.
+ *   2. Shortening it under a week already collected would leave a payment row
+ *      against a week that no longer exists — money received against nothing.
+ *      This is the same rule that refuses editing a PAID loan, applied one week
+ *      at a time.
+ *   3. Re-pricing it below what has already been collected would mean the
+ *      remaining weeks had to give money back, which is not a thing a schedule
+ *      can express.
+ *
+ * Returns the sentence to show the Admin, or null when the edit is fine.
+ */
+function refuseIfItRewritesCollectedWeeks(collected: CollectedWeek[], input: Parsed): string | null {
+  if (collected.length === 0) return null
+
+  const highestPaid = Math.max(...collected.map((row) => row.weekNumber ?? 0))
+
+  if (input.collection !== 'WEEKLY') {
+    return `Week ${highestPaid} has already been collected on this loan, so it cannot go back to collecting all the interest at the end. Undo the collected weeks first.`
+  }
+
+  const weeks = weeksBetween(input.startOn, input.dueOn)
+  if (!weeks.ok) return null // loanTerms says this better, in the same words the form uses.
+
+  if (weeks.value < highestPaid) {
+    return `Week ${highestPaid} has already been collected on this loan, so it cannot be shortened below ${highestPaid} weeks.`
+  }
+
+  // Only a weekly rate can reach here: loanTerms refuses WEEKLY on a fixed
+  // amount, and refusal 1 above already caught a switch away from WEEKLY.
+  if (input.interest.basis !== 'WEEKLY_RATE') return null
+
+  const alreadyCollected = collected.reduce((sum, row) => sum + row.amountCentavos, 0)
+  const newInterest = computeInterest({
+    capital: input.capital,
+    rateBps: input.interest.borrowerRateBps,
+    weeks: weeks.value,
+  })
+  if (newInterest < alreadyCollected) {
+    return `${formatPesos(centavos(alreadyCollected))} of interest has already been collected on this loan, and these figures come to ${formatPesos(newInterest)} in total. Undo the collected weeks first.`
+  }
+
+  return null
+}
+
+/**
+ * Where an edited loan is chased from next.
+ *
+ * loanTerms answers for a loan nobody has paid anything on. An edited weekly
+ * loan may have six weeks in hand, and its next due date is the earliest week
+ * still unpaid — the same rule every other screen uses, from the same function.
+ */
+function nextDueOnAfterEdit(input: Parsed, terms: LoanTermsResult, collected: CollectedWeek[]): Date {
+  if (input.collection !== 'WEEKLY') return terms.nextDueOn
+
+  const paid = new Set(
+    collected.map((row) => row.weekNumber).filter((week): week is number => week !== null),
+  )
+  const next = nextUnpaidWeek(input.startOn, terms.termDays / DAYS_PER_WEEK, paid)
+  return next?.dueOn ?? input.dueOn
+}
+
 export async function updateLoan(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
@@ -343,9 +431,21 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
   if (!parsed.ok) return failed(parsed.error)
   const input = parsed.value
 
-  const existing = await db.loan.findFirst({ where: { id: loanId, userId: user.id }, select: { status: true } })
+  const existing = await db.loan.findFirst({
+    where: { id: loanId, userId: user.id },
+    select: {
+      status: true,
+      payments: {
+        where: { deletedAt: null, weekNumber: { not: null } },
+        select: { weekNumber: true, amountCentavos: true },
+      },
+    },
+  })
   if (!existing) return failed('That loan no longer exists.')
   if (existing.status === 'PAID') return failed('A loan that has been paid cannot be edited.')
+
+  const refusal = refuseIfItRewritesCollectedWeeks(existing.payments, input)
+  if (refusal) return failed(refusal)
 
   try {
     await db.$transaction(async (tx) => {
@@ -360,6 +460,7 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
         startOn: input.startOn,
         dueOn: input.dueOn,
         interest: input.interest,
+        collection: input.collection,
         funders: funders.value,
       })
       if (!terms.ok) throw new LoanRefused(terms.error)
@@ -376,6 +477,12 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
             input.interest.basis === 'WEEKLY_RATE' ? input.interest.borrowerRateBps : null,
           startOn: input.startOn,
           dueOn: input.dueOn,
+          interestCollection: input.collection,
+          // Recomputed from the WEEKS ALREADY COLLECTED, not from the dates
+          // alone. loanTerms answers for a brand new loan, which has none; an
+          // edited loan may have six already in hand, and resetting it to week
+          // one would put money back on a screen that says it was received.
+          nextDueOn: nextDueOnAfterEdit(input, terms.value, existing.payments),
           termDays: terms.value.termDays,
           interestCentavos: terms.value.interest,
           totalCentavos: terms.value.total,

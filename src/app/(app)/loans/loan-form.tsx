@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native.tsx'
 import { type Centavos, centavos, formatPesos, parsePesos } from '@/lib/money/centavos.ts'
-import { type InterestBasis, computeInterest } from '@/lib/money/interest.ts'
+import { type InterestBasis, type InterestCollection, computeInterest } from '@/lib/money/interest.ts'
 import {
   DAYS_PER_WEEK,
   daysBetween,
@@ -59,6 +59,7 @@ export type LoanFormValues = {
   startOn: string
   dueOn: string
   interestBasis: InterestBasis
+  interestCollection: InterestCollection
   borrowerRate: string
   adminCut: string
   /** Both blank on a weekly-rate loan. Pesos, as typed. */
@@ -176,6 +177,7 @@ export function LoanForm({
   const [dueOn, setDueOn] = useState(initial.dueOn)
   const [termChoice, setTermChoice] = useState(() => presetFor(initial.startOn, initial.dueOn))
   const [basis, setBasis] = useState<InterestBasis>(initial.interestBasis)
+  const [weekly, setWeekly] = useState(initial.interestCollection === 'WEEKLY')
   const [borrowerRate, setBorrowerRate] = useState(initial.borrowerRate)
   const [adminCut, setAdminCut] = useState(initial.adminCut)
   const [fixedInterest, setFixedInterest] = useState(initial.fixedInterest)
@@ -426,6 +428,34 @@ export function LoanForm({
             <BasisChoice value="FIXED_AMOUNT" current={basis} onSelect={setBasis} label="Fixed amount" />
           </div>
         </fieldset>
+
+        {/* WHEN the interest is collected, which is a different question from how
+            it is set. Only on a weekly rate: a fixed amount has no week count to
+            instal against and the server refuses it, so the box is not offered
+            rather than offered and rejected.
+
+            The refusal sentences live in server/loans/terms.ts, which a client
+            component may not import — so this hides the choice instead of
+            disabling it with an explanation. */}
+        {basis === 'WEEKLY_RATE' ? (
+          <label className="flex items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              name="interestCollection"
+              value="WEEKLY"
+              checked={weekly}
+              onChange={(event) => setWeekly(event.target.checked)}
+              className="border-input text-brand-strong mt-0.5 size-4 rounded"
+            />
+            <span>
+              <span className="font-medium">Collect the interest every week</span>
+              <span className="text-muted-foreground block text-xs">
+                The borrower pays the interest weekly and returns the capital on the due date, with
+                the last week. The total does not change.
+              </span>
+            </span>
+          </label>
+        ) : null}
 
         {basis === 'FIXED_AMOUNT' ? (
           <div className="text-sm">

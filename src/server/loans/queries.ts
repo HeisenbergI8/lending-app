@@ -1,11 +1,20 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
-import { type InterestBasis } from '../../lib/money/interest.ts'
+import { type InterestBasis, type InterestCollection } from '../../lib/money/interest.ts'
 import { type AdminStake, adminStakeInLoan, adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
 import { type LoanState, loanState } from '../../lib/loan-state.ts'
-import { calendarDate } from '../../lib/money/weeks.ts'
+import { DAYS_PER_WEEK, calendarDate } from '../../lib/money/weeks.ts'
+import {
+  MIN_WEEKLY_WEEKS,
+  nextUnpaidWeek,
+  releasedOnFunding,
+  weeklyDueDates,
+  weeklySchedule,
+} from '../../lib/money/weekly.ts'
 import { PAGE_SIZE, type PageWindow } from '../../lib/pagination.ts'
 import { db } from '../db.ts'
+import { weeklyCollected } from '../payments/collected.ts'
+import { settlingPayment } from '../payments/settled.ts'
 
 /**
  * Reading loans.
@@ -41,7 +50,18 @@ export type LoanRow = {
   borrowerName: string
   capital: Centavos
   total: Centavos
+  /**
+   * THE NEXT DAY MONEY IS OWED, which is not always the loan's due date.
+   *
+   * On a loan collected at the end the two are the same. On one collecting its
+   * interest weekly this is the earliest unpaid WEEK, and the capital date lives
+   * on the loan page — the only screen that shows both. `dueIsWeekly` says
+   * which of the two this is, because the words beside a date are the claim it
+   * makes, and "due 3 Oct" on a weekly row claims the wrong one.
+   */
   dueOn: Date
+  /** True when `dueOn` above is a weekly instalment rather than the loan's own due date. */
+  dueIsWeekly: boolean
   state: LoanState
   /** Whose money this is, largest share first. */
   funders: LoanRowFunder[]
@@ -84,6 +104,25 @@ export type LoanDetail = Omit<LoanRow, 'funders' | 'latestNote' | 'noteCount'> &
   termDays: number
   startOn: Date
   interestBasis: InterestBasis
+  interestCollection: InterestCollection
+  /** The day the CAPITAL comes back. On a weekly loan this is NOT `dueOn` above. */
+  capitalDueOn: Date
+  /** Empty on a loan collected at the end. */
+  weeks: LoanWeekRow[]
+  /** Collected so far, added up from `weeks` so the two cannot disagree. */
+  weeklyCollected: Centavos
+  /** Still owed: the weeks not yet collected, plus the capital. */
+  weeklyOutstanding: Centavos
+  /**
+   * The schedule this loan WOULD get if it were switched to weekly collection,
+   * or null when it cannot be. Null on a loan that is already weekly, on a
+   * fixed-amount loan, on a paid one, on one with a payment recorded, and on one
+   * shorter than two weeks.
+   *
+   * Offered from here rather than worked out in the screen, because what a week
+   * would come to is a peso decision and those do not live in components.
+   */
+  convertible: { weeks: number; weeklyInterest: Centavos; weekDates: Date[] } | null
   /** What the borrower pays per week. Null on a fixed-amount loan. */
   borrowerRateBps: number | null
   paidOn: Date | null
@@ -103,6 +142,177 @@ export type LoanDetail = Omit<LoanRow, 'funders' | 'latestNote' | 'noteCount'> &
    * together so they cannot disagree on screen.
    */
   adminStake: AdminStake
+}
+
+/** One week of a weekly loan, as the loan page lists it. */
+export type LoanWeekRow = {
+  week: number
+  dueOn: Date
+  interest: Centavos
+  /** The day it was collected, or null while it is still owed. */
+  paidOn: Date | null
+  /** The payment row, so proof can be attached to THIS week. Null while unpaid. */
+  paymentId: string | null
+  /** A collected week with nothing attached. Flagged, never blocked. */
+  missingProof: boolean
+  /**
+   * True for the last week, which is handed over WITH the capital in one
+   * payment and so is never collected on its own. The row says so rather than
+   * offering a button the server would refuse.
+   */
+  withCapital: boolean
+  /** The earliest unpaid week — the only one that carries a button. */
+  isNext: boolean
+}
+
+type WeeklyLoanRow = {
+  startOn: Date
+  termDays: number
+  interestCollection: InterestCollection
+  totalCentavos: number
+  fundings: {
+    lenderId: string
+    earningsCentavos: number
+    adminCutCentavos: number
+    lender: { isSelf: boolean }
+  }[]
+  payments: {
+    id: string
+    weekNumber: number | null
+    paidOn: Date
+    deletedAt: Date | null
+    proofFiles: { id: string }[]
+  }[]
+}
+
+/**
+ * What this loan's weekly schedule WOULD be, or null when it cannot have one.
+ *
+ * The refusals mirror convertToWeekly exactly, so the button is not offered on a
+ * loan the server would turn down. Keeping them in step matters more than
+ * keeping them in one place: this one decides whether a screen appears, and that
+ * one decides whether money is written.
+ */
+function convertibleToWeekly(loan: WeeklyLoanRow & {
+  status: 'ACTIVE' | 'PAID'
+  interestBasis: InterestBasis
+  dueOn: Date
+}): { weeks: number; weeklyInterest: Centavos; weekDates: Date[] } | null {
+  if (loan.interestCollection === 'WEEKLY') return null
+  if (loan.interestBasis !== 'WEEKLY_RATE') return null
+  if (loan.status === 'PAID') return null
+  if (loan.payments.some((payment) => payment.deletedAt === null)) return null
+
+  const weeks = loan.termDays / DAYS_PER_WEEK
+  if (!Number.isInteger(weeks) || weeks < MIN_WEEKLY_WEEKS) return null
+
+  const schedule = weeklySchedule(
+    loan.fundings.map((funding) => ({
+      lenderId: funding.lenderId,
+      earnings: centavos(funding.earningsCentavos),
+      adminCut: centavos(funding.adminCutCentavos),
+    })),
+    weeks,
+  )
+
+  return {
+    weeks,
+    // Week one, which every week but the last is equal to. The last carries the
+    // remainder and is handed over with the capital.
+    weeklyInterest: schedule[0].interest,
+    weekDates: weeklyDueDates(loan.startOn, weeks),
+  }
+}
+
+/**
+ * The week by week schedule a loan page shows, and the figures beside it.
+ *
+ * Built in the server layer from rows the query already fetched, because the
+ * rule in CONVENTIONS.md is that every peso decision lives in src/lib/money/ and
+ * the screen renders what it is handed. The UI does no arithmetic.
+ *
+ * Empty on a loan collected at the end, which is the shape the page checks.
+ */
+function weeklyDetail(loan: WeeklyLoanRow): {
+  weeks: LoanWeekRow[]
+  collected: Centavos
+  outstanding: Centavos
+  releasedToAdmin: Centavos
+} {
+  if (loan.interestCollection !== 'WEEKLY') {
+    return {
+      weeks: [],
+      collected: centavos(0),
+      outstanding: centavos(loan.totalCentavos),
+      releasedToAdmin: centavos(0),
+    }
+  }
+
+  const weeks = loan.termDays / DAYS_PER_WEEK
+  const schedule = weeklySchedule(
+    loan.fundings.map((funding) => ({
+      lenderId: funding.lenderId,
+      earnings: centavos(funding.earningsCentavos),
+      adminCut: centavos(funding.adminCutCentavos),
+    })),
+    weeks,
+  )
+  const dates = weeklyDueDates(loan.startOn, weeks)
+
+  const live = new Map(
+    loan.payments
+      .filter((payment) => payment.weekNumber !== null && payment.deletedAt === null)
+      .map((payment) => [payment.weekNumber as number, payment]),
+  )
+  const next = nextUnpaidWeek(loan.startOn, weeks, new Set(live.keys()))
+
+  const rows: LoanWeekRow[] = schedule.map((instalment, index) => {
+    const payment = live.get(instalment.week) ?? null
+    return {
+      week: instalment.week,
+      dueOn: dates[index],
+      interest: instalment.interest,
+      paidOn: payment?.paidOn ?? null,
+      paymentId: payment?.id ?? null,
+      missingProof: payment !== null && payment.proofFiles.length === 0,
+      withCapital: instalment.week === weeks,
+      isNext: next?.week === instalment.week,
+    }
+  })
+
+  // EVERY PESO FIGURE ON THIS PAGE GOES THROUGH releasedOnFunding, including the
+  // one that could obviously be added up from the rows above.
+  //
+  // Adding up the rows is what this did until 2026-09-25 and it was the wrong
+  // call, not a harmless shortcut: it gave the loan page its own second opinion
+  // about how much had been collected, and on a loan with a skipped week that
+  // opinion differed from the loans list, the dashboard and the borrower's
+  // balance by whole weeks. The rows and the tile still agree, because both are
+  // now slices of the same stored split.
+  const released = loan.fundings.map((funding) => ({
+    isSelf: funding.lender.isSelf,
+    ...releasedOnFunding(
+      { earnings: centavos(funding.earningsCentavos), adminCut: centavos(funding.adminCutCentavos) },
+      weeks,
+      new Set(live.keys()),
+    ),
+  }))
+
+  const collected = released.reduce((total, row) => total + row.earnings + row.adminCut, 0)
+
+  // What the collected weeks have already put in the Admin's pot: their cut on
+  // every row, plus what their own capital earned on the rows they funded.
+  const releasedToAdmin = released.reduce(
+    (total, row) => total + row.adminCut + (row.isSelf ? row.earnings : 0),
+    0,
+  )
+
+  return {
+    weeks: rows,
+    collected: centavos(collected),
+    outstanding: centavos(loan.totalCentavos - collected),
+    releasedToAdmin: centavos(releasedToAdmin),
+  }
 }
 
 const funderName = (lender: { firstName: string; lastName: string; isSelf: boolean }) =>
@@ -126,14 +336,29 @@ const INSENSITIVE = { mode: 'insensitive' } as const
 export function loanWhere(userId: string, filter: LoanFilter) {
   const today = calendarDate(new Date())
 
+  // THE DATE RANGE AND THE STATUS FILTER ASK DIFFERENT QUESTIONS, and on a
+  // weekly loan they stop having the same answer.
+  //
+  //   "due between these dates" means the loan's own due date — the day the
+  //   capital comes back, which is what the Admin typed and remembers.
+  //
+  //   "overdue" and "active" mean the next day money is owed, which on a weekly
+  //   loan is the earliest unpaid week and may be four months earlier.
+  //
+  // Filtering both on one column made a weekly loan three weeks behind read as
+  // Active, because its capital date is in February. They are separate keys on
+  // the same `where`, so both bounds still have to hold.
   const dueOn = {
     ...(filter.from ? { gte: filter.from } : {}),
     ...(filter.to ? { lte: filter.to } : {}),
+  }
+
+  const nextDueOn = {
     ...(filter.status === 'overdue' ? { lt: today } : {}),
-    // An active loan is one not yet due, so the range's own `gte` is tightened to
-    // today rather than replaced — both bounds have to hold, and the later of the
-    // two is the one that does the work.
-    ...(filter.status === 'active' ? { gte: filter.from && filter.from > today ? filter.from : today } : {}),
+    // An active loan is one not yet due. The range's own `gte` above still
+    // applies to the capital date, so a from-date later than today keeps
+    // narrowing the result — it just narrows the right column now.
+    ...(filter.status === 'active' ? { gte: today } : {}),
   }
 
   return {
@@ -142,6 +367,7 @@ export function loanWhere(userId: string, filter: LoanFilter) {
     ...(filter.status === 'paid' ? { status: 'PAID' as const } : {}),
     ...(filter.status === 'active' || filter.status === 'overdue' ? { status: 'ACTIVE' as const } : {}),
     ...(Object.keys(dueOn).length > 0 ? { dueOn } : {}),
+    ...(Object.keys(nextDueOn).length > 0 ? { nextDueOn } : {}),
     // An amount matches either figure, because the admin remembers a loan by the
     // money that changed hands OR by what is owed back on it.
     ...(filter.amount !== null
@@ -172,7 +398,14 @@ export type LoanListTotals = {
   paid: number
   /** `status = ACTIVE AND dueOn < today`, so a SUBSET of `active`, not a fourth bucket. */
   overdue: number
-  /** SUM of `totalCentavos` over the ACTIVE loans in the filter. */
+  /**
+   * What is STILL TO COLLECT on the ACTIVE loans in the filter: the SUM of
+   * their `totalCentavos`, MINUS the weeks already collected on the weekly ones.
+   *
+   * Not simply the sum of the totals. A weekly loan fifteen weeks in has had
+   * fifteen weeks of interest handed over, and counting it as still to come
+   * would contradict the Floating tile that already spent it.
+   */
   outstanding: Centavos
 }
 
@@ -209,7 +442,7 @@ export async function listLoans(
   const where = loanWhere(userId, filter)
   const today = calendarDate(new Date())
 
-  const [loans, byStatus, overdue] = await Promise.all([
+  const [loans, byStatus, overdue, collectedWeeks] = await Promise.all([
     db.loan.findMany({
       // A TIEBREAKER, AND IT IS NOT OPTIONAL. `skip`/`take` ask Postgres for a
       // window into a sorted result, and if the sort does not decide every pair
@@ -218,7 +451,9 @@ export async function listLoans(
       // real data this showed up immediately: 86 loans, 85 distinct, because
       // several shared a due date. `id` is unique, so it makes the order total.
       where,
-      orderBy: [{ status: 'asc' }, { dueOn: 'asc' }, { id: 'asc' }],
+      // Soonest MONEY first, not soonest capital. A weekly loan three weeks
+      // behind belongs at the top of the list, not down in February.
+      orderBy: [{ status: 'asc' }, { nextDueOn: 'asc' }, { id: 'asc' }],
       skip: window.skip,
       take: window.take,
       select: {
@@ -227,6 +462,8 @@ export async function listLoans(
         capitalCentavos: true,
         totalCentavos: true,
         dueOn: true,
+        nextDueOn: true,
+        interestCollection: true,
         status: true,
         borrower: { select: { firstName: true, lastName: true } },
         // Whose money it was is on the card itself. Without it the list answers
@@ -283,7 +520,13 @@ export async function listLoans(
     // made the Overdue tile report an active loan that was not in the list at
     // all. Intersecting gives the only honest answer — a filter pinned to PAID
     // and a count pinned to ACTIVE can share no rows, so it returns 0.
-    db.loan.count({ where: { AND: [where, { status: 'ACTIVE', dueOn: { lt: today } }] } }),
+    // nextDueOn for the same reason the filter above uses it: a weekly loan is
+    // late on a missed week, months before its capital date.
+    db.loan.count({ where: { AND: [where, { status: 'ACTIVE', nextDueOn: { lt: today } }] } }),
+    // The weeks already in hand on the weekly loans this filter matches. What
+    // is STILL to collect is the total minus these, and without the subtraction
+    // this tile and the Floating tile describe the same pesos differently.
+    weeklyCollected(userId, where),
   ])
 
   const active = byStatus.find((group) => group.status === 'ACTIVE')
@@ -296,8 +539,13 @@ export async function listLoans(
       borrowerName: `${loan.borrower.firstName} ${loan.borrower.lastName}`,
       capital: centavos(loan.capitalCentavos),
       total: centavos(loan.totalCentavos),
-      dueOn: loan.dueOn,
-      state: loanState(loan.status, loan.dueOn),
+      // THE NEXT DATE MONEY IS OWED, not the capital date. On a weekly loan
+      // three weeks behind, the capital date is in February and printing it
+      // here would put the loan at the bottom of a list it belongs at the top
+      // of. FEATURES.md section 5.
+      dueOn: loan.nextDueOn,
+      dueIsWeekly: loan.interestCollection === 'WEEKLY',
+      state: loanState(loan.status, loan.nextDueOn),
       latestNote: loan.notes[0] ?? null,
       noteCount: loan._count.notes,
       funders: loan.fundings.map((funding) => ({
@@ -311,7 +559,11 @@ export async function listLoans(
       active: active?._count._all ?? 0,
       paid: paid?._count._all ?? 0,
       overdue,
-      outstanding: centavos(active?._sum.totalCentavos ?? 0),
+      // What is STILL to collect, which on a weekly loan is not the loan's
+      // total: the weeks already collected have been collected. Subtracting
+      // them is what makes this figure and the Floating tile describe the same
+      // pesos.
+      outstanding: centavos((active?._sum.totalCentavos ?? 0) - collectedWeeks),
     },
   }
 }
@@ -371,16 +623,25 @@ export async function interestSummary(
 ): Promise<{ charged: Centavos; collected: Centavos; pending: Centavos }> {
   const where = { userId, deletedAt: null }
 
-  const [all, paid] = await Promise.all([
+  const [all, paid, collectedWeeks] = await Promise.all([
     db.loan.aggregate({ where, _sum: { interestCentavos: true } }),
     db.loan.aggregate({
       where: { ...where, status: 'PAID' as const },
       _sum: { interestCentavos: true },
     }),
+    // THE WEEKS ALREADY COLLECTED ON LOANS THAT ARE STILL RUNNING. Their
+    // interest is in the Admin's and the lenders' hands, so counting it as
+    // pending would tell the Admin money is still to come that has already
+    // arrived — and the Floating tile, which now includes it, would disagree
+    // with the interest tile on the same screen.
+    weeklyCollected(userId),
   ])
 
   const charged = all._sum.interestCentavos ?? 0
-  const collected = paid._sum.interestCentavos ?? 0
+  // Loans settled in full, plus the weeks collected on loans still running. The
+  // two cannot overlap: the weekly figure is restricted to ACTIVE loans, and a
+  // loan that has settled is PAID.
+  const collected = (paid._sum.interestCentavos ?? 0) + collectedWeeks
 
   return {
     charged: centavos(charged),
@@ -406,12 +667,17 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
       termDays: true,
       startOn: true,
       dueOn: true,
+      nextDueOn: true,
+      interestCollection: true,
       status: true,
       borrower: { select: { firstName: true, lastName: true } },
-      payment: {
+      payments: {
         select: {
+          id: true,
+          weekNumber: true,
           paidOn: true,
           deletedAt: true,
+          amountCentavos: true,
           proofFiles: { where: { deletedAt: null }, select: { id: true } },
         },
       },
@@ -454,14 +720,17 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     adminCutBps: funding.adminCutBps,
   }))
 
-  // Prisma cannot filter a to-one relation in a select, so an undone payment is
-  // dropped here instead. Undoing soft-deletes the row rather than destroying it, so
-  // the row is still attached to the loan and would otherwise read as paid.
-  const payment = loan.payment?.deletedAt === null ? loan.payment : null
+  // The SETTLING payment, live only. Undoing soft-deletes the row rather than
+  // destroying it, so an undone payment is still attached to the loan and would
+  // otherwise read as paid — and on a weekly loan the array also carries the
+  // collected weeks, which are payments but are not this one.
+  const payment = settlingPayment(loan.payments)
 
   // What the admin actually takes home on this loan: their cut on other
   // people's money, plus what their own capital earned as a funder.
   const adminEarnings = adminTakeOnLoan(funders)
+
+  const weekly = weeklyDetail(loan)
 
   return {
     id: loan.id,
@@ -472,10 +741,21 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     total: centavos(loan.totalCentavos),
     termDays: loan.termDays,
     startOn: loan.startOn,
-    dueOn: loan.dueOn,
+    // The NEXT owed date, so LoanRow.dueOn means one thing everywhere. The
+    // capital date is capitalDueOn below, and this page shows both.
+    dueOn: loan.nextDueOn,
+    dueIsWeekly: loan.interestCollection === 'WEEKLY',
     interestBasis: loan.interestBasis,
+    interestCollection: loan.interestCollection,
+    // THE CAPITAL DATE, which the loans list does NOT show on a weekly loan.
+    // This page is the one screen that shows both. FEATURES.md section 5.
+    capitalDueOn: loan.dueOn,
+    weeks: weekly.weeks,
+    weeklyCollected: weekly.collected,
+    weeklyOutstanding: weekly.outstanding,
+    convertible: convertibleToWeekly(loan),
     borrowerRateBps: loan.borrowerRateBps,
-    state: loanState(loan.status, loan.dueOn),
+    state: loanState(loan.status, loan.nextDueOn),
     paidOn: payment?.paidOn ?? null,
     missingProof: payment !== null && payment.proofFiles.length === 0,
     funders,
@@ -494,6 +774,10 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     adminStake: adminStakeInLoan(
       funders,
       centavos(loan.advances.reduce((total, row) => total + row.amountCentavos, 0)),
+      // What the collected weeks have ALREADY put into the Admin pot. Without
+      // it the ceiling counts that money twice: once as floating it can spend
+      // directly, and once as headroom for an advance against the same loan.
+      weekly.releasedToAdmin,
     ),
     // Taken OUT of the total rather than added up from the rows. The split
     // already guaranteed the parts sum to the interest charged, so subtracting

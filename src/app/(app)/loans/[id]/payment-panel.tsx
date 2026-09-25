@@ -54,7 +54,16 @@ function today(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
-export function MarkPaidPanel({ loanId, total }: { loanId: string; total: string }) {
+export function MarkPaidPanel({
+  loanId,
+  total,
+  weekly = false,
+}: {
+  loanId: string
+  total: string
+  /** True on a loan collecting its interest weekly: this records February. */
+  weekly?: boolean
+}) {
   // markPaid itself, not a wrapper: this form is rendered server-side and posts
   // without JavaScript. Nothing needs clearing afterwards — on success the whole
   // section is replaced by the payment that was just recorded.
@@ -65,7 +74,9 @@ export function MarkPaidPanel({ loanId, total }: { loanId: string; total: string
       <div>
         <h2 className="text-base font-semibold tracking-tight">Mark as paid</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Records the full {total}. There are no partial payments.
+          {weekly
+            ? `Records the capital and the last week, ${total}. Every week before it is collected on its own.`
+            : `Records the full ${total}. There are no partial payments.`}
         </p>
       </div>
 
@@ -97,13 +108,22 @@ export function MarkPaidPanel({ loanId, total }: { loanId: string; total: string
   )
 }
 
-/** Attaching the screenshot that was still on someone's phone at the time. */
-export function AddProofForm({ loanId }: { loanId: string }) {
+/**
+ * Attaching the screenshot that was still on someone's phone at the time.
+ *
+ * `paymentId` names WHICH payment on a loan that collects its interest weekly,
+ * because there are up to twenty of them and a week ticked off during a
+ * conversion is flagged "No proof" until one arrives. Without it this attaches to
+ * the payment that settled the loan, which is what every caller meant back when
+ * a loan had only one — and which does not exist yet on a running weekly loan.
+ */
+export function AddProofForm({ loanId, paymentId }: { loanId: string; paymentId?: string }) {
   const { formRef, state, formAction } = useClearOnSuccess(addProof)
 
   return (
     <form ref={formRef} action={formAction} className="space-y-3">
       <input type="hidden" name="loanId" value={loanId} />
+      {paymentId ? <input type="hidden" name="paymentId" value={paymentId} /> : null}
 
       <ProofInput label="Add proof" hint="Images are shrunk before they are stored." />
 

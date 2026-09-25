@@ -127,7 +127,21 @@ export default async function DashboardPage() {
             Admin's share. Labelled "Total interest" and noted as to date,
             because it is every loan ever, not this month: a range belongs on
             the reports screen, which has the dates for it. Deleted loans are
-            out, and a repayment that was undone stops counting as collected. */}
+            out, and a repayment that was undone stops counting as collected.
+
+            WHAT "back" COUNTS WIDENED ON 2026-09-25. It used to be the interest
+            on loans with a settling payment, and nothing else could put interest
+            in anybody's hands. It is now that PLUS the weeks already collected
+            on loans that are still running — which is money that really is back,
+            so the word holds. Had it not been widened, this note would have
+            contradicted the Floating tile three tiles to its left, which counts
+            those same weeks.
+
+            "charged" is untouched: SUM("interestCentavos") over live loans, the
+            whole 7% whenever the loan was made.
+
+            Measured 2026-09-25: no loan collects weekly yet, so "back" equals
+            the interest on settled loans exactly as before. */}
         <StatTile
           label="Total interest"
           icon={TrendingUp}
@@ -205,6 +219,19 @@ export default async function DashboardPage() {
                       </dd>
                     </div>
                     <div className="flex items-baseline justify-between gap-3">
+                      {/* position.earned is settledEarnings + settledAdminCuts —
+                          interest that has actually REACHED this pot, not what
+                          the loans will eventually pay.
+
+                          Widened on 2026-09-25 and the word got truer, not
+                          looser. It used to mean "earnings on loans that were
+                          repaid", because that was the only way interest could
+                          arrive. A weekly loan hands its interest over week by
+                          week, and each collected week now lands here the day it
+                          is collected while the capital stays under Out on loan.
+                          "Earned" describes money in hand either way; what would
+                          now be wrong is counting a running loan's whole
+                          interest, which is what `pending` is for. */}
                       <dt className="text-muted-foreground shrink-0 text-xs">Earned</dt>
                       <dd className="truncate text-sm">
                         <Money

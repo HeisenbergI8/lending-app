@@ -27,6 +27,15 @@
 //
 // Derived on read, never stored: floating funds, a loan's OVERDUE state, and a
 // borrower's counted track record. See docs/ARCHITECTURE.md.
+//
+//   ONE NAMED EXCEPTION, added 2026-09-25: Loan.nextDueOn. A loan collecting its
+//   interest weekly is overdue on its earliest unpaid WEEK, and "the earliest
+//   week with no live Payment row" is not a comparison Postgres can make against
+//   an index — while the loans list is filtered, counted, paged and sorted by
+//   exactly that. The column caches src/lib/money/weekly.ts nextUnpaidWeek and
+//   is written in the same transaction as every event that moves it. The rule
+//   above still holds for everything else, and the field comment on nextDueOn
+//   carries the argument in full.
 
 generator client {
   provider = "prisma-client-js"
@@ -221,6 +230,26 @@ enum InterestBasis {
   FIXED_AMOUNT
 }
 
+/// When a loan's interest is collected. Chosen per loan, and it changes nothing
+/// about how much the interest IS.
+///
+/// AT_END is every loan the app made before 2026-09-25: the capital and the
+/// whole interest in one payment on the due date.
+///
+/// WEEKLY is the same arithmetic collected differently — one instalment per
+/// whole week, the last handed over WITH the capital. The figures are still
+/// computed once at creation and still stored on Loan and LoanFunding; the
+/// schedule is carved out of them by src/lib/money/weekly.ts and is NOT stored,
+/// because storing it would be a second copy of numbers that already exist and
+/// could only ever drift from them.
+///
+/// Only a WEEKLY_RATE loan can be WEEKLY. A FIXED_AMOUNT loan has no week count
+/// to instal against — see the InterestBasis comment above.
+enum InterestCollection {
+  AT_END
+  WEEKLY
+}
+
 /// One loan to one borrower.
 ///
 /// termDays, interestCentavos and totalCentavos are computed ONCE by
@@ -238,33 +267,56 @@ enum InterestBasis {
 /// There is no OVERDUE value in LoanStatus. Overdue is ACTIVE with dueOn in the
 /// past — a fact about today, not a state someone has to remember to write.
 model Loan {
-  id               String        @id @default(cuid())
-  userId           String
-  borrowerId       String
-  capitalCentavos  Int
-  interestBasis    InterestBasis @default(WEEKLY_RATE)
+  id                 String             @id @default(cuid())
+  userId             String
+  borrowerId         String
+  capitalCentavos    Int
+  interestBasis      InterestBasis      @default(WEEKLY_RATE)
+  /// When the interest is collected. Never WEEKLY on a FIXED_AMOUNT loan.
+  interestCollection InterestCollection @default(AT_END)
   /// What the borrower is charged per week. NULL on a FIXED_AMOUNT loan.
-  borrowerRateBps  Int?
-  startOn          DateTime      @db.Date
-  dueOn            DateTime      @db.Date
-  termDays         Int
-  interestCentavos Int
-  totalCentavos    Int
-  status           LoanStatus    @default(ACTIVE)
-  deletedAt        DateTime?     @map("archivedAt")
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  borrowerRateBps    Int?
+  startOn            DateTime           @db.Date
+  /// The day the CAPITAL comes back. What the Admin typed and what the borrower
+  /// agreed to. On a weekly loan this is NOT the date the loans list shows.
+  dueOn              DateTime           @db.Date
+  /// THE NEXT DAY MONEY IS OWED ON THIS LOAN. Equal to dueOn on an AT_END loan,
+  /// and on a WEEKLY loan the earliest week nobody has paid yet.
+  ///
+  /// THE ONE DERIVED FIGURE IN THIS SCHEMA THAT IS STORED, and it is stored
+  /// under protest. Overdue is meant to be a fact about today rather than a
+  /// column — but "the earliest unpaid week" is not a comparison Postgres can
+  /// make against an index, and the loans list is filtered, counted, sorted and
+  /// paged BY this value. Deriving it per row would mean a correlated subquery
+  /// over Payment on every page, on every count, and on the dashboard's
+  /// aggregates.
+  ///
+  /// It is safe to store only because it is written in the SAME TRANSACTION as
+  /// every event that can move it: creating a loan, editing one, paying a week,
+  /// undoing a week, marking a loan paid, undoing that, and converting a loan.
+  /// No job maintains it and nothing else may write it. If it is ever found
+  /// disagreeing with the payments, THE PAYMENTS ARE RIGHT — see nextUnpaidWeek
+  /// in src/lib/money/weekly.ts, which is the rule this column caches.
+  nextDueOn          DateTime           @db.Date
+  termDays           Int
+  interestCentavos   Int
+  totalCentavos      Int
+  status             LoanStatus         @default(ACTIVE)
+  deletedAt          DateTime?          @map("archivedAt")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   borrower Borrower            @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
   fundings LoanFunding[]
-  payment  Payment?
+  payments Payment[]
   notes    LoanNote[]
   advances LenderTransaction[]
 
   @@index([userId, status, deletedAt])
   @@index([borrowerId])
   @@index([dueOn])
+  @@index([userId, status, nextDueOn])
 }
 
 enum LoanStatus {
@@ -340,16 +392,39 @@ model LoanNote {
   @@index([userId])
 }
 
-/// The single repayment.
+/// A payment against a loan.
 ///
-/// loanId is unique: one payment per loan, enforced by the database rather than
-/// by hoping the application never writes a second. There are no partial
-/// payments and no installments — the borrower pays the whole total at once.
+/// FOR NEARLY EVERY LOAN THERE IS STILL EXACTLY ONE, and the database still
+/// enforces that. The borrower pays the whole total at once; there are no
+/// partial payments and no installments.
+///
+/// weekNumber is what changed on 2026-09-25, and it is NULL on every row
+/// written before then and on every AT_END loan since:
+///
+///   NULL    the settling payment. On an AT_END loan that is the whole total.
+///           On a WEEKLY loan it is the capital plus the FINAL week's interest,
+///           in one payment, which is what FEATURES.md section 5 calls February.
+///           AT MOST ONE PER LOAN, enforced by a partial unique index the
+///           migration writes by hand — Prisma cannot express a WHERE on an
+///           index, so it is not visible below. It is the same guarantee the old
+///           Payment_loanId_key gave, kept rather than weakened.
+///
+///   1..N-1  one week's interest on a WEEKLY loan, collected on its own. The
+///           @@unique below stops a week being paid twice.
+///
+/// A weekly payment is NOT a partial payment and nothing here contradicts
+/// FEATURES.md section 12. No single amount is ever paid in parts: a week is
+/// paid whole or not at all, and the capital is paid whole or not at all.
 model Payment {
   id             String    @id @default(cuid())
   userId         String
-  loanId         String    @unique
+  loanId         String
+  /// NULL is the settling payment. 1..N-1 is one week of a WEEKLY loan.
+  weekNumber     Int?
   paidOn         DateTime  @db.Date
+  /// What was handed over. One week's interest on a weekly row; the capital plus
+  /// the final week on a weekly loan's settling row; the whole total on every
+  /// other. Never typed by the Admin — always read from the loan.
   amountCentavos Int
   deletedAt      DateTime? @map("archivedAt")
   createdAt      DateTime  @default(now())
@@ -357,6 +432,10 @@ model Payment {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   loan       Loan        @relation(fields: [loanId], references: [id], onDelete: Cascade)
   proofFiles ProofFile[]
+
+  @@unique([loanId, weekNumber])
+  @@index([loanId])
+  @@index([userId, deletedAt])
 }
 
 /// A screenshot or receipt backing a payment. Several per payment is normal —

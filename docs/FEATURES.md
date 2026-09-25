@@ -200,6 +200,73 @@ Example: start Feb 1, due Mar 1 → 28 days → `= 4 weeks` ✓ → ₱30,000 ×
   - Loans are **never extended** and never rolled into a new loan.
 - **Paid** — moves to the borrower's history, kept forever.
 
+### Weekly-interest loans
+
+**Added 2026-09-24.** Angel borrows ₱60,000 in September and returns the capital in February,
+but she pays the interest **every week** in between. The loan sits open for twenty-odd weeks while
+the capital itself does not move until February.
+
+**This is not a third interest basis.** The arithmetic is exactly the weekly rate of section 2,
+computed once at creation over the whole term. What changes is **when the interest is collected** —
+every week, instead of all at the end. Nothing recalculates; there is still no background job.
+
+#### The schedule
+
+- Built at creation from the same two dates. One instalment per whole week, the first falling one
+  week after the start date, the last falling **on** the due date.
+- Only a weekly-rate loan can be weekly-collected. A fixed-amount loan has no week count to
+  instal, and the whole-weeks rule of section 5 already guarantees the schedule divides evenly.
+- Each week's interest is the loan's stored interest divided across the weeks, split between the
+  funders by the same per-funder rates as section 2. **The weeks must sum to the stored interest
+  to the centavo** — the split is computed once and the final week absorbs any remainder, exactly
+  as the lender split already does.
+
+That loan, 60,000 at 7% for 20 weeks: ₱4,200 a week, of which the lender keeps ₱3,000 and the
+Admin takes ₱1,200. Total interest ₱84,000, unchanged from what the same loan would charge today.
+
+#### Paying a week
+
+- **One week at a time.** No paying two weeks in one go, no paying ahead.
+- Marked paid with proof attached in the same step, optional but flagged — same as section 6.
+- **February is one payment: the capital plus that final week's interest.** The last week is not
+  collected separately.
+
+#### What a paid week does to the money
+
+- That week's money is released **immediately**: the lender's share into their floating, the
+  Admin's cut into Admin earnings.
+- The **capital stays out on loan** until February. Only interest moves weekly.
+- So across the loan's life, "Out on loan" holds steady at ₱60,000 while "Earned" climbs each week
+  it is actually collected — never before.
+
+#### Missing a week
+
+- The loan shows **Overdue**, and the missed week **stays owed**. The next week piles on top of it,
+  so two weeks are owed, then three.
+- No penalty, no extra interest. The total stays frozen at what was computed at creation, the same
+  as every other overdue loan.
+- The loan returns to Active once every due week is paid.
+
+#### On the Active Loans list
+
+- The due date shown is the **next unpaid weekly date**, not February. February is the capital date
+  and lives on the loan page.
+- The loan page shows both: the week-by-week schedule with what is paid and what is owed, and the
+  capital due date.
+
+#### Converting a loan already in the app
+
+An existing loan can be switched to weekly collection. The schedule is generated from the dates it
+already has, and the Admin ticks off the weeks already paid, each with its own paid date.
+
+Converting does not change the loan's dates or its money. A loan whose dates are wrong is edited
+first and converted after.
+
+#### Reports
+
+- The per-lender and per-borrower reports list the weekly payments, not just one repayment.
+- The Excel backup's Payments sheet carries **one row per weekly payment**.
+
 ### Editing
 
 The admin can **edit or undo** a loan if something was entered wrong.
@@ -209,7 +276,9 @@ The admin can **edit or undo** a loan if something was entered wrong.
 ## 6. Payments and proof of payment
 
 - **Full payment only.** No partial payments, no installments. The borrower pays the whole total
-  once, on the due date.
+  once, on the due date. **The one exception is a weekly-interest loan** (section 5), where the
+  interest is collected week by week and the capital in one go at the end. Even there, no single
+  amount is ever paid in parts.
 - **No early payoff.** In practice it doesn't happen, and it is not being built. The total is fixed
   at creation regardless of when payment arrives.
 - Recording a payment is **"Mark as Paid" with the proof attached in the same step**.
@@ -316,7 +385,7 @@ Listed so they are not re-raised as gaps on every review. Each was **consciously
 not overlooked:
 
 - Borrower logins · lender logins · any second user role
-- Partial payments · installments · early payoff
+- Partial payments · installments · early payoff (weekly interest collection is not an installment plan — see section 5)
 - Late penalties · loan extensions · rollovers
 - A weekly background job recalculating interest
 - Compounding interest
@@ -334,6 +403,7 @@ not overlooked:
 
 **None.** All three remaining questions were answered on 2026-09-21 and folded into the sections
 above: currency (§14), lender profile fields (§3), and inline borrower creation (§4).
+Weekly-interest loans were specified on 2026-09-24, answer by answer, and folded into §5, §6 and §12.
 
 ---
 

@@ -25,6 +25,23 @@ import { type BasisPoints, type Centavos, BPS_DENOMINATOR, centavos, checkedProd
  */
 export type InterestBasis = 'WEEKLY_RATE' | 'FIXED_AMOUNT'
 
+/**
+ * WHEN a loan's interest is collected, as opposed to how much it is.
+ *
+ * AT_END is every loan the app made before 2026-09-25: the capital and the
+ * whole interest in one payment on the due date.
+ *
+ * WEEKLY is the same arithmetic collected differently. One instalment per whole
+ * week, and the last one handed over with the capital. Nothing about the
+ * figures changes, which is why this is a second field rather than a third
+ * InterestBasis — see src/lib/money/weekly.ts.
+ *
+ * Here beside InterestBasis, and for the same reason: the client loan form and
+ * the server queries both name it, and a client component may not import from
+ * src/server/.
+ */
+export type InterestCollection = 'AT_END' | 'WEEKLY'
+
 export type InterestTerms = {
   capital: Centavos
   rateBps: BasisPoints

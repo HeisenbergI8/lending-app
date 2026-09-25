@@ -108,13 +108,23 @@ export async function purgeExpired(options: { userId?: string; now?: Date } = {}
   const { count: transactions } = await db.lenderTransaction.deleteMany({ where: expired })
   report.transactions = transactions
 
-  // 4. Loans, which take their funding split and their payment with them.
+  // 4. Loans, which take their funding split and EVERY payment with them.
+  //
+  //    ALL of them, not the settling one. A loan collecting its interest weekly
+  //    carries up to twenty payment rows, each with its own screenshots, and
+  //    they all cascade out of Postgres when the loan row goes. Selecting one
+  //    payment here would type-check, delete nineteen rows, and leave nineteen
+  //    sets of private screenshots in the bucket with nothing left pointing at
+  //    them — which is the exact failure rule 1 of this file exists to prevent.
   const loans = await db.loan.findMany({
     where: expired,
-    select: { id: true, payment: { select: { proofFiles: { select: { id: true, storagePath: true } } } } },
+    select: { id: true, payments: { select: { proofFiles: { select: { id: true, storagePath: true } } } } },
   })
   const clearableLoans = await clearOwners(
-    loans.map((loan) => ({ id: loan.id, proofFiles: loan.payment?.proofFiles ?? [] })),
+    loans.map((loan) => ({
+      id: loan.id,
+      proofFiles: loan.payments.flatMap((payment) => payment.proofFiles),
+    })),
     bucketReady,
     report,
   )

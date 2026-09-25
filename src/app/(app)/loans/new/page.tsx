@@ -80,6 +80,8 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
           // The weekly rate is the default, and the placeholders in the two rate
           // boxes carry the usual 7 and 2 rather than the boxes being filled in.
           interestBasis: 'WEEKLY_RATE',
+          // A new loan collects at the end unless the Admin ticks the box.
+          interestCollection: 'AT_END',
           borrowerRate: fromRequest ? String(fromRequest.rateBps / 100) : '',
           adminCut: '',
           fixedInterest: '',
