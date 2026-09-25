@@ -159,6 +159,18 @@ the reconciliation test there is the one that matters.
   ahead of time. `calendarDate()` in `src/lib/money/weeks.ts` is the one place that fixes it, and
   `addDays` / `dueDateAfterWeeks` already return midday dates. Anything building a `Date` by hand
   before a write goes through it.
+- **And a `date` column is READ BACK at midnight UTC, so reading its day locally is a day early.**
+  The rule above is about writing; this is the other half of it, and stating only the first half is
+  how seven sites shipped with the same bug. `storedCalendarDate()` in `src/lib/money/weeks.ts` is the
+  read-side mirror: it takes the UTC parts and returns local midday, which is exact in every zone
+  because the instant is midnight UTC by construction. The six date-only columns are
+  `LoanRequest.startOn`, `LenderTransaction.occurredOn`, `Loan.startOn`, `Loan.dueOn`,
+  `Loan.nextDueOn` and `Payment.paidOn`; a real `createdAt` is NOT one of them and its local day is
+  the right one. The two helpers are not interchangeable — `storedCalendarDate` on a midday date is
+  wrong past ±12 hours. Where a shared helper is handed both kinds, it keeps its local contract and
+  gains a twin (`inRange` / `storedDayInRange`, `loanState` / `storedLoanState`) rather than being
+  converted in place, because its tests pass local dates deliberately. Manila and Vercel are both at
+  or east of UTC, so this is invisible until you run with `TZ` set west of London.
 - **`new Date(2026, 1, 31)` is 3 March, not an error.** The constructor rolls a day that does not
   exist into the next month, so an impossible date posted to a server action would be stored as a
   real one a few days later. `date()` in `src/server/forms.ts` reads the parts back and compares

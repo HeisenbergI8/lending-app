@@ -8,7 +8,7 @@ import { MoneyInput } from '@/components/money-input.tsx'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type Centavos, formatPesos } from '@/lib/money/centavos.ts'
-import { toDateInput } from '@/lib/money/weeks.ts'
+import { storedCalendarDate, toDateInput } from '@/lib/money/weeks.ts'
 import { deleteTransaction, recordTransaction, updateTransaction } from '@/server/lenders/actions.ts'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -221,7 +221,7 @@ export function EditTransaction({
         <TransactionFields
           type={entry.type}
           amount={entry.amount}
-          occurredOn={toDateInput(entry.occurredOn)}
+          occurredOn={toDateInput(storedCalendarDate(entry.occurredOn))}
           note={entry.note}
           advance={entry.advance}
         />

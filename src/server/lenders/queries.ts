@@ -3,7 +3,7 @@ import { type InterestCollection } from '../../lib/money/interest.ts'
 import { DAYS_PER_WEEK } from '../../lib/money/weeks.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
-import { type LoanState, loanState } from '../../lib/loan-state.ts'
+import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
 import { db } from '../db.ts'
 import { SETTLING, liveWeeklyPayments, settledOn } from '../payments/settled.ts'
 
@@ -567,7 +567,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
     termDays: row.loan.termDays,
     dueOn: row.loan.dueOn,
     paidOn: settledOn(row.loan.payments),
-    state: loanState(row.loan.status, row.loan.nextDueOn),
+    state: storedLoanState(row.loan.status, row.loan.nextDueOn),
   }))
 
   return {
@@ -604,7 +604,7 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         termDays: row.loan.termDays,
         dueOn: row.loan.dueOn,
         paidOn: settledOn(row.loan.payments),
-        state: loanState(row.loan.status, row.loan.nextDueOn),
+        state: storedLoanState(row.loan.status, row.loan.nextDueOn),
       })),
     ),
     notYetStarted: centavos(

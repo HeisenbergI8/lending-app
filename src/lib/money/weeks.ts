@@ -66,6 +66,36 @@ export function calendarDate(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12)
 }
 
+/**
+ * The mirror of `calendarDate`, for a day coming BACK out of the database.
+ *
+ * `calendarDate` fixes the write. This fixes the read, and until 2026-09-25
+ * nothing did — the convention was written for one direction only.
+ *
+ * A Postgres `date` holds no time and no zone, so the driver hands it back as
+ * MIDNIGHT UTC. Reading `getDate()` off that instant asks what calendar day it
+ * is LOCALLY, and under any negative UTC offset midnight UTC is still the day
+ * before: `2026-08-31T00:00:00Z` reads as 30 August in New York. The day is not
+ * wrong in the database, it is wrong the moment it is read.
+ *
+ * In Manila and on Vercel, where the clock is UTC+8 and UTC, the naive read
+ * happens to be right, which is exactly why this went unnoticed. It was found by
+ * running the same query under `TZ=America/New_York` and getting a different
+ * amount of money out of unchanged rows.
+ *
+ * READING THE UTC PARTS IS EXACT IN EVERY ZONE, including UTC+14, because the
+ * instant it is given is midnight UTC by construction. That is what makes this
+ * safe where a local-parts read is not.
+ *
+ * SO IT IS ONLY EVER GIVEN A DATE THAT CAME FROM A `date` COLUMN. Handed a
+ * local-midday date built by `calendarDate` it is wrong past ±12 hours: midday
+ * on the 31st in Kiritimati is the 30th in UTC. The two helpers are not
+ * interchangeable and neither is idempotent over the other's input.
+ */
+export function storedCalendarDate(date: Date): Date {
+  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12)
+}
+
 /** Add whole days to a date, keeping it a calendar date — at midday, as above. */
 export function addDays(date: Date, days: number): Date {
   return calendarDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() + days))

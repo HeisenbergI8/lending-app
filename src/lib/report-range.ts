@@ -1,4 +1,4 @@
-import { addDays, calendarDate, parseCalendarDate, toDateInput } from './money/weeks.ts'
+import { addDays, calendarDate, daysBetween, parseCalendarDate, storedCalendarDate, toDateInput } from './money/weeks.ts'
 
 /**
  * The stretch of time a report covers.
@@ -79,11 +79,79 @@ export function inRange(date: Date | null | undefined, range: ReportRange): bool
   return day >= startOfDay(range.from) && day <= startOfDay(range.to)
 }
 
+/**
+ * The same test, for a day that came out of a `date` COLUMN.
+ *
+ * WHY THIS IS SEPARATE AND inRange IS NOT FIXED INSTEAD. A `date` column comes
+ * back at midnight UTC, so its calendar day lives in the UTC parts; anything
+ * else — a real timestamp, a date built from a form — has its day in the LOCAL
+ * parts. `inRange` is given both, so a conversion inside it is wrong for half
+ * its callers. Its own tests say so: they pass `new Date(2026, 2, 31, 23, 59)`
+ * to prove the time of day cannot decide the answer.
+ *
+ * So the two conventions get two functions, and picking between them is a
+ * question with one right answer at every call site: did this date come out of a
+ * `date` column? The six that exist are LoanRequest.startOn,
+ * LenderTransaction.occurredOn, Loan.startOn, Loan.dueOn, Loan.nextDueOn and
+ * Payment.paidOn.
+ *
+ * Reading those locally is what put a payment dated 1 March into February and
+ * dropped one dated 31 March out of a March report, anywhere west of London.
+ */
+export function storedDayInRange(date: Date | null | undefined, range: ReportRange): boolean {
+  return date ? inRange(storedCalendarDate(date), range) : false
+}
+
 const long = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 
 /** "Sep 1, 2026 to Sep 21, 2026", for the line under a report's title. */
 export function describeRange(range: ReportRange): string {
   return `${long.format(range.from)} to ${long.format(range.to)}`
+}
+
+/** How many days the range covers, both ends included. "Aug 1 to Aug 31" is 31. */
+export function rangeDays(range: ReportRange): number {
+  return daysBetween(range.from, range.to) + 1
+}
+
+/** Whether two ranges are the same pair of calendar days. */
+export function sameRange(a: ReportRange, b: ReportRange): boolean {
+  return toDateInput(a.from) === toDateInput(b.from) && toDateInput(a.to) === toDateInput(b.to)
+}
+
+export type RangePreset = { key: string; label: string; range: ReportRange }
+
+/**
+ * The four stretches of time worth one tap.
+ *
+ * WHY THESE FOUR. Two date boxes can express any range, and that is exactly the
+ * problem: the ranges actually asked for are "this month", "last month" and
+ * "the year so far", and typing six digits twice to get one of them is the work
+ * a preset removes. They are ORDERED SHORTEST FIRST so the row reads as a
+ * widening lens rather than an arbitrary list.
+ *
+ * NONE OF THEM RUNS PAST TODAY. A range ending in the future would count days no
+ * loan has lived through yet, and the figure would quietly include interest that
+ * has not been earned. Last month is the one exception to ending today, and it
+ * ends on the last day of that month, which is already past.
+ *
+ * "Last 90 days" rather than "Last 3 months", because three months is either 89
+ * or 92 days depending on which three, and a figure that moves with the calendar
+ * cannot be compared with the one beside it. 90 days is 90 days.
+ */
+export function rangePresets(today: Date = new Date()): RangePreset[] {
+  const now = calendarDate(today)
+  const thisMonth = calendarDate(new Date(now.getFullYear(), now.getMonth(), 1))
+  const lastMonth = calendarDate(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+
+  return [
+    { key: 'this-month', label: 'This month', range: { from: thisMonth, to: now } },
+    // Ends the day before this month starts, which is the last day of last month
+    // whatever its length — no 28/30/31 arithmetic to get wrong in February.
+    { key: 'last-month', label: 'Last month', range: { from: lastMonth, to: addDays(thisMonth, -1) } },
+    { key: 'last-90', label: 'Last 90 days', range: { from: addDays(now, -89), to: now } },
+    { key: 'this-year', label: 'This year', range: { from: calendarDate(new Date(now.getFullYear(), 0, 1)), to: now } },
+  ]
 }
 
 /** The range as query parameters, for a link or a form's default values. */

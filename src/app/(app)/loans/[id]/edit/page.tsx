@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 
+import { storedCalendarDate, toDateInput } from '@/lib/money/weeks.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { updateLoan } from '@/server/loans/actions.ts'
 import { getLoan, loanFormOptions } from '@/server/loans/queries.ts'
@@ -10,9 +11,18 @@ import { LoanForm } from '../../loan-form.tsx'
 
 export const metadata = { title: 'Edit loan · Consignment Kush' }
 
-/** A stored Date back into the "2026-09-21" an <input type="date"> wants. */
+/**
+ * A stored Date back into the "2026-09-21" an <input type="date"> wants.
+ *
+ * THROUGH storedCalendarDate, and that matters more here than anywhere else it
+ * was wrong. This hand-rolled copy of `toDateInput` read the local parts of a
+ * `date` column, so west of London the edit form opened pre-filled with the day
+ * BEFORE the loan's real start — and saving the form without touching the dates
+ * would have written that day back. A display bug everywhere else; a silent data
+ * change here.
+ */
 function forInput(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return toDateInput(storedCalendarDate(date))
 }
 
 /** Centavos back into the plain "30000.00" the admin typed. */

@@ -1,8 +1,8 @@
 import { type Centavos, centavos, toPesos } from '../../lib/money/centavos.ts'
 import { BPS_DENOMINATOR } from '../../lib/money/centavos.ts'
 import { adminTakeOnLoan } from '../../lib/money/split.ts'
-import { daysBetween, describeTerm, toDateInput } from '../../lib/money/weeks.ts'
-import { loanState } from '../../lib/loan-state.ts'
+import { daysBetween, describeTerm, storedCalendarDate, toDateInput } from '../../lib/money/weeks.ts'
+import { storedLoanState } from '../../lib/loan-state.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
 import { db } from '../db.ts'
 import { liveWeeklyPayments, settlingPayment } from '../payments/settled.ts'
@@ -46,7 +46,27 @@ const rateFraction = (bps: number | null): number | null =>
 
 const pesos = (amount: Centavos): number => toPesos(amount)
 
+/**
+ * A real TIMESTAMP as an Excel date — a `createdAt`, whose calendar day is the
+ * local one, because that is the day the admin was looking at when it happened.
+ */
 const day = (date: Date | null): number | null => (date === null ? null : excelSerialDate(date))
+
+/**
+ * A `date` COLUMN as an Excel date. The six in this schema are LoanRequest.startOn,
+ * LenderTransaction.occurredOn, Loan.startOn, Loan.dueOn, Loan.nextDueOn and
+ * Payment.paidOn.
+ *
+ * Two helpers rather than one because the two kinds of column need opposite
+ * reads and nothing in the type can tell them apart — both are `DateTime` to
+ * Prisma. A `date` comes back at midnight UTC, so its day is in the UTC parts;
+ * reading it locally wrote every start, due and payment date in the backup a day
+ * early anywhere west of London. Picking between these two is a question with one
+ * right answer per column, which is better than one helper that is quietly wrong
+ * half the time.
+ */
+const storedDay = (date: Date | null): number | null =>
+  date === null ? null : excelSerialDate(storedCalendarDate(date))
 
 const fullName = (person: { firstName: string; lastName: string }): string =>
   `${person.firstName} ${person.lastName}`
@@ -60,9 +80,18 @@ const sum = (amounts: Centavos[]): Centavos =>
  * Two different questions behind one column, and both are answered the same way
  * because both are "how far past due": a repaid loan is measured to the day the
  * money arrived and is finished moving, a running one to today and grows.
+ *
+ * `dueOn` and `paidOn` are both `date` COLUMNS and both need their UTC day;
+ * `today` is a real instant and needs its local one. Reading all three the same
+ * way was right on a repaid loan by accident — the two columns shifted together
+ * and the difference between them survived — and off by one on a running loan,
+ * where only `dueOn` shifted and `today` did not.
  */
 function daysLate(dueOn: Date, paidOn: Date | null, today: Date): number | null {
-  const late = daysBetween(dueOn, paidOn ?? today)
+  const late = daysBetween(
+    storedCalendarDate(dueOn),
+    paidOn === null ? today : storedCalendarDate(paidOn),
+  )
   return late > 0 ? late : null
 }
 
@@ -155,7 +184,7 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
       // Overdue is ACTIVE with a due date already past — a fact about the day
       // the file was made, not a column. Recomputing it from Due tomorrow gives
       // a different answer, which is why the Read me sheet dates the file.
-      loanState(loan.status, loan.nextDueOn, now) === 'overdue' ? 'Yes' : null,
+      storedLoanState(loan.status, loan.nextDueOn, now) === 'overdue' ? 'Yes' : null,
       daysLate(loan.dueOn, paidOn, now),
       pesos(centavos(loan.capitalCentavos)),
       pesos(centavos(loan.interestCentavos)),
@@ -169,11 +198,11 @@ export async function loanBackup(userId: string, now: Date = new Date()): Promis
       // Null on a fixed-amount loan, where no rate was ever agreed. Blank rather
       // than 0%, which would read as a rate somebody chose.
       rateFraction(loan.borrowerRateBps),
-      day(loan.startOn),
-      day(loan.dueOn),
+      storedDay(loan.startOn),
+      storedDay(loan.dueOn),
       describeTerm(loan.termDays),
       loan.termDays,
-      day(paidOn),
+      storedDay(paidOn),
       loan.payment ? pesos(centavos(loan.payment.amountCentavos)) : null,
       loan.payment?.proofFiles.length ?? null,
       loan.fundings
@@ -237,7 +266,7 @@ function describePayment(
       // ever one and naming it adds nothing; on a weekly loan it is the
       // difference between one week's interest and the capital coming back.
       describePayment(loan, payment),
-      day(payment.paidOn),
+      storedDay(payment.paidOn),
       pesos(centavos(payment.amountCentavos)),
       payment.proofFiles.length,
       // The path inside the storage bucket, not a link. The file itself is
@@ -262,7 +291,7 @@ function describePayment(
       request.termDays,
       pesos(figures.interest),
       pesos(figures.total),
-      day(request.startOn),
+      storedDay(request.startOn),
       day(request.createdAt),
     ]
   })

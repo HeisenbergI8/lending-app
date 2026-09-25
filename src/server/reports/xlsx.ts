@@ -47,10 +47,11 @@ const STYLE = { text: 0, header: 1, money: 2, date: 3, number: 4, percent: 5 } a
 /**
  * A calendar date as an Excel serial number: days since 30 December 1899.
  *
- * Read off the date's LOCAL parts, the same way `toDateInput` does, because
- * that is the day the rest of the app shows for the same row. Prisma hands back
- * a `date` column at midnight UTC; taking the UTC parts instead would agree with
- * the database and disagree with every screen.
+ * Read off the date's LOCAL parts, which is right for a real timestamp — a
+ * `createdAt` — and WRONG for a `date` column, whose day lives in its UTC parts.
+ * This function cannot tell the two apart, so it does not try: the caller
+ * converts a `date` column with `storedCalendarDate` before handing it over. See
+ * the `storedDay` helper in backup.ts, which is the only place that matters.
  *
  * 25569 is 1 January 1970 in Excel's numbering, which counts a 29 February 1900
  * that never happened. Dates before March 1900 are therefore off by one — they

@@ -25,6 +25,8 @@
  * that is still the due date.
  */
 
+import { storedCalendarDate } from './money/weeks.ts'
+
 export type LoanState = 'paid' | 'overdue' | 'due-today' | 'due-soon' | 'active'
 
 const DAY_MS = 86_400_000
@@ -53,4 +55,29 @@ export function loanState(
   if (days === 0) return 'due-today'
   if (days <= DUE_SOON_DAYS) return 'due-soon'
   return 'active'
+}
+
+/**
+ * The same rule, for a `nextDueOn` straight out of the database.
+ *
+ * EVERY PRODUCTION CALLER WANTS THIS ONE. `Loan.nextDueOn` is a `@db.Date`, so
+ * the driver hands it back at midnight UTC and its calendar day is in the UTC
+ * parts. `loanState` above compares LOCAL parts, which is right for a date built
+ * from a form or a test and a day early for a date column: west of London a loan
+ * due TODAY read as overdue, and the overdue list on the summary report grew a
+ * row that was not late at all.
+ *
+ * `loanState` is left alone rather than fixed in place because it is also given
+ * ordinary local dates — its own tests pass `new Date(2026, 8, 21, 0, 1)` to
+ * prove the time of day cannot shift the answer. A conversion inside it would be
+ * wrong for those. So the two conventions get two functions, exactly as
+ * `inRange` and `storedDayInRange` do, and the choice at each call site is a
+ * question with one right answer: did this date come out of a `date` column?
+ */
+export function storedLoanState(
+  status: 'ACTIVE' | 'PAID',
+  nextDueOn: Date,
+  now: Date = new Date(),
+): LoanState {
+  return loanState(status, storedCalendarDate(nextDueOn), now)
 }

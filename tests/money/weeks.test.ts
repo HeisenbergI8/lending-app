@@ -1,12 +1,13 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  weeksBetween,
+  calendarDate,
   daysBetween,
   dueDateAfterWeeks,
-  calendarDate,
   parseCalendarDate,
+  storedCalendarDate,
   toDateInput,
+  weeksBetween,
 } from '../../src/lib/money/weeks.ts'
 
 // Midday, matching calendarDate: every date this module hands back is carried
@@ -169,5 +170,43 @@ describe('parseCalendarDate — what arrives from an input or a URL', () => {
   test('round-trips through toDateInput', () => {
     assert.equal(toDateInput(date(2026, 1, 5)), '2026-01-05')
     assert.deepEqual(parseCalendarDate(toDateInput(date(2026, 12, 31))), date(2026, 12, 31))
+  })
+})
+
+describe('storedCalendarDate — a day read back out of a `date` column', () => {
+  // What the Postgres driver actually hands back for a `date`: midnight UTC.
+  const fromDb = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
+
+  test('reads the day the column holds, not the local day of that instant', () => {
+    const day = storedCalendarDate(fromDb('2026-08-31'))
+    assert.equal(day.getFullYear(), 2026)
+    assert.equal(day.getMonth(), 7)
+    assert.equal(day.getDate(), 31)
+  })
+
+  test('comes back at midday, so it compares against calendarDate dates', () => {
+    assert.equal(storedCalendarDate(fromDb('2026-08-31')).getHours(), 12)
+    assert.equal(
+      storedCalendarDate(fromDb('2026-08-31')).getTime(),
+      calendarDate(new Date(2026, 7, 31)).getTime(),
+    )
+  })
+
+  test('daysBetween a stored day and a calendarDate day is the plain day count', () => {
+    // THE BUG THIS EXISTS FOR. Reading the local parts of midnight UTC gives the
+    // day BEFORE under any negative offset, which silently moved money between
+    // months on the lender profile's "Interest earned" figure.
+    assert.equal(daysBetween(storedCalendarDate(fromDb('2026-08-31')), calendarDate(new Date(2026, 7, 31))), 0)
+    assert.equal(daysBetween(storedCalendarDate(fromDb('2026-08-01')), calendarDate(new Date(2026, 7, 31))), 30)
+  })
+
+  test('every day of a year survives the round trip', () => {
+    for (let offset = 0; offset < 366; offset += 1) {
+      const utc = new Date(Date.UTC(2026, 0, 1 + offset))
+      const day = storedCalendarDate(utc)
+      assert.equal(day.getFullYear(), utc.getUTCFullYear())
+      assert.equal(day.getMonth(), utc.getUTCMonth())
+      assert.equal(day.getDate(), utc.getUTCDate())
+    }
   })
 })

@@ -2,7 +2,7 @@ import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type InterestBasis, type InterestCollection } from '../../lib/money/interest.ts'
 import { type AdminStake, adminStakeInLoan, adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
-import { type LoanState, loanState } from '../../lib/loan-state.ts'
+import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
 import { DAYS_PER_WEEK, calendarDate } from '../../lib/money/weeks.ts'
 import {
   MIN_WEEKLY_WEEKS,
@@ -545,7 +545,7 @@ export async function listLoans(
       // of. FEATURES.md section 5.
       dueOn: loan.nextDueOn,
       dueIsWeekly: loan.interestCollection === 'WEEKLY',
-      state: loanState(loan.status, loan.nextDueOn),
+      state: storedLoanState(loan.status, loan.nextDueOn),
       latestNote: loan.notes[0] ?? null,
       noteCount: loan._count.notes,
       funders: loan.fundings.map((funding) => ({
@@ -755,7 +755,7 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     weeklyOutstanding: weekly.outstanding,
     convertible: convertibleToWeekly(loan),
     borrowerRateBps: loan.borrowerRateBps,
-    state: loanState(loan.status, loan.nextDueOn),
+    state: storedLoanState(loan.status, loan.nextDueOn),
     paidOn: payment?.paidOn ?? null,
     missingProof: payment !== null && payment.proofFiles.length === 0,
     funders,

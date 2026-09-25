@@ -1,9 +1,10 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
-import { type LoanState, loanState } from '../../lib/loan-state.ts'
-import { type ReportRange, inRange, rangeFilter } from '../../lib/report-range.ts'
+import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
+import { type ReportRange, rangeFilter, storedDayInRange } from '../../lib/report-range.ts'
 import { type TrackRecord, trackRecord } from '../../lib/track-record.ts'
 import { type LenderPosition } from '../../lib/money/floating.ts'
 import { adminTakeOnLoan } from '../../lib/money/split.ts'
+import { daysBetween, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
 import { adminShareOf, weeksCollectedIn } from '../payments/collected.ts'
 import { adminTakeIn, cashIn, lenderTakeIn, paymentsReceivedIn } from '../payments/received.ts'
@@ -273,8 +274,6 @@ const sum = (amounts: number[]): Centavos => centavos(amounts.reduce((total, n) 
 const fullName = (person: { firstName: string; lastName: string }) =>
   `${person.firstName} ${person.lastName}`
 
-const DAY_MS = 86_400_000
-
 const MONTH_LABEL = new Intl.DateTimeFormat('en-PH', { month: 'short' })
 
 /**
@@ -306,7 +305,11 @@ function buildPreview(
   }
 
   for (const row of rows) {
-    const bucket = buckets.get(`${row.on.getFullYear()}-${row.on.getMonth()}`)
+    // `row.on` came out of a `date` column, so its month is read off the UTC
+    // parts. Read locally, a movement on the 1st falls into the month before and
+    // the columns stop agreeing with the total printed beside them.
+    const on = storedCalendarDate(row.on)
+    const bucket = buckets.get(`${on.getFullYear()}-${on.getMonth()}`)
     if (!bucket) continue
     bucket.capital = centavos(bucket.capital + row.capital)
     bucket.interest = centavos(bucket.interest + row.interest)
@@ -379,7 +382,7 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
   ])
 
   const overdue: OverdueRow[] = active
-    .filter((loan) => loanState('ACTIVE', loan.nextDueOn, now) === 'overdue')
+    .filter((loan) => storedLoanState('ACTIVE', loan.nextDueOn, now) === 'overdue')
     .map((loan) => ({
       borrowerName: fullName(loan.borrower),
       total: centavos(loan.totalCentavos),
@@ -388,15 +391,10 @@ export async function summaryReport(userId: string, range: ReportRange): Promise
       // future date and a negative day count on the same row.
       dueOn: loan.nextDueOn,
       dueIsWeekly: loan.interestCollection === 'WEEKLY',
-      daysLate: Math.round(
-        (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
-          new Date(
-            loan.nextDueOn.getFullYear(),
-            loan.nextDueOn.getMonth(),
-            loan.nextDueOn.getDate(),
-          ).getTime()) /
-          DAY_MS,
-      ),
+      // `now` is a real instant, so its LOCAL day is the right one. `nextDueOn`
+      // is a `date` column and needs its UTC day, or a loan reads a day later
+      // than it is west of London.
+      daysLate: daysBetween(storedCalendarDate(loan.nextDueOn), now),
     }))
     .sort((a, b) => b.daysLate - a.daysLate)
 
@@ -527,16 +525,16 @@ export async function adminCutReport(userId: string, range: ReportRange): Promis
     startOn: loan.startOn,
     dueOn: loan.dueOn,
     paidOn: livePaidOn(loan),
-    state: loanState(loan.status, loan.nextDueOn, now),
+    state: storedLoanState(loan.status, loan.nextDueOn, now),
     funders: loan.fundings.map((funding) =>
       funding.lender.isSelf ? 'Admin' : fullName(funding.lender),
     ),
     adminCut: cutOf(loan.fundings),
   }))
 
-  const started = rows.filter((row) => inRange(row.startOn, range))
+  const started = rows.filter((row) => storedDayInRange(row.startOn, range))
   const repaid = rows
-    .filter((row) => inRange(row.paidOn, range))
+    .filter((row) => storedDayInRange(row.paidOn, range))
     .sort((a, b) => (a.paidOn?.getTime() ?? 0) - (b.paidOn?.getTime() ?? 0))
 
   return {
@@ -609,7 +607,7 @@ export async function lenderReport(
   // Their money in and out, narrowed to the period. getLender already fetched
   // every one of them; a lender has tens of these, not thousands.
   const moves = lender.transactions
-    .filter((move) => inRange(move.occurredOn, range))
+    .filter((move) => storedDayInRange(move.occurredOn, range))
     .sort((a, b) => a.occurredOn.getTime() - b.occurredOn.getTime())
 
   const row = (funding: (typeof fundings)[number]): LenderLoanRow => ({
@@ -618,7 +616,7 @@ export async function lenderReport(
     earnings: centavos(funding.earningsCentavos),
     startOn: funding.loan.startOn,
     dueOn: funding.loan.dueOn,
-    state: loanState(funding.loan.status, funding.loan.nextDueOn),
+    state: storedLoanState(funding.loan.status, funding.loan.nextDueOn),
   })
 
   // An undone payment is soft-deleted, not destroyed, so it is dropped rather than
@@ -626,8 +624,8 @@ export async function lenderReport(
   const paidOn = (funding: (typeof fundings)[number]) =>
     settledOn(funding.loan.payments)
 
-  const repaid = fundings.filter((funding) => inRange(paidOn(funding), range))
-  const funded = fundings.filter((funding) => inRange(funding.loan.startOn, range)).map(row)
+  const repaid = fundings.filter((funding) => storedDayInRange(paidOn(funding), range))
+  const funded = fundings.filter((funding) => storedDayInRange(funding.loan.startOn, range)).map(row)
 
   // WEEKS COLLECTED IN THE PERIOD, on loans still running. Without these a
   // statement covering five months of a weekly loan paying every single week
@@ -787,7 +785,7 @@ export async function borrowerReport(
 
   const mine = receivedEver.filter((payment) => payment.borrowerId === borrowerId)
   const weeksPaid: WeekPaidRow[] = mine
-    .filter((payment) => payment.week !== null && inRange(payment.paidOn, range))
+    .filter((payment) => payment.week !== null && storedDayInRange(payment.paidOn, range))
     .map((week) => ({
       borrowerName: week.borrowerName,
       week: week.week as number,
@@ -829,7 +827,7 @@ export async function borrowerReport(
   )
 
   const loans: BorrowerLoanRow[] = borrower.loans
-    .filter((loan) => inRange(loan.startOn, range) || inRange(livePayment(loan)?.paidOn, range))
+    .filter((loan) => storedDayInRange(loan.startOn, range) || storedDayInRange(livePayment(loan)?.paidOn, range))
     .map((loan) => {
       const payment = livePayment(loan)
       return {
@@ -839,7 +837,7 @@ export async function borrowerReport(
         termDays: loan.termDays,
         startOn: loan.startOn,
         dueOn: loan.dueOn,
-        state: loanState(loan.status, loan.nextDueOn),
+        state: storedLoanState(loan.status, loan.nextDueOn),
         paidOn: payment?.paidOn ?? null,
         funders: loan.fundings.map((funding) =>
           funding.lender.isSelf ? 'Admin' : fullName(funding.lender),
@@ -870,7 +868,7 @@ export async function borrowerReport(
     loans,
     weeksPaid,
     borrowedInPeriod: sum(
-      loans.filter((loan) => inRange(loan.startOn, range)).map((loan) => loan.capital),
+      loans.filter((loan) => storedDayInRange(loan.startOn, range)).map((loan) => loan.capital),
     ),
     // WHAT THEY HANDED OVER IN THE PERIOD, read off their payments. Every
     // collected week and every settlement, each counted once.
@@ -880,7 +878,7 @@ export async function borrowerReport(
     // is the capital plus all twenty — so reading the total counted nineteen
     // weeks that were handed over earlier, and counted them twice when they fell
     // inside this period too.
-    paidInPeriod: cashIn(mine.filter((payment) => inRange(payment.paidOn, range))),
+    paidInPeriod: cashIn(mine.filter((payment) => storedDayInRange(payment.paidOn, range))),
     // What they still owe: the totals on their RUNNING loans, minus the weeks
     // already collected on those same running loans. Both sides are ACTIVE-only,
     // so nothing is subtracted from a loan that is not in the first sum.
@@ -897,7 +895,7 @@ export async function borrowerReport(
     // would say the admin lent money in a month they did not.
     preview: buildPreview(
       loans
-        .filter((loan) => inRange(loan.startOn, range))
+        .filter((loan) => storedDayInRange(loan.startOn, range))
         .map((loan) => ({ on: loan.startOn, capital: loan.capital, interest: loan.interest })),
       range,
     ),

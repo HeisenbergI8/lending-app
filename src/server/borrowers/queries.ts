@@ -1,5 +1,5 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
-import { type LoanState, loanState } from '../../lib/loan-state.ts'
+import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
 import { type TrackRecord, trackRecord } from '../../lib/track-record.ts'
 import { PAGE_SIZE, type PageWindow } from '../../lib/pagination.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
@@ -159,7 +159,7 @@ function toSummary(borrower: SummaryRow): BorrowerSummary {
     // same loans; this sums what they are worth.
     overdueOutstanding: centavos(
       borrower.loans
-        .filter((loan) => loanState(loan.status, loan.nextDueOn) === 'overdue')
+        .filter((loan) => storedLoanState(loan.status, loan.nextDueOn) === 'overdue')
         .reduce((sum, loan) => sum + loan.totalCentavos, 0),
     ),
   }
@@ -356,7 +356,7 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     termDays: loan.termDays,
     startOn: loan.startOn,
     dueOn: loan.dueOn,
-    state: loanState(loan.status, loan.nextDueOn),
+    state: storedLoanState(loan.status, loan.nextDueOn),
     paidOn: livePayment(loan)?.paidOn ?? null,
     missingProof: livePayment(loan) !== null && livePayment(loan)!.proofFiles.length === 0,
     funders: loan.fundings.map((funding) => ({
