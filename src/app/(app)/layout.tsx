@@ -35,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      <MobileNav />
+      <MobileNav username={user.username} isDemo={user.isDemo} />
     </div>
   )
 }

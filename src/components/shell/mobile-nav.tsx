@@ -1,14 +1,19 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { MoreHorizontal, Plus } from 'lucide-react'
 
+import { useAccountActions } from './account-actions.tsx'
 import { NAV_ITEMS, isActive } from './nav-items.ts'
+import { Avatar } from '@/components/avatar.tsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -28,14 +33,23 @@ import { cn } from '@/lib/utils'
  * you which way you went. It is a layout animation on a single element, not a
  * transition on six, so it stays cheap.
  *
+ * MORE ALSO HOLDS THE ACCOUNT. The avatar that opens it lives in the top right
+ * corner, which is where anyone looks for their own account and also the one
+ * place on a phone a thumb cannot reach without shifting grip. The same two
+ * items — change password, sign out — therefore sit at the bottom of this menu
+ * as well, under a divider so they read as a different kind of thing from the
+ * sections above them.
+ *
  * The middle slot is not a tab. Recording a loan is the one thing done while
  * standing in front of somebody, and it used to be a button at the TOP of the
  * Loans screen — the far corner of a 6.7" phone, two taps away. It is a raised
  * circle rather than a fifth icon because it goes somewhere you come back from,
  * and it is dead centre, which is why only four tabs sit around it.
  */
-export function MobileNav() {
+export function MobileNav({ username, isDemo }: { username: string; isDemo: boolean }) {
   const pathname = usePathname()
+  const [moreOpen, setMoreOpen] = useState(false)
+  const { items, surfaces } = useAccountActions({ isDemo, onSelect: () => setMoreOpen(false) })
   const primary = NAV_ITEMS.filter((item) => item.primary)
   const overflow = NAV_ITEMS.filter((item) => !item.primary)
   const overflowActive = overflow.some((item) => isActive(pathname, item.href))
@@ -99,7 +113,7 @@ export function MobileNav() {
         {primary.slice(half).map(tab)}
 
         <li className="flex-1">
-          <DropdownMenu>
+          <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
             <DropdownMenuTrigger
               className={cn(
                 'flex w-full flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors',
@@ -116,7 +130,12 @@ export function MobileNav() {
               </span>
               More
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="mb-2 min-w-40">
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="mb-2 min-w-52"
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
               {overflow.map((item) => (
                 <DropdownMenuItem key={item.href} asChild>
                   <Link href={item.href} className="gap-2">
@@ -125,10 +144,30 @@ export function MobileNav() {
                   </Link>
                 </DropdownMenuItem>
               ))}
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuLabel className="flex items-center gap-2.5 py-2">
+                <Avatar name={username} className="size-8 text-[0.7rem]" />
+                <span className="min-w-0">
+                  <span className="text-foreground block truncate text-sm font-medium">
+                    {username}
+                  </span>
+                  <span className="block truncate text-xs font-normal">
+                    {isDemo ? 'Demo account' : 'Signed in on this device'}
+                  </span>
+                </span>
+              </DropdownMenuLabel>
+
+              {items}
             </DropdownMenuContent>
           </DropdownMenu>
         </li>
       </ul>
+
+      {/* Outside the menu, not inside it: menu content unmounts when the menu
+          closes, and a dialog mounted within it would close with it. */}
+      {surfaces}
     </nav>
   )
 }
