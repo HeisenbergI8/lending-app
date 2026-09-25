@@ -195,24 +195,42 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           / `adminCutPending` are exactly the SUM("adminCutCentavos") slices of
           the same two totals, split in lenderPosition.
 
-          TOTAL INTEREST IS earned + pending, which is the only reading of the
-          words that is true. That makes "Earned" beside it a PART of it rather
-          than a second amount, so the note says how much is still to come —
-          "of it" is load-bearing, and without it the two invite subtraction that
-          lands on the right number for the wrong reason. Neither figure is in
-          Floating until the loan is repaid; `pending` never is. */}
-      {/* POT TOTAL IS NOT THE OTHER TILES ADDED UP, and it must not be, because
-          two of them overlap: `earned` is already inside `floating` (a repayment
-          puts capital and profit straight back), and it is inside "Total
-          interest" as well. Adding the four figures on this row counts it three
-          times and lands on an amount that is nobody's money.
+          THE FOURTH TILE USED TO READ "Total interest" AND SHOW earned +
+          pending. The words were true of that sum, but the tile overlapped
+          "Earned" beside it — earned was a part of it, not a second amount —
+          and the admin read the two as figures to subtract. Changed 2026-09-25
+          to show `pending` alone under "Interest to collect", so the two tiles
+          name two separate pots of money and nothing on the row is counted
+          twice. The old total is still available: it is the two added up, which
+          is now the arithmetic the row invites rather than the arithmetic it
+          has to warn against.
 
-          The sum that is true is floating + out on loan + interest still to
-          come, which is `deposits - withdrawals + earned + pending` with the
+          "to collect" IS A PROMISE ABOUT WHICH LOANS. `pending` is the interest
+          on loans NOT yet marked paid, deleted loans excluded, scoped to this
+          user: this pot's own share, plus — on the admin pot only — the cut
+          charged on other funders' capital. On a weekly loan the weeks already
+          collected are OUT of it, because that money is in hand and sits in
+          `earned` instead. So nothing in this figure has been collected, which
+          is what the label says. Proven against the database on 2026-09-25 by
+          summing "earningsCentavos" over non-archived, non-PAID funding rows
+          plus the "adminCutCentavos" slices on other funders' rows: the query
+          and the tile agreed on all three live pots, admin pot included.
+
+          It is an expectation, not cash, and it is NEVER in Floating. A loan
+          already overdue is still counted here at its full value, because this
+          ledger has no way to write one off. */}
+      {/* POT TOTAL IS NOT THE OTHER TILES ADDED UP, and it must not be, because
+          `earned` is already inside `floating` — a repayment puts capital and
+          profit straight back — so adding all four figures counts it twice and
+          lands on an amount that is nobody's money.
+
+          The sum that is true is floating + out on loan + interest to collect,
+          which is `deposits - withdrawals + earned + pending` with the
           principal cancelling out. Verified that way against the database on
           2026-09-23: the two expressions agreed on all eight live lenders,
           including the Admin pot, where `earned` and `pending` each carry the
-          2% cut on other funders' capital.
+          2% cut on other funders' capital. It is now exactly the three OTHER
+          tiles on this row added up, Earned excepted.
 
           Read forwards, it is what Floating BECOMES once every running loan is
           repaid and nothing further is put in or taken out. That is the bound
@@ -259,9 +277,15 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           }
         />
         <StatTile
-          label="Total interest"
-          value={<Money amount={centavos(position.earned + position.pending)} variant="display" />}
-          note={`${formatPesos(position.pending)} of it still to come, on loans running`}
+          label="Interest to collect"
+          value={<Money amount={position.pending} variant="display" muted={position.pending === 0} />}
+          note={
+            position.pending === 0
+              ? 'nothing is owed to this pot'
+              : position.adminCutPending > 0
+                ? `on loans still running, includes ${formatPesos(position.adminCutPending)} cut from other lenders' loans`
+                : 'on loans still running, not in the pot yet'
+          }
         />
       </StatRow>
 
