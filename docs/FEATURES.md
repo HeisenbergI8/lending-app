@@ -130,6 +130,26 @@ Angel's ₱30,000 = admin ₱10,000 + John Ross ₱20,000:
 - **The admin has a floating pot too.** The admin appears in the lenders list alongside everyone
   else. The only difference is the rate: admin capital earns 7%, lender capital earns 5%.
 
+### Interest earned over a period
+
+On a lender's profile the admin picks two dates and sees **what that pot earned between them**.
+
+- **Interest is spread across the days each loan ran.** A loan running 20 September to 18 October
+  earned in both months, so 11 days of its interest fall in September and 17 in October. This is what
+  makes one month comparable to another.
+- **It is what the money earned, not what was collected.** A loan whose interest is collected at the
+  end pays nothing during the months it was working; a weekly loan pays as it goes. This figure is
+  the same either way, on purpose — it answers "how much did this pot make in September", which is a
+  question about the loans, not about when cash arrived.
+- The term used is the **agreed** term. There is no late fee and no early-repayment rebate, so a loan
+  repaid early still earned its full interest and one repaid late earned no more.
+- Every month of a loan's term adds up to exactly that loan's interest, to the centavo. Twelve
+  monthly figures never double count a peso or lose one.
+- On the **admin's** pot the figure includes the 2% cut charged on other lenders' capital, and the
+  screen says so.
+- This replaced the old all-time **Earned** figure on the profile, which answered "how much has this
+  pot ever made" when the question being asked of it was "how much did it make last month".
+
 ### On repayment, everything returns to floating
 
 When Angel repays ₱38,400:

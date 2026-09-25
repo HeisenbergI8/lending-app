@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, ChevronRight, HandCoins, Scissors, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronRight, HandCoins, Scissors, TrendingUp, Wallet } from 'lucide-react'
 
 import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
@@ -8,9 +8,22 @@ import { Avatar } from '@/components/avatar.tsx'
 import { Money } from '@/components/money.tsx'
 import { Pager } from '@/components/pager.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { describeTerm } from '@/lib/money/weeks.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
+import { cn } from '@/lib/utils'
+import {
+  type ReportRange,
+  describeRange,
+  parseReportRange,
+  rangeDays,
+  rangeParams,
+  rangePresets,
+  sameRange,
+} from '@/lib/report-range.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { type LenderDetail, getLender } from '@/server/lenders/queries.ts'
 
@@ -18,6 +31,11 @@ import { LenderSettings } from './lender-settings.tsx'
 import { EditTransaction, TransactionForm } from './transaction-form.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/** First value only. A query string can carry a key twice; a date box cannot. */
+const one = (value: string | string[] | undefined): string =>
+  (Array.isArray(value) ? value[0] : value) ?? ''
+
 const percent = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`
 
 /**
@@ -85,6 +103,202 @@ function todayForInput(): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+/**
+ * This page with a different period on it, and nothing else disturbed.
+ *
+ * The preset chips are links rather than buttons so each period is a URL, and a
+ * URL has to carry the page numbers of the six lists below it — otherwise
+ * tapping "Last month" would also send the Admin back to the top of all six.
+ * Page 1 is the default and is left out, which keeps an unpaged URL clean.
+ */
+function rangeHref(lenderId: string, range: ReportRange, paging: Record<string, number>): string {
+  const query = new URLSearchParams(rangeParams(range))
+  for (const [key, page] of Object.entries(paging)) {
+    if (page > 1) query.set(key, String(page))
+  }
+  return `/lenders/${lenderId}?${query}`
+}
+
+/**
+ * What this pot earned over a stretch of time the admin picks.
+ *
+ * WHY IT IS A CARD OF ITS OWN AND NOT A FOURTH TILE. Every other figure on this
+ * screen is a fact about today — floating, out on loan, interest still to
+ * collect. This one is a fact about a period, and the two do not belong side by
+ * side: a period control sitting above a row of tiles promises that it filters
+ * all of them, and a fourth figure on that row invites being added to the other
+ * three. Neither is true. Sitting in its own card with its own dates, the
+ * control cannot claim a reach it does not have.
+ *
+ * IT REPLACED THE "Earned" TILE, which showed every peso of profit ever
+ * received. That figure answered "how much has this pot made, all time" when the
+ * question being asked of it was "how much did it make last month" — and on the
+ * Admin pot it was carrying the cut on other lenders' capital with nothing on
+ * screen to say so.
+ *
+ * WHAT THE FIGURE IS, exactly. `lender.rangeInterest` is the stored interest on
+ * this pot's live funding rows — `earningsCentavos`, plus `adminCutCentavos` on
+ * every other funder's row when this IS the Admin pot — SPREAD ACROSS THE DAYS
+ * OF EACH LOAN'S AGREED TERM and cut to the days that fall in the range. Never
+ * recomputed from a rate. Deleted loans are out; a loan's status is not
+ * consulted, so a repaid loan still reports what it earned in the months it ran.
+ * See server/lenders/queries.ts interestAccruedIn and lib/money/accrual.ts.
+ *
+ * SO IT IS NOT CASH AND THE NOTE HAS TO SAY SO. A loan collected at the end pays
+ * nothing during the months counted here; a weekly loan pays as it goes. The
+ * figure is the same either way, because what it measures is what the money
+ * earned, not what arrived. Adding it to Floating, or to Earned on the lenders
+ * list, double counts.
+ *
+ * IT RECONCILES AGAINST NOTHING ELSE ON THE PAGE over a short range, and that is
+ * correct rather than a gap to close. Over a range wide enough to cover every
+ * loan's whole term it equals this pot's total interest, which is `earned +
+ * pending` on the tiles below. Over one month it equals neither, on purpose.
+ */
+function EarnedOverPeriod({
+  lenderId,
+  amount,
+  range,
+  isSelf,
+  paging,
+}: {
+  lenderId: string
+  amount: Centavos
+  range: ReportRange
+  isSelf: boolean
+  paging: Record<string, number>
+}) {
+  const dates = rangeParams(range)
+  const days = rangeDays(range)
+  const presets = rangePresets()
+
+  return (
+    <section className="bg-card overflow-hidden rounded-2xl ring-1 ring-border/70 shadow-rest">
+      <div className="space-y-3 p-4 sm:p-5">
+        <div className="flex items-start gap-3">
+          <IconChip icon={CalendarRange} tint="mint" />
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">Interest earned</h2>
+            {/* THE DAY COUNT SITS WITH THE DATES because the figure is a sum over
+                days, and two ranges are only comparable when their lengths are.
+                "Aug 1 to Aug 31" next to "Sep 1 to Sep 25" looks like a fair
+                comparison until the 31 and the 25 are said out loud. */}
+            <p className="text-muted-foreground text-sm">
+              {describeRange(range)} · {days === 1 ? '1 day' : `${days} days`}
+            </p>
+          </div>
+        </div>
+
+        {/* THE FIGURE MOVED OUT OF THE TOP-RIGHT CORNER and under its own
+            heading. Pinned to the far edge of a full-width card it sat a hand's
+            width from the words that say what it is, and on a wide screen the
+            eye has to travel the whole card to pair them. Directly beneath the
+            heading there is nothing to pair it with but the right label. */}
+        <Money
+          amount={amount}
+          variant="display"
+          muted={amount === 0}
+          className="block text-3xl font-semibold sm:text-4xl"
+        />
+
+        {/* THE SENTENCE THE FIGURE CANNOT BE READ WITHOUT. It is the spread that
+            makes a month comparable to another month, and it is also the thing
+            that makes this figure not cash. Both halves are said, because either
+            on its own is misleading: the first alone reads as money received, and
+            the second alone reads as an estimate.
+
+            Zero has its own line. On a pot with nothing on loan in the period,
+            "spread across the days each loan ran" describes no loan at all. */}
+        <p className="text-muted-foreground max-w-prose text-sm text-pretty">
+          {amount === 0
+            ? 'None of this money was out on loan during these dates.'
+            : isSelf
+              ? 'Spread across the days each loan ran, so a loan crossing two months counts in both. This is what the money earned over these dates, not what was collected in them. It includes the cut charged on other lenders’ capital.'
+              : 'Spread across the days each loan ran, so a loan crossing two months counts in both. This is what the money earned over these dates, not what was collected in them.'}
+        </p>
+      </div>
+
+      {/* THE CONTROLS GET THEIR OWN SHADED FOOT, divided off from the reading
+          above it. In one flat card the dates read as part of the statement
+          being made; below a line they read as what they are — the thing that
+          changes it. The tint is the same one the app uses for a muted surface,
+          so nothing new had to be invented for it. */}
+      <div className="bg-muted/40 space-y-3 border-t border-border/70 p-4 sm:p-5">
+        {/* PRESETS ARE PLAIN LINKS, not buttons, so each one is a URL that can be
+            reloaded, bookmarked or sent to somebody — the same property the two
+            date boxes already had by being a GET form. They carry the page
+            numbers for the same reason the form's hidden inputs do.
+
+            The one matching the dates on screen is marked `aria-current`, which
+            is also what draws the filled style: a row of four identical chips
+            with no sign of which is in force is a set of buttons that look like
+            they do nothing. A hand-typed range matches none of them, and then
+            none is filled, which is correct. */}
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map((preset) => {
+            const active = sameRange(preset.range, range)
+            return (
+              <Link
+                key={preset.key}
+                href={rangeHref(lenderId, preset.range, paging)}
+                aria-current={active ? 'true' : undefined}
+                className={cn(
+                  'inline-flex min-h-9 items-center rounded-full px-3 text-[0.8rem] font-medium transition-colors',
+                  'focus-visible:ring-ring/50 outline-none focus-visible:ring-3',
+                  active
+                    ? 'bg-foreground text-background'
+                    : 'bg-background text-muted-foreground ring-border/70 hover:text-foreground ring-1 hover:bg-muted',
+                )}
+              >
+                {preset.label}
+              </Link>
+            )
+          })}
+        </div>
+
+        {/* A PLAIN GET FORM, like the period bar on Reports. The dates land in the
+            URL, so a month the Admin is looking at is a link that survives a
+            reload and can be sent to somebody.
+
+            THE PAGE NUMBERS RIDE ALONG as hidden inputs. Six lists on this page
+            carry their own key in the query string, and submitting a form sends
+            only its own fields: without these, changing the dates would silently
+            throw the Admin back to page 1 of all six. Page 1 is the default and is
+            left out, which keeps the URL of an unpaged page clean. */}
+        <form
+          method="get"
+          action={`/lenders/${lenderId}`}
+          className="flex flex-wrap items-end gap-2 sm:gap-3"
+        >
+          {Object.entries(paging)
+            .filter(([, page]) => page > 1)
+            .map(([key, page]) => (
+              <input key={key} type="hidden" name={key} value={page} />
+            ))}
+
+          <div className="min-w-0 flex-1 space-y-1 sm:max-w-40">
+            <Label htmlFor="earned-from" className="text-muted-foreground text-xs">
+              From
+            </Label>
+            <Input id="earned-from" name="from" type="date" defaultValue={dates.from} />
+          </div>
+
+          <div className="min-w-0 flex-1 space-y-1 sm:max-w-40">
+            <Label htmlFor="earned-to" className="text-muted-foreground text-xs">
+              To
+            </Label>
+            <Input id="earned-to" name="to" type="date" defaultValue={dates.to} />
+          </div>
+
+          <Button type="submit" variant="secondary">
+            Apply
+          </Button>
+        </form>
+      </div>
+    </section>
+  )
+}
+
 export async function generateMetadata({ params }: PageProps<'/lenders/[id]'>) {
   const user = await requireUser()
   const lender = await getLender(user.id, (await params).id)
@@ -104,7 +318,21 @@ export async function generateMetadata({ params }: PageProps<'/lenders/[id]'>) {
  */
 export default async function LenderPage({ params, searchParams }: PageProps<'/lenders/[id]'>) {
   const user = await requireUser()
-  const lender = await getLender(user.id, (await params).id)
+  const query = await searchParams
+
+  /* THE PERIOD IS FOR ONE FIGURE, not for the page. It reaches the query because
+     "what did this pot earn in September" cannot be derived from anything the
+     page already has — the interest has to be spread over the days each loan
+     ran, which needs every funding row's start date and term.
+
+     Nothing else on this screen is ranged, and the dates must never be allowed
+     to look as though they are. Floating, out on loan and interest to collect are
+     facts about today; report-range.ts explains why the ledger cannot honestly
+     answer them "as of last March". That is why the period control lives inside
+     the earned-over-a-period card rather than above the row of tiles. */
+  const range = parseReportRange({ from: one(query.from), to: one(query.to) })
+
+  const lender = await getLender(user.id, (await params).id, range)
   if (!lender) notFound()
 
   const { position } = lender
@@ -139,7 +367,6 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
      point of paging here: the reading stays complete while the scrolling gets
      shorter. The Pager prints "1-10 of 14" underneath so the ten are never
      mistaken for all of them. */
-  const query = await searchParams
   const href = pagedHref(`/lenders/${lender.id}`, query)
   const paging = {
     cutsOut: parsePage(query.cutsOut).page,
@@ -188,9 +415,15 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         tone={position.floating < 0 ? 'critical' : undefined}
       />
 
-      {/* `earned` is this lender's own settled earnings PLUS, for the admin pot
-          only, the 2% cut on other funders' principal on loans already repaid.
-          `pending` is the same sum over loans still running. The cut belongs to
+      <EarnedOverPeriod
+        lenderId={lender.id}
+        amount={lender.rangeInterest}
+        range={lender.range}
+        isSelf={lender.isSelf}
+        paging={paging}
+      />
+
+      {/* `pending` is the interest on loans still running. The cut belongs to
           NONE of the "Out with" or "Paid back" rows further down this page —
           those list only loans this pot's own capital went into — so a tile
           carrying a cut sat higher than the rows beneath it with nothing on the
@@ -200,15 +433,12 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           / `adminCutPending` are exactly the SUM("adminCutCentavos") slices of
           the same two totals, split in lenderPosition.
 
-          THE FOURTH TILE USED TO READ "Total interest" AND SHOW earned +
-          pending. The words were true of that sum, but the tile overlapped
-          "Earned" beside it — earned was a part of it, not a second amount —
-          and the admin read the two as figures to subtract. Changed 2026-09-25
-          to show `pending` alone under "Interest to collect", so the two tiles
-          name two separate pots of money and nothing on the row is counted
-          twice. The old total is still available: it is the two added up, which
-          is now the arithmetic the row invites rather than the arithmetic it
-          has to warn against.
+          THIS TILE USED TO READ "Total interest" AND SHOW earned + pending. The
+          words were true of that sum, but the tile overlapped "Earned" beside it
+          — earned was a part of it, not a second amount — and the admin read the
+          two as figures to subtract. Changed 2026-09-25 to show `pending` alone
+          under "Interest to collect", so each tile names a separate pot of money
+          and nothing on the row is counted twice.
 
           "to collect" IS A PROMISE ABOUT WHICH LOANS. `pending` is the interest
           on loans NOT yet marked paid, deleted loans excluded, scoped to this
@@ -223,7 +453,18 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
 
           It is an expectation, not cash, and it is NEVER in Floating. A loan
           already overdue is still counted here at its full value, because this
-          ledger has no way to write one off. */}
+          ledger has no way to write one off.
+
+          THERE IS NO LONGER AN "Earned" TILE ON THIS ROW. It showed
+          `position.earned` — every peso of profit ever received — and the
+          reconciliation record had it marked **Label lies** on the Admin pot,
+          where the figure silently carried the cut taken on other lenders'
+          capital. It was replaced on 2026-09-25 by the earned-over-a-period card
+          ABOVE this row, which answers the question the admin was actually
+          asking of it: what did this pot make in a given month. It is not on this
+          row because it is not a position figure and must not be added to these
+          three. `position.earned` is still on the lenders LIST, and the "Paid
+          back" heading further down still prints this pot's own settled earnings. */}
       {/* POT TOTAL IS NOT THE OTHER TILES ADDED UP, and it must not be, because
           `earned` is already inside `floating` — a repayment puts capital and
           profit straight back — so adding all four figures counts it twice and
@@ -235,14 +476,14 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           2026-09-23: the two expressions agreed on all eight live lenders,
           including the Admin pot, where `earned` and `pending` each carry the
           2% cut on other funders' capital. It is now exactly the three OTHER
-          tiles on this row added up, Earned excepted.
+          tiles on this row added up, which is now every tile on it.
 
           Read forwards, it is what Floating BECOMES once every running loan is
           repaid and nothing further is put in or taken out. That is the bound
           and the note says it: a loan already overdue is still counted here at
           its full value, because this ledger has no way to write one off. It is
           an expectation, not cash, which is why Floating stays the hero above. */}
-      <StatRow className="sm:grid-cols-2 xl:grid-cols-4">
+      <StatRow className="sm:grid-cols-2 xl:grid-cols-3">
         <StatTile
           label="Pot total"
           value={
@@ -254,33 +495,6 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           note="once every running loan is paid in full"
         />
         <StatTile label="Out on loan" value={<Money amount={position.outOnLoan} variant="display" />} />
-        <StatTile
-          label="Earned"
-          value={<Money amount={position.earned} variant="display" />}
-          /* WHAT THIS FIGURE IS, not where the money went. It is every peso
-             of profit ever received, so it does not fall when that money goes
-             out on the next loan — and a note reading "already in floating"
-             beside a Floating tile showing zero reads as a contradiction, which
-             is the one thing a note under a money figure must never do.
-
-             SO IT NAMES NO DESTINATION AT ALL. Profit stops being "the profit"
-             the moment it lands in the pot: every peso in there is the same
-             peso. Lend half of it and neither "sitting in Floating" nor "lent
-             out again" is true, and no sum available here can tell the two
-             apart. What is always true is the thing the note exists to stop the
-             admin doing, which is adding this figure to Floating and counting
-             the same money twice.
-
-             Zero gets its own line, because a pot that has earned nothing has
-             nothing to say about. */
-          note={
-            position.earned === 0
-              ? 'no profit has come back yet'
-              : position.adminCutEarned > 0
-                ? `received, includes ${formatPesos(position.adminCutEarned)} cut from other lenders' loans`
-                : 'already counted in the pot, not money on top of it'
-          }
-        />
         <StatTile
           label="Interest to collect"
           value={<Money amount={position.pending} variant="display" muted={position.pending === 0} />}

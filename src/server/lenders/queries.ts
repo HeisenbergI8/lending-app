@@ -1,6 +1,8 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
-import { DAYS_PER_WEEK } from '../../lib/money/weeks.ts'
+import { type ReportRange, defaultRange } from '../../lib/report-range.ts'
+import { accruedBetween } from '../../lib/money/accrual.ts'
+import { DAYS_PER_WEEK, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
 import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
@@ -107,6 +109,16 @@ export type LenderDetail = LenderSummary & {
   transactions: LenderTransactionRow[]
   /** The last twelve months of this pot, oldest first. */
   history: LenderMonth[]
+  /**
+   * Interest this pot EARNED over `range`, spread across the days each loan ran.
+   *
+   * Not cash and not a position — see interestAccruedIn. It exists so the lender
+   * can ask "what did my money make in September" and get an answer that a loan
+   * straddling August and October cannot distort in either direction.
+   */
+  rangeInterest: Centavos
+  /** The stretch of time `rangeInterest` covers. This month so far, unless asked otherwise. */
+  range: ReportRange
   /**
    * Principal of theirs on loans DATED TO START AFTER TODAY.
    *
@@ -392,6 +404,75 @@ function buildHistory(
   return months
 }
 
+/** One funding row, as much of it as the accrual needs. */
+type AccrualRow = {
+  lenderId: string
+  earningsCentavos: number
+  adminCutCentavos: number
+  loan: { startOn: Date; termDays: number }
+}
+
+/**
+ * What this pot earned over a stretch of time, spread across the days each loan ran.
+ *
+ * THE ONE FIGURE ON THIS SCREEN THAT IS NOT ABOUT CASH. Everything else in this
+ * file answers "how much has reached this pot" — decided by which weeks were
+ * collected and which loans were repaid. This answers "how much did this pot
+ * earn in September", so a loan running August to October counts in all three
+ * months whatever month the money actually arrived in. See lib/money/accrual.ts
+ * for why, and for the exactness the spread guarantees.
+ *
+ * WHOSE MONEY, said the same way `ledgers` and `buildHistory` say it: this
+ * lender's own funding rows for their earnings, plus — on the Admin pot ONLY —
+ * the cut charged on every other funder's row, because that cut is the Admin's
+ * income and sits on no funding row of their own. On anybody else both cut
+ * figures are zero, so the branch changes nothing for them.
+ *
+ * SCOPE, in full: live funding rows (`Loan.deletedAt IS NULL`) belonging to this
+ * user, at the stored `earningsCentavos` and `adminCutCentavos` — never
+ * recomputed from a rate. A loan's status is NOT consulted and must not be: a
+ * repaid loan earned what it earned in the months it ran, and dropping it would
+ * make last month's figure shrink every time a borrower pays. A loan dated to
+ * start in the future contributes nothing, because accruedBetween clamps at the
+ * start date.
+ *
+ * NOT RECONCILABLE AGAINST `position.earned` OR `position.pending`, by design.
+ * Those two split the same interest at the line between collected and not; this
+ * splits it by date. Over a range covering every loan's whole term all three
+ * meet at the same total, and over any shorter range they do not. The tile says
+ * so on screen.
+ */
+function interestAccruedIn(
+  isSelf: boolean,
+  lenderId: string,
+  rows: AccrualRow[],
+  range: ReportRange,
+): Centavos {
+  return centavos(
+    rows.reduce((total, row) => {
+      /* THE START DATE IS NORMALISED ON THE WAY IN, and it has to be here rather
+         than inside accruedBetween. `row.loan.startOn` is a Postgres `date`, so
+         the driver hands it back as midnight UTC, and reading its calendar day
+         with the local parts gives the day BEFORE under any negative UTC offset.
+         Unfixed, this figure changed by a hundred pesos on the same rows purely
+         because the server's TZ was America/New_York rather than UTC.
+
+         accruedBetween cannot do it: `range.from` and `range.to` are local
+         MIDDAY dates from parseCalendarDate, and the two conventions need
+         opposite corrections. The boundary is where the origin of each date is
+         still known. See storedCalendarDate. */
+      const startOn = storedCalendarDate(row.loan.startOn)
+
+      const accrued = (amount: number) =>
+        accruedBetween(centavos(amount), startOn, row.loan.termDays, range.from, range.to)
+
+      const own = row.lenderId === lenderId ? accrued(row.earningsCentavos) : 0
+      const cut = isSelf ? accrued(row.adminCutCentavos) : 0
+      return total + own + cut
+    }, 0),
+  )
+}
+
 /**
  * The cut rows, split the way the two tiles above them are split.
  *
@@ -468,8 +549,17 @@ export async function listLenderNames(
  *
  * This is the question the profile exists to answer — "where is John Ross's money
  * right now?" — without opening every loan to find out.
+ *
+ * `range` is for the earned-over-a-period figure alone. Every other figure here
+ * is a fact about today and is NEVER ranged, for the reason report-range.ts
+ * states: the ledger stores movements rather than nightly balances, so it cannot
+ * honestly say what was floating last March. Defaults to this month so far.
  */
-export async function getLender(userId: string, lenderId: string): Promise<LenderDetail | null> {
+export async function getLender(
+  userId: string,
+  lenderId: string,
+  range: ReportRange = defaultRange(),
+): Promise<LenderDetail | null> {
   const lender = await db.lender.findFirst({ where: { id: lenderId, userId } })
   if (!lender) return null
 
@@ -617,6 +707,13 @@ export async function getLender(userId: string, lenderId: string): Promise<Lende
         )
         .reduce((total, row) => total + row.principalCentavos, 0),
     ),
+    range,
+    /* SAME ROWS THE CHART IS BUILT FROM, which is why no extra query was
+       needed: `historyRows` is already every live funding row this figure can
+       draw on — this lender's own, plus everyone else's on the Admin pot, where
+       the cut lives. `startOn` and `termDays` are the only two columns the
+       spread reads. */
+    rangeInterest: interestAccruedIn(lender.isSelf, lender.id, historyRows, range),
     history: buildHistory(
       lender.isSelf,
       historyRows.map((row) => ({
