@@ -7,7 +7,6 @@ import { LoaderCircle } from 'lucide-react'
 
 import { formatCountdown } from '@/lib/countdown.ts'
 import { PasswordInput } from '@/components/password-input.tsx'
-import { PondexMark } from '@/components/shell/pondex-mark.tsx'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -142,18 +141,17 @@ export function LoginForm() {
 
   const locked = lockedUntil !== null
 
+  // The card takes a heavy drop shadow rather than the app's own elevation: the
+  // soft tinted shadows that lift a card off an off-white page do nothing at all
+  // on a dark one.
   return (
-    <Card className="animate-in fade-in slide-in-from-bottom-2 shadow-float ring-border/70 w-full max-w-sm rounded-2xl ring-1 duration-300">
-      {/* The mark is centred and given room, because on this one screen it is
-          the whole of the branding: there is no sidebar and no top bar yet. */}
-      <CardHeader className="text-center">
-        <div className="bg-brand text-brand-foreground shadow-float ring-brand-line mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl ring-4">
-          <PondexMark className="size-6" />
-        </div>
-        <CardTitle className="text-2xl tracking-tight">Pondex</CardTitle>
-        <CardDescription>
-          Sign in to manage lenders, borrowers and loans.
-        </CardDescription>
+    <Card className="animate-in fade-in slide-in-from-bottom-2 ring-border/70 w-full max-w-sm rounded-2xl text-left shadow-[0_24px_50px_-18px_rgba(0,0,0,0.6)] ring-1 duration-300 md:shadow-[0_30px_60px_-20px_rgba(0,0,0,0.55)]">
+      {/* NO MARK IN HERE ANY MORE. The page carries the lockup in its corner, and
+          a second copy of it four inches below was the app saying its own name
+          twice on the one screen where nobody needs telling. */}
+      <CardHeader>
+        <CardTitle className="text-2xl tracking-tight">Sign in</CardTitle>
+        <CardDescription>Manage lenders, borrowers and loans.</CardDescription>
       </CardHeader>
 
       <CardContent className="pt-2">
@@ -213,23 +211,6 @@ export function LoginForm() {
 
           <SubmitButton disabled={locked} />
         </form>
-
-        {/* A labelled divider rather than another card: the demo hint is an
-            aside to the form above it, not a second thing to sign in with. */}
-        <div className="mt-7 flex items-center gap-3">
-          <span className="bg-border h-px flex-1" aria-hidden />
-          <span className="text-muted-foreground text-[0.7rem] font-medium tracking-wide uppercase">
-            Or try it with sample data
-          </span>
-          <span className="bg-border h-px flex-1" aria-hidden />
-        </div>
-
-        <div className="bg-brand-bg ring-brand-line mt-3 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 ring-1">
-          <span className="text-muted-foreground text-xs">Username and password</span>
-          <span className="bg-card ring-border/70 rounded-md px-2 py-0.5 font-mono text-sm ring-1">
-            demo / demo1234
-          </span>
-        </div>
       </CardContent>
     </Card>
   )
