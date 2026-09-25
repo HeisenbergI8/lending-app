@@ -1,6 +1,5 @@
-import { Cannabis } from 'lucide-react'
-
 import { AccountMenu } from './account-menu.tsx'
+import { CollapsedTitle } from './collapsed-title.tsx'
 
 /**
  * The bar across the top of every signed-in screen.
@@ -11,6 +10,11 @@ import { AccountMenu } from './account-menu.tsx'
  * The demo badge is not decoration: the whole point of a separate demo account
  * is that nobody mistakes sample borrowers for real ones, and the only way that
  * holds is if the distinction is visible on every screen.
+ *
+ * THERE IS NO LOGO IN IT. The admin knows which app she opened; the mark earns
+ * its place on the home screen icon, the splash and the sign-in card, and
+ * nowhere else. What the bar carries instead is the name of the screen she is
+ * on, and only once her own heading has scrolled out from under it.
  *
  * THE AVATAR IS THE ACCOUNT, and everything that belongs to it lives in the menu
  * behind it rather than in the sidebar: one thing to do does not earn a section
@@ -23,15 +27,10 @@ export function TopBar({ username, isDemo }: { username: string; isDemo: boolean
       className="bg-background/85 supports-[backdrop-filter]:bg-background/70 border-border/70 sticky z-30 border-b backdrop-blur-xl"
       style={{ top: 'env(safe-area-inset-top, 0px)' }}
     >
-      <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4 md:px-6">
-        {/* The mark and the name, phones only — on laptops the sidebar already
-            carries both, and repeating them would just spend the bar's width. */}
-        <span className="flex items-center gap-2 md:hidden">
-          <span className="bg-brand text-brand-foreground shadow-rest flex size-8 shrink-0 items-center justify-center rounded-[0.6rem]">
-            <Cannabis className="size-[1.1rem]" aria-hidden />
-          </span>
-          <span className="text-[0.95rem] font-semibold tracking-tight">Consignment Kush</span>
-        </span>
+      {/* Shorter on a phone, where every row costs something, and left at 16 on a
+          laptop so it lines up with the sidebar's own header. */}
+      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 md:h-16 md:px-6">
+        <CollapsedTitle />
 
         {isDemo ? (
           <span className="border-status-warning/35 bg-status-warning-bg text-status-warning rounded-full border px-2.5 py-1 text-xs font-medium">
