@@ -112,18 +112,23 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
   const withdrawals = lender.transactions.filter((entry) => entry.type === 'WITHDRAWAL')
   const settledEarnings = centavos(lender.settled.reduce((total, row) => total + row.earnings, 0))
 
-  /* THE PRINCIPAL ON THE "Out with" ROWS, added up. `lender.fundings` is every
-     funding row of this pot on a loan not yet repaid, so this is the same sum as
-     the "Out on loan" tile above and over exactly the same rows — reconciled
-     that way in .claude/reconciliation/lenders.md, and checked again against the
-     database on 2026-09-24.
+  /* WHAT THE "Out with" ROWS EARN, added up. `lender.fundings` is every funding
+     row of this pot on a loan not yet repaid, and this is the "earns" figure
+     printed on each of those rows totalled — SUM("earningsCentavos") over the
+     same rows, checked against the database on 2026-09-25.
 
-     CAPITAL ONLY. Each row prints its own "earns" beside it, but the bold figure
-     on the right of every row is the principal, and a corner total must add up
-     the column beneath it. Folding the earnings in would total no column at all.
+     INTEREST, NOT CAPITAL, because the capital is already the "Out on loan"
+     tile a few inches above and a corner repeating it says nothing new. What
+     the page could not say before is what all that lending is due to make.
+
+     NOT THE SAME AS THE "Interest to collect" TILE on the Admin pot, and
+     deliberately so: that figure also carries the 2% cut charged on other
+     lenders' capital, which belongs to none of the rows below. On every other
+     lender the two are equal. The breakdown section above itemises the
+     difference on the one pot that has any.
 
      Paged lists, whole-list sums: this counts every row, not the ten on screen. */
-  const outPrincipal = centavos(lender.fundings.reduce((total, row) => total + row.principal, 0))
+  const outEarnings = centavos(lender.fundings.reduce((total, row) => total + row.earnings, 0))
 
   /* SIX LISTS, SIX PAGE NUMBERS. Every list on this page is capped at ten rows,
      each with its own key in the query string, so paging the withdrawals does
@@ -381,7 +386,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           {lender.fundings.length > 0 ? (
             <p className="text-muted-foreground text-xs">
               {lender.fundings.length === 1 ? '1 loan running' : `${lender.fundings.length} loans running`} ·{' '}
-              <Money amount={outPrincipal} variant="display" /> out
+              earns <Money amount={outEarnings} variant="display" />
             </p>
           ) : null}
         </div>
@@ -542,9 +547,15 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
  * funded by two people. So the borrower is the heading and the lender is the
  * line under it, because "whose loan" is how the rest of this page is indexed.
  *
- * The total in the corner is handed in rather than added up here: it is the
- * very figure in the tile above, so a sum computed in this component would be a
- * second opinion about it. The rows it sits over add to it by construction.
+ * The total in the corner is handed in rather than added up here: it is the very
+ * figure in the tile above, so a sum computed to REPLACE it would be a second
+ * opinion about it.
+ *
+ * The rows no longer add to it by construction, and since 2026-09-25 this does
+ * sum them — to print the difference, never to replace the total. On a loan
+ * collecting its interest weekly the header counts only the weeks still owed
+ * while each row carries its loan's whole cut, so the column comes to more. That
+ * gap is said out loud below rather than left for the Admin to find.
  */
 function CutList({
   id,
@@ -563,6 +574,23 @@ function CutList({
   page: number
   href: (page: number) => string
 }) {
+  /**
+   * WHAT THE ROWS ADD UP TO, WHICH IS NOT ALWAYS THE HEADER FIGURE.
+   *
+   * Each row carries the WHOLE cut its loan will pay. The header on the running
+   * list is position.adminCutPending, which since 2026-09-25 counts only the
+   * weeks NOT yet collected: a loan collecting its interest weekly has already
+   * handed part of its cut over, and that part is in Earned above rather than
+   * still to come. So on such a loan the rows total MORE than the header.
+   *
+   * Printed rather than hidden. This screen already exists to print the cut that
+   * belongs to none of the loans listed on it; a header that does not match the
+   * column beneath it is the same problem and gets the same answer. Summed over
+   * every row, not the page, so paging does not change the sentence.
+   */
+  const rowsTotal = rows.reduce((sum, row) => sum + row.cut, 0)
+  const collected = rowsTotal - total
+
   return (
     <div id={id} className="scroll-mt-4 space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -574,6 +602,14 @@ function CutList({
           </p>
         ) : null}
       </div>
+
+      {rows.length > 0 && collected > 0 ? (
+        <p className="text-muted-foreground text-xs">
+          The rows below add up to <Money amount={centavos(rowsTotal)} variant="display" />, because{' '}
+          <Money amount={centavos(collected)} variant="display" /> of it has already been collected
+          week by week and is counted in Earned above.
+        </p>
+      ) : null}
 
       {rows.length === 0 ? (
         <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-4 text-center text-sm">
