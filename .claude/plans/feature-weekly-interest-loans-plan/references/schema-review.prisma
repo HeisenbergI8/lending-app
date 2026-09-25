@@ -1,0 +1,104 @@
+// Review of prisma/schema.prisma — only what this feature touches or is bound by.
+
+// The header sets three rules this plan is constrained by. Quoted because two of
+// them are cited in the plan as reasons.
+//
+//   "MONEY is stored as a whole number of centavos in an Int column."
+//   "Derived on read, never stored: floating funds, a loan's OVERDUE state, and a
+//    borrower's counted track record."
+//   deletedAt is soft delete, mapped from a column still named archivedAt.
+//
+// IMPORTANT: the second line is what Loan.nextDueOn breaks. The plan proposes it
+// anyway and says why; if the owner accepts, this header must gain the exception
+// or it contradicts the column beneath it.
+
+model Loan {
+  capitalCentavos  Int
+  interestBasis    InterestBasis @default(WEEKLY_RATE)
+  borrowerRateBps  Int?          // NULL on FIXED_AMOUNT
+  startOn          DateTime      @db.Date
+  dueOn            DateTime      @db.Date
+  termDays         Int           // NOTE: weeks are derived from this, never stored.
+                                 // "there is no weeks column, because two columns
+                                 // for one term can disagree". Every caller of
+                                 // weeklySchedule must pass termDays / 7.
+  interestCentavos Int
+  totalCentavos    Int
+  status           LoanStatus    @default(ACTIVE)
+
+  payment  Payment?              // IMPORTANT: the to-one relation. It exists ONLY
+                                 // because of the unique index below. Dropping
+                                 // that index turns this into Payment[] and
+                                 // breaks 21 read sites — all compile errors.
+
+  @@index([userId, status, deletedAt])
+  @@index([dueOn])               // NOTE: serves the date-range filter. Still does.
+}
+
+// From the model's own comment, and it is the rule the whole plan obeys:
+//
+//   "termDays, interestCentavos and totalCentavos are computed ONCE by
+//    src/lib/money/ when the loan is created, and stored. Nothing recalculates
+//    them afterwards."
+//   "There is no OVERDUE value in LoanStatus. Overdue is ACTIVE with dueOn in the
+//    past — a fact about today, not a state someone has to remember to write."
+
+model Payment {
+  loanId         String    @unique  // IMPORTANT: THE CONSTRAINT THAT CANNOT SURVIVE.
+                                    // Measured on the live database 2026-09-24:
+                                    //   Payment_loanId_key ON public."Payment"
+                                    //     USING btree ("loanId")
+                                    // A plain unique index, no predicate. There is
+                                    // nothing to widen; it must be dropped and the
+                                    // guarantee re-expressed as a PARTIAL unique
+                                    // index on ("loanId") WHERE "weekNumber" IS NULL.
+  paidOn         DateTime  @db.Date
+  amountCentavos Int
+  deletedAt      DateTime? @map("archivedAt")
+
+  proofFiles ProofFile[]   // NOTE: THIS is why the plan generalises Payment rather
+                           // than adding a LoanWeek table. A weekly payment gets
+                           // proof, soft delete, Recently Deleted and purge for
+                           // free by being a Payment. A parallel table would have
+                           // needed all four rebuilt, since ProofFile.paymentId is
+                           // an FK to this model.
+}
+
+// The model comment states the guarantee in words:
+//   "loanId is unique: one payment per loan, enforced by the database rather than
+//    by hoping the application never writes a second."
+// The plan keeps that guarantee exactly, for the settling payment, via the partial
+// index. It does not weaken it.
+
+model LoanFunding {
+  principalCentavos Int
+  lenderRateBps     Int?  // per week, NULL on FIXED_AMOUNT
+  adminCutBps       Int?
+  earningsCentavos  Int   // IMPORTANT: what weeklySchedule slices. Stored at
+  adminCutCentavos  Int   // creation, never recomputed. These two columns are the
+                          // entire input to the weekly schedule — no rate is read.
+
+  @@unique([loanId, lenderId])
+}
+
+// From its comment, the two invariants the plan's arithmetic inherits:
+//   1. principalCentavos across a loan's rows sums to exactly Loan.capitalCentavos
+//   2. lenderRateBps + adminCutBps == Loan.borrowerRateBps on every WEEKLY_RATE row
+//
+// IMPORTANT, and the plan's §1.2 rests on it:
+//   "Earnings are stored rather than recomputed because the split's remainder
+//    handling assigns leftover centavos deliberately; re-running it later against
+//    a changed rate would move money that has already been paid out."
+// Slicing the STORED earnings therefore inherits the guarantee that they sum to
+// Loan.interestCentavos, which is what makes both weekly invariants hold at once.
+
+enum InterestBasis { WEEKLY_RATE  FIXED_AMOUNT }
+// NOTE: the plan adds InterestCollection beside this, deliberately as a SECOND
+// enum rather than a third value here. FEATURES.md §5: "This is not a third
+// interest basis." Adding WEEKLY here would make every switch on basis wrong.
+
+// QUESTION: the enum comment says a FIXED_AMOUNT loan has every *RateBps column
+// NULL, "Null rather than zero: a stored 0 renders as '0% a week' and reads as a
+// rate somebody chose." interestCollection is proposed as NOT NULL with a default
+// of AT_END, which is a real answer for every loan rather than an absent one — so
+// the same reasoning points the other way here. Worth confirming.
