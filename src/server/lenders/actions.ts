@@ -73,6 +73,48 @@ export async function renameLender(_prev: FormState, form: FormData): Promise<Fo
 }
 
 /**
+ * Set what this lender put in to START.
+ *
+ * THE ONE WRITE IN THIS FILE THAT RECORDS A FIGURE RATHER THAN AN EVENT, and it
+ * is a figure the Admin knows and the app cannot: the money that came from
+ * outside the lending, before any interest compounded on top of it. The deposit
+ * rows on this account were entered loan by loan after the fact, so their sum is
+ * the size of the lending rather than the size of the stake.
+ *
+ * It is NOT a deposit and must never be recorded as one. A deposit is money
+ * moving on a day, it lands in floating funds, and it is what the pot has to lend
+ * today. This is a standing statement about where the pot came from, it touches
+ * no other figure on any screen, and raising it lends nobody a peso.
+ *
+ * Blank CLEARS it back to "not set", which is how a figure typed by mistake is
+ * taken off the screen — there is no separate button for that, and a stray ₱0.00
+ * would read as a lender who put in nothing.
+ */
+export async function setStartingCapital(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+  const id = text(form, 'lenderId')
+
+  // Blank is allowed and means zero; `amount` refuses zero, so it is only
+  // consulted once there is something to parse.
+  const typed = text(form, 'startingCapital')
+  let value = centavos(0)
+  if (typed !== '') {
+    const parsed = amount(form, 'startingCapital')
+    if (!parsed.ok) return failed(parsed.error)
+    value = parsed.value
+  }
+
+  const { count } = await db.lender.updateMany({
+    where: { id, userId: user.id },
+    data: { startingCapitalCentavos: value },
+  })
+  if (count === 0) return failed('That lender no longer exists.')
+
+  refresh()
+  return NO_ERROR
+}
+
+/**
  * Delete — which here means "hide it and start a thirty-day clock".
  *
  * The row keeps its loans and its history and comes back intact from Recently

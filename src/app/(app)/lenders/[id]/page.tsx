@@ -402,6 +402,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             firstName={lender.firstName}
             lastName={lender.lastName}
             isSelf={lender.isSelf}
+            startingCapital={lender.startingCapital}
           />
         </div>
       </div>
@@ -475,15 +476,57 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           principal cancelling out. Verified that way against the database on
           2026-09-23: the two expressions agreed on all eight live lenders,
           including the Admin pot, where `earned` and `pending` each carry the
-          2% cut on other funders' capital. It is now exactly the three OTHER
-          tiles on this row added up, which is now every tile on it.
+          2% cut on other funders' capital.
+
+          IT IS NOT THIS ROW ADDED UP. Since "Starting capital" joined the row it
+          is not any three of these four either — that tile is a figure the Admin
+          typed and is in none of these sums. What the two of them DO say when
+          read together is what the lending has made this person: Pot total minus
+          Starting capital. That subtraction is the reason the figure was asked
+          for, it is sound, and it is the only arithmetic across this row that is.
 
           Read forwards, it is what Floating BECOMES once every running loan is
           repaid and nothing further is put in or taken out. That is the bound
           and the note says it: a loan already overdue is still counted here at
           its full value, because this ledger has no way to write one off. It is
           an expectation, not cash, which is why Floating stays the hero above. */}
-      <StatRow className="sm:grid-cols-2 xl:grid-cols-3">
+      <StatRow className="sm:grid-cols-2 xl:grid-cols-4">
+        {/* READ STRAIGHT OFF Lender.startingCapitalCentavos. The Admin typed it;
+            nothing in this app computes it, maintains it or checks it, and NO
+            QUERY CAN PROVE IT — which is the honest position, not a gap. The
+            deposit rows on this account were entered loan by loan after the fact,
+            so deposits minus withdrawals is the size of the lending and not the
+            size of the stake. That is exactly why this is typed instead.
+
+            IT IS IN NO OTHER FIGURE ON THIS PAGE. Not in Floating, not in Pot
+            total, not in the chart, not in any report. Saving it moves no money.
+            `lenderPosition` does not read the column at all, so there is no path
+            by which it can shift a peso of the derived figures beside it.
+
+            WHY IT SITS NEXT TO "Pot total": the difference between the two is
+            what the lending has made this person, which is the question the
+            figure was asked for — the interest compounds as the money goes round,
+            and without a fixed starting point there is nothing to compare the pot
+            against. Both tiles carry notes, because that subtraction is only
+            sound if the reader knows one is a statement and the other a sum.
+
+            Zero renders "Not set" rather than ₱0.00: ₱0.00 claims they put in
+            nothing, and 0 only means nobody has said yet. */}
+        <StatTile
+          label="Starting capital"
+          value={
+            lender.startingCapital === 0 ? (
+              <span className="text-muted-foreground">Not set</span>
+            ) : (
+              <Money amount={lender.startingCapital} variant="display" />
+            )
+          }
+          note={
+            lender.startingCapital === 0
+              ? 'the Admin has not said what this pot started with'
+              : 'put in to start, typed by the Admin before any interest'
+          }
+        />
         <StatTile
           label="Pot total"
           value={

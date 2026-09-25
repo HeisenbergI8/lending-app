@@ -130,6 +130,32 @@ Angel's ₱30,000 = admin ₱10,000 + John Ross ₱20,000:
 - **The admin has a floating pot too.** The admin appears in the lenders list alongside everyone
   else. The only difference is the rate: admin capital earns 7%, lender capital earns 5%.
 
+### Starting capital — what they put in to begin with
+
+**Added 2026-09-25.** Every other figure on a lender is worked out by the app. This one is **typed by
+the Admin**, and it has to be, because it is a fact about money that changed hands before the app
+existed.
+
+The lending money goes round: capital out, capital and interest back, lent again. Interest compounds
+as it goes, so after a few rounds there is nothing left on the screen that says how much of the pot
+was ever this person's own money. That is what this figure is for.
+
+- **It is not deposits minus withdrawals.** On this account the deposits were entered loan by loan
+  after the fact, so their sum is the size of the lending, not the size of the stake.
+- It moves **only when the Admin raises it** — when a lender hands over fresh money from outside the
+  lending. Making a loan, repaying one, collecting interest and recording a deposit or a withdrawal
+  all leave it exactly where it was.
+- It is in **no other figure**: not floating funds, not Pot total, not the chart, not any report.
+  Saving it moves no money.
+- **Pot total minus starting capital is what the lending has made that person.** That is the
+  comparison the figure exists for, and it is the only arithmetic across that row of tiles that holds.
+- Blank means **not set**, and reads that way on screen. ₱0.00 would be a claim that they put in
+  nothing.
+- Set it from **Starting capital** on the lender's profile. It shows on the lenders list too.
+
+Because it is typed, **no query can prove it**. The Admin is the source of truth, and the figure is
+right when they say it is.
+
 ### Interest earned over a period
 
 On a lender's profile the admin picks two dates and sees **what that pot earned between them**.

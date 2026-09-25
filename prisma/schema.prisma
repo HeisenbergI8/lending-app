@@ -92,14 +92,39 @@ model Session {
 /// (part the admin's money, part a lender's) need no special case anywhere: the
 /// difference lives in the rate columns on LoanFunding, not in a branch.
 model Lender {
-  id        String    @id @default(cuid())
-  userId    String
-  firstName String
-  lastName  String
-  isSelf    Boolean   @default(false)
-  deletedAt DateTime? @map("archivedAt")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                      String    @id @default(cuid())
+  userId                  String
+  firstName               String
+  lastName                String
+  isSelf                  Boolean   @default(false)
+  /// WHAT THIS PERSON PUT IN TO START. Typed by the Admin, never computed.
+  ///
+  /// THE SECOND STORED FIGURE IN THIS SCHEMA THAT LOOKS DERIVED, and unlike
+  /// Loan.nextDueOn it is not a cache of anything. It is an INPUT: a fact the
+  /// Admin knows from outside the app and states, in the same class as
+  /// Borrower.manualLabel. Nothing derives it, nothing maintains it, and no
+  /// query may ever write it.
+  ///
+  /// It is not deposits minus withdrawals, and the difference is the reason the
+  /// column exists. The lending money goes round and round — capital out, capital
+  /// and interest back, lent again — and the deposit rows on this account were
+  /// entered loan by loan after the fact, so their sum is the size of the lending
+  /// rather than the size of the stake. This is the stake: the money that came
+  /// from outside the lending, before any interest compounded on top of it.
+  ///
+  /// It moves ONLY when the Admin raises it, which happens when a lender hands
+  /// over fresh outside money. It does NOT move when a loan is made, when one is
+  /// repaid, when interest is collected, or when a deposit or withdrawal is
+  /// recorded. It is deliberately absent from floating funds, from Pot total and
+  /// from every report figure — see src/lib/money/floating.ts, which does not
+  /// read it.
+  ///
+  /// Zero means the Admin has not said yet, and reads as "not set" on screen
+  /// rather than as ₱0.00. Never negative; the action refuses it.
+  startingCapitalCentavos Int       @default(0)
+  deletedAt               DateTime? @map("archivedAt")
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions LenderTransaction[]

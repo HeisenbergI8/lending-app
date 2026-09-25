@@ -19,8 +19,10 @@ export const metadata = { title: 'Lenders' }
  * lender row — the only difference is the rate its money earns — so it is not
  * given a separate panel or a special case here.
  *
- * Four figures per lender: Floating, Out on loan, Earned, Withdrawn. Every one
- * of them is derived on this read; not one is stored.
+ * Five figures per lender: Starting capital, Floating, Out on loan, Earned,
+ * Withdrawn. Four of the five are derived on this read. STARTING CAPITAL IS THE
+ * EXCEPTION and the only stored figure on the screen — the Admin types it,
+ * because it is a fact about money that changed hands before the app existed.
  */
 export default async function LendersPage() {
   const user = await requireUser()
@@ -86,17 +88,52 @@ export default async function LendersPage() {
                   />
                 </div>
 
-                {/* All four figures without a tap, which is the whole answer to
-                    "how much can I lend today" and "how much has this person
-                    taken back out".
+                {/* All five figures without a tap, which is the whole answer to
+                    "what did this person start with", "how much can I lend today"
+                    and "how much has this person taken back out".
 
-                    A row per figure on a phone, two columns from `sm` and four
+                    A row per figure on a phone, two columns from `sm` and five
                     from `lg`. A quarter of a 375px card is about 66px, and a
                     six-figure peso amount needs roughly twice that; it fit the
                     demo's numbers and would have started clipping the day a
                     larger one was entered. Label left and figure right has no
                     such ceiling. */}
-                <dl className="mt-3 grid gap-1 sm:grid-cols-2 sm:gap-2 lg:grid-cols-4">
+                <dl className="mt-3 grid gap-1 sm:grid-cols-2 sm:gap-2 lg:grid-cols-5">
+                  {/* `startingCapital` is read STRAIGHT OFF Lender.startingCapitalCentavos.
+                      It is not a sum, not a balance and not derived from anything:
+                      the Admin typed it, and it is the money this person put in
+                      from outside the lending before any interest compounded on
+                      top. It moves ONLY when the Admin raises it.
+
+                      There is therefore NO QUERY THAT CAN PROVE IT, and that is
+                      the honest position rather than a gap: the deposit rows on
+                      this account were entered loan by loan after the fact, so
+                      their sum is the size of the lending and NOT the stake. The
+                      Admin is the source of truth, and the figure is right when
+                      they say it is. What CAN drift is the Admin's memory, which
+                      is why the dialog that sets it is on the profile rather than
+                      buried somewhere.
+
+                      "Starting" is the whole label. It is not what the pot is
+                      worth, it is not what is available, and it is not the other
+                      four figures' starting point in any arithmetic sense — a
+                      lender's money has gone round several times since. Compared
+                      against Pot total on the profile it shows what the lending
+                      has made them, which is why the figure was asked for.
+
+                      Zero reads "not set" rather than ₱0.00, because ₱0.00 is a
+                      claim that they put in nothing and 0 only means nobody has
+                      said yet. */}
+                  <div className="flex items-baseline justify-between gap-3 sm:block">
+                    <dt className="text-muted-foreground shrink-0 text-xs">Starting capital</dt>
+                    <dd className="truncate text-sm sm:mt-0.5">
+                      {lender.startingCapital === 0 ? (
+                        <span className="text-muted-foreground">not set</span>
+                      ) : (
+                        <Money amount={lender.startingCapital} variant="display" />
+                      )}
+                    </dd>
+                  </div>
                   <div className="flex items-baseline justify-between gap-3 sm:block">
                     <dt className="text-muted-foreground shrink-0 text-xs">Floating</dt>
                     <dd className="truncate text-sm font-semibold sm:mt-0.5">

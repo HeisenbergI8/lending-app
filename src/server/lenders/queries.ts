@@ -27,6 +27,16 @@ export type LenderSummary = {
   lastName: string
   /** The admin's own pot. Its money earns the full borrower rate. */
   isSelf: boolean
+  /**
+   * What this person put in to START, typed by the Admin and read straight off
+   * the column. THE ONE FIGURE ON A LENDER THAT IS NOT DERIVED.
+   *
+   * It is deliberately not part of `position`: everything in there is computed
+   * from the transactions and loans on every read, and mixing a typed number in
+   * among them would invite the next reader to treat it as one of those. Zero
+   * means the Admin has not said yet — see the schema comment.
+   */
+  startingCapital: Centavos
   position: LenderPosition
 }
 
@@ -523,6 +533,7 @@ export async function listLenders(userId: string): Promise<LenderSummary[]> {
     firstName: lender.firstName,
     lastName: lender.lastName,
     isSelf: lender.isSelf,
+    startingCapital: centavos(lender.startingCapitalCentavos),
     position: lenderPosition(byLender.get(lender.id) ?? EMPTY_LEDGER),
   }))
 }
@@ -665,6 +676,7 @@ export async function getLender(
     firstName: lender.firstName,
     lastName: lender.lastName,
     isSelf: lender.isSelf,
+    startingCapital: centavos(lender.startingCapitalCentavos),
     position: lenderPosition(byLender.get(lender.id) ?? EMPTY_LEDGER),
     rates: [
       ...new Set(fundings.map((row) => row.lenderRateBps).filter((bps) => bps !== null)),

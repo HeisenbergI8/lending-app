@@ -1,16 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Landmark, Pencil, Trash2 } from 'lucide-react'
 
 import { ActionForm, FormDialog } from '@/components/forms.tsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { deleteLender, renameLender } from '@/server/lenders/actions.ts'
+import { deleteLender, renameLender, setStartingCapital } from '@/server/lenders/actions.ts'
 
 /**
- * Rename, or delete.
+ * Rename, set the starting capital, or delete.
  *
  * Deleting is reversible for thirty days: the row and its whole history sit in
  * Recently Deleted, and its loans keep pointing at it meanwhile. That is why
@@ -25,13 +25,17 @@ export function LenderSettings({
   firstName,
   lastName,
   isSelf,
+  startingCapital,
 }: {
   lenderId: string
   firstName: string
   lastName: string
   isSelf: boolean
+  /** Centavos, 0 when the Admin has not said. Shown in the box as pesos. */
+  startingCapital: number
 }) {
   const [renaming, setRenaming] = useState(false)
+  const [capital, setCapital] = useState(false)
 
   // The buttons stay put while the dialog is open. Swapping them out for the
   // form was what put the form in the page header in the first place.
@@ -40,6 +44,11 @@ export function LenderSettings({
       <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
         <Pencil className="size-4" aria-hidden />
         Rename
+      </Button>
+
+      <Button variant="ghost" size="sm" onClick={() => setCapital(true)}>
+        <Landmark className="size-4" aria-hidden />
+        Starting capital
       </Button>
 
       {isSelf ? null : (
@@ -59,6 +68,45 @@ export function LenderSettings({
           Delete
         </ActionForm>
       )}
+
+      {/* THE FIGURE IS TYPED, and this is the only place it can be. It is not a
+          deposit: nothing moves, nothing is lent, and no other figure on any
+          screen changes when it is saved. The description says so, because a box
+          asking for pesos inside an app that records money in and money out will
+          otherwise be read as recording money in.
+
+          Pre-filled in PESOS from the stored centavos, with no thousands
+          separators — parsePesos accepts them, but a value typed back out of this
+          box has to round-trip exactly, and "155,177.00" re-read as a default is
+          one comma away from a different number.
+
+          Blank saves as "not set" rather than ₱0.00, which is the only way to
+          take a figure typed by mistake back off the screen. */}
+      <FormDialog
+        action={setStartingCapital}
+        open={capital}
+        onOpenChange={setCapital}
+        title="Starting capital"
+        description="What this person put in to start, before any interest. The Admin types it; the app never works it out. Saving it moves no money and changes no other figure."
+        submitLabel="Save starting capital"
+      >
+        <input type="hidden" name="lenderId" value={lenderId} />
+        <div className="space-y-2">
+          <Label htmlFor="startingCapital">Amount in pesos</Label>
+          <Input
+            id="startingCapital"
+            name="startingCapital"
+            inputMode="decimal"
+            defaultValue={startingCapital === 0 ? '' : (startingCapital / 100).toFixed(2)}
+            placeholder="80000"
+            autoFocus
+          />
+          <p className="text-muted-foreground text-xs">
+            Raise it when this person hands over fresh money from outside the lending. Leave it blank
+            if the Admin does not know what they started with.
+          </p>
+        </div>
+      </FormDialog>
 
       <FormDialog
         action={renameLender}
