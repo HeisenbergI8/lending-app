@@ -20,7 +20,7 @@ export type NavItem = {
   /** Shorter label for the phone tab bar, where width is tight. */
   short: string
   icon: LucideIcon
-  /** Shown in the phone tab bar. The rest live behind "More". */
+  /** One of the four phone tabs. The rest live behind "More". */
   primary: boolean
 }
 
@@ -28,12 +28,13 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', short: 'Home', icon: LayoutDashboard, primary: true },
   { href: '/loans', label: 'Loans', short: 'Loans', icon: HandCoins, primary: true },
   { href: '/borrowers', label: 'Borrowers', short: 'People', icon: Users, primary: true },
-  // Behind "More" on a phone, not in the tab bar. Five thumb-width tabs plus
-  // More is one too many on a narrow handset, and the four that are there are
-  // the ones opened every day. On the sidebar it sits under Loans, which is
-  // where it belongs in the sequence: a request becomes a loan.
+  // Behind "More" on a phone, not in the tab bar. On the sidebar it sits under
+  // Loans, which is where it belongs in the sequence: a request becomes a loan.
   { href: '/pending', label: 'Pending loans', short: 'Pending', icon: Inbox, primary: false },
-  { href: '/lenders', label: 'Lenders', short: 'Funds', icon: Wallet, primary: true },
+  // Also behind "More". The tab bar now carries the Record button in its middle
+  // slot, which leaves room for four tabs around it rather than five, and the
+  // pot balances this screen breaks down are already on the Dashboard.
+  { href: '/lenders', label: 'Lenders', short: 'Funds', icon: Wallet, primary: false },
   { href: '/reports', label: 'Reports', short: 'Reports', icon: FileText, primary: false },
   { href: '/deleted', label: 'Recently Deleted', short: 'Deleted', icon: Trash2, primary: false },
 ]
