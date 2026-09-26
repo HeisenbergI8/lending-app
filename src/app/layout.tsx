@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 
 import './globals.css'
 
+import { MoneyBurst } from '@/components/money-burst.tsx'
 import { SoundOnNavigate } from '@/components/sound-on-navigate.tsx'
 
 const geistSans = Geist({
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
       <body className="flex min-h-full flex-col">
         {children}
         <SoundOnNavigate />
+        <MoneyBurst />
       </body>
     </html>
   )
