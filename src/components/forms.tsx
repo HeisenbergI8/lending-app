@@ -346,7 +346,15 @@ export function FormDialog({
         </DialogTrigger>
       ) : null}
 
-      <DialogContent>
+      <DialogContent
+        onEscapeKeyDown={(event) => {
+          // A field with its suggestion list open takes Escape to close the
+          // list. The dialog hears Escape first, so it has to step aside here.
+          if ((event.target as HTMLElement).getAttribute('aria-expanded') === 'true') {
+            event.preventDefault()
+          }
+        }}
+      >
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
 

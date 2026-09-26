@@ -35,6 +35,13 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
 
   const options = await loanFormOptions(user.id)
 
+  const squash = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
+  const matchingBorrower = fromRequest
+    ? options.borrowers.find(
+        (b) => squash(b.name) === squash(`${fromRequest.firstName} ${fromRequest.lastName}`),
+      )
+    : undefined
+
   // A request with no start date on it starts today, which is the same default
   // the plain form has always had. A request that named one keeps it, and the
   // due date follows from the length either way — this is the one pair of dates
@@ -68,10 +75,12 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
         submitLabel="Record loan"
         initial={{
           pendingId: fromRequest?.id,
-          // A request holds a typed name and no Borrower row, deliberately, so
-          // converting one always opens on "Someone new". If they turn out to
-          // be an existing borrower the dropdown is right there.
-          borrowerId: fromRequest ? 'new' : (options.borrowers[0]?.id ?? 'new'),
+          // A request holds a typed name and no Borrower row, so converting one
+          // opens on the borrower with exactly that name if there is one, and
+          // on "Someone new" otherwise. The dropdown is right there either way.
+          borrowerId: fromRequest
+            ? (matchingBorrower?.id ?? 'new')
+            : (options.borrowers[0]?.id ?? 'new'),
           borrowerFirstName: fromRequest?.firstName,
           borrowerLastName: fromRequest?.lastName,
           capital: fromRequest ? (fromRequest.capital / 100).toFixed(2) : '',
