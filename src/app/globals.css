@@ -70,6 +70,10 @@
   /* A wash of the same hue, for tinted surfaces and soft badges. */
   --brand-bg: color-mix(in oklab, var(--brand) 8%, transparent);
   --brand-line: color-mix(in oklab, var(--brand) 22%, transparent);
+  /* The fill behind white text: the hero tile and the mark's square. It is the
+     brand in the light theme, and stays a deep blue in the dark one, where the
+     brand itself lightens to read as text and would put white on pale blue. */
+  --hero: var(--brand);
 }
 
 :root {
@@ -124,6 +128,9 @@
 }
 
 .dark {
+  color-scheme: dark;
+  --hero: oklch(0.4 0.13 262);
+
   /* The brand lightens in the dark theme. The light-mode navy is a 9:1 text
      colour on white and a muddy, low-contrast one on a dark surface. */
   --brand: oklch(0.672 0.13 260.2);
@@ -265,6 +272,36 @@
   --chip-amber: oklch(0.505 0.115 70);
 }
 
+/* Lifted for the dark card: the light steps sit near 0.5 lightness and all but
+   vanish on it. Same hues, so a chip keeps its identity across the switch. */
+.dark {
+  --chip-indigo: oklch(0.74 0.13 276.3);
+  --chip-sky: oklch(0.76 0.1 240);
+  --chip-mint: oklch(0.77 0.11 165);
+  --chip-violet: oklch(0.76 0.13 300);
+  --chip-amber: oklch(0.8 0.11 70);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE THEME CHANGE
+
+   Light to dark is a cross-fade, the way iOS does it: every colour moves at once
+   on one soft curve rather than snapping. `theme-changing` is on <html> only for
+   the half second of the change (lib/theme.ts adds and removes it), so the rest
+   of the time every hover and press keeps its own timing.
+   ───────────────────────────────────────────────────────────────────────────── */
+/* .theme-icon is left out: the bar's sun and moon turn on their own springier
+   curve, and this rule would otherwise strip the turn from them. */
+html.theme-changing,
+html.theme-changing *:not(.theme-icon),
+html.theme-changing *::before,
+html.theme-changing *::after {
+  transition-property: background-color, color, border-color, outline-color, fill, stroke,
+    box-shadow, text-decoration-color !important;
+  transition-duration: 550ms !important;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1) !important;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    CHART SERIES
 
@@ -297,6 +334,7 @@
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-bg: var(--brand-bg);
   --color-brand-line: var(--brand-line);
+  --color-hero: var(--hero);
   --color-chip-indigo: var(--chip-indigo);
   --color-chip-sky: var(--chip-sky);
   --color-chip-mint: var(--chip-mint);

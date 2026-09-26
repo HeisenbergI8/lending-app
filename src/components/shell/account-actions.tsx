@@ -3,6 +3,7 @@
 import { useActionState, useRef, useState, useSyncExternalStore } from 'react'
 import { KeyRound, LogOut, Volume2, VolumeX } from 'lucide-react'
 
+import { AppearanceItems } from './appearance.tsx'
 import { FormDialog } from '@/components/forms.tsx'
 import { PasswordInput } from '@/components/password-input.tsx'
 import { Avatar } from '@/components/avatar.tsx'
@@ -97,6 +98,12 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
           Change password
         </DropdownMenuItem>
       )}
+
+      <DropdownMenuSeparator className="my-1.5" />
+
+      <AppearanceItems />
+
+      <DropdownMenuSeparator className="my-1.5" />
 
       {/* The menu stays open on purpose, so the Admin sees the switch flip. */}
       <DropdownMenuItem

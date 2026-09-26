@@ -5,6 +5,7 @@ import './globals.css'
 
 import { MoneyBurst } from '@/components/money-burst.tsx'
 import { SoundOnNavigate } from '@/components/sound-on-navigate.tsx'
+import { THEME_SCRIPT } from '@/lib/theme.ts'
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -44,7 +45,13 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // The script below adds `dark` before the first paint, so the class React
+      // hydrates against is allowed to differ from the one it rendered.
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="flex min-h-full flex-col">
         {children}
         <SoundOnNavigate />

@@ -1,4 +1,5 @@
 import { AccountMenu } from './account-menu.tsx'
+import { ThemeToggle } from './appearance.tsx'
 import { CollapsedTitle } from './collapsed-title.tsx'
 
 /**
@@ -43,7 +44,8 @@ export function TopBar({ username, isDemo }: { username: string; isDemo: boolean
             carries everywhere else in the app. Everything belonging to the
             account, signing out included, is behind it — one control in the
             corner rather than two side by side. */}
-        <div className="ml-auto flex items-center">
+        <div className="ml-auto flex items-center gap-1">
+          <ThemeToggle />
           <AccountMenu username={username} isDemo={isDemo} />
         </div>
       </div>

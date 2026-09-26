@@ -89,7 +89,7 @@ export function StatTile({
           'shadow-rest transition-shadow duration-200',
           critical
             ? 'bg-status-critical-fill text-white'
-            : 'bg-brand text-brand-foreground',
+            : 'bg-hero text-white',
           className,
         )}
       >

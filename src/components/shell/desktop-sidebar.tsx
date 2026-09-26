@@ -120,7 +120,7 @@ export function DesktopSidebar() {
       >
         <span
           className={cn(
-            'bg-brand text-brand-foreground flex size-8 shrink-0 items-center justify-center',
+            'bg-hero flex size-8 text-white shrink-0 items-center justify-center',
             'rounded-[0.6rem] transition-transform duration-150',
             'group-hover/mark:scale-105 group-active/mark:scale-95',
           )}
