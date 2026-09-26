@@ -54,6 +54,7 @@ export function LenderSettings({
       {isSelf ? null : (
         <ActionForm
           action={deleteLender}
+          sound="trash"
           values={{ lenderId }}
           variant="destructive"
           size="sm"
@@ -84,6 +85,7 @@ export function LenderSettings({
           take a figure typed by mistake back off the screen. */}
       <FormDialog
         action={setStartingCapital}
+        sound="save"
         open={capital}
         onOpenChange={setCapital}
         title="Starting capital"
@@ -110,6 +112,7 @@ export function LenderSettings({
 
       <FormDialog
         action={renameLender}
+        sound="save"
         open={renaming}
         onOpenChange={setRenaming}
         title="Rename lender"

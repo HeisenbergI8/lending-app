@@ -6,6 +6,7 @@ import { useFormStatus } from 'react-dom'
 import { LoaderCircle } from 'lucide-react'
 
 import { formatCountdown } from '@/lib/countdown.ts'
+import { withSound } from '@/lib/sound.ts'
 import { PasswordInput } from '@/components/password-input.tsx'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -91,8 +92,11 @@ function Lockout({ until, onDone }: { until: number; onDone: () => void }) {
   )
 }
 
+/** A welcome chime on the way in, played once the dashboard arrives. */
+const loginWithSound = withSound(login, 'signIn')
+
 export function LoginForm() {
-  const [state, formAction] = useActionState(login, initialState)
+  const [state, formAction] = useActionState(loginWithSound, initialState)
 
   /**
    * The lockout, DERIVED rather than copied into state by an effect.

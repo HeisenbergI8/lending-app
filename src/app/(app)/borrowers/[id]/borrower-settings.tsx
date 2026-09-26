@@ -47,6 +47,7 @@ export function LabelPicker({
             <ActionForm
               key={choice.value}
               action={setBorrowerLabel}
+              sound="save"
               // Tapping the current rating clears it: the posted value is empty,
               // which the action treats as "no opinion" rather than as invalid.
               values={{ borrowerId, label: selected ? '' : choice.value }}
@@ -84,6 +85,7 @@ export function BorrowerSettings({
 
       <ActionForm
         action={deleteBorrower}
+        sound="trash"
         values={{ borrowerId }}
         variant="destructive"
         size="sm"
@@ -100,6 +102,7 @@ export function BorrowerSettings({
 
       <FormDialog
         action={renameBorrower}
+        sound="save"
         open={renaming}
         onOpenChange={setRenaming}
         title="Rename borrower"

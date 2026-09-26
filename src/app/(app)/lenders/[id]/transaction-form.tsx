@@ -124,6 +124,7 @@ export function TransactionForm({ lenderId, today }: { lenderId: string; today: 
   return (
     <FormDialog
       action={recordTransaction}
+      sound={(form) => (form.get('type') === 'WITHDRAWAL' ? 'cashOut' : 'cashIn')}
       openLabel="Record money in or out"
       title="Money in or out"
       description="Cash the lender handed over, or took back. Not a loan."
@@ -186,6 +187,7 @@ export function EditTransaction({
         open={open}
         onOpenChange={setOpen}
         action={updateTransaction}
+        sound="save"
         title="Edit entry"
         description={
           entry.advance
@@ -200,6 +202,7 @@ export function EditTransaction({
             </p>
             <ActionForm
               action={deleteTransaction}
+              sound="trash"
               values={{ transactionId: entry.id }}
               variant="destructive"
               size="sm"

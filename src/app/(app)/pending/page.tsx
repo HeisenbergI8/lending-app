@@ -130,6 +130,7 @@ export default async function PendingLoansPage({ searchParams }: PageProps<'/pen
 
                   <ActionForm
                     action={deletePendingLoan}
+                    sound="trash"
                     values={{ pendingId: request.id }}
                     variant="ghost"
                     size="sm"

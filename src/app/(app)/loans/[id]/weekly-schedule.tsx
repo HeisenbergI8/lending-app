@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NO_ERROR } from '@/lib/form-state.ts'
+import { withSound } from '@/lib/sound.ts'
 import { formatPesos } from '@/lib/money/centavos.ts'
 import type { LoanDetail, LoanWeekRow } from '@/server/loans/queries.ts'
 import { markWeekPaid, undoWeekPaid } from '@/server/payments/week-actions.ts'
@@ -96,6 +97,7 @@ function WeekRow({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
         {paid ? (
           <ActionForm
             action={undoWeekPaid}
+            sound="restore"
             values={{ loanId, weekNumber: String(week.week) }}
             variant="ghost"
             size="sm"
@@ -136,21 +138,21 @@ function WeekProof({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
   return <AddProofForm loanId={loanId} paymentId={week.paymentId ?? undefined} />
 }
 
+const markWeekPaidWithSound = withSound(markWeekPaid, 'cashIn')
+
 /**
  * Collecting one week.
  *
- * markWeekPaid itself, not a wrapper — the same choice MarkPaidPanel makes and
- * for the same reason. This form is rendered server-side and posts without
- * JavaScript; wrapping the action to close a panel would cost it that, and
- * there is nothing to close. On success the row it belongs to is replaced by
- * the week that was just collected.
+ * Wrapped only for its sound, the same trade MarkPaidPanel makes. On success
+ * the row it belongs to is replaced by the week that was just collected, so
+ * nothing left on screen could play it afterwards.
  *
  * THE AMOUNT IS NOT A FIELD and neither is the week. Both are read from the
  * loan: the amount was fixed the day it was created, and the week is whichever
  * one is earliest unpaid. Neither can be mistyped because neither is typed.
  */
 function MarkWeekPaidForm({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
-  const [state, formAction] = useActionState(markWeekPaid, NO_ERROR)
+  const [state, formAction] = useActionState(markWeekPaidWithSound, NO_ERROR)
 
   return (
     <form action={formAction} className="bg-muted/40 space-y-3 rounded-xl p-3">

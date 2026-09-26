@@ -70,6 +70,7 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
 
       <LoanForm
         action={createLoan}
+        sound="cashOut"
         borrowers={options.borrowers}
         lenders={options.lenders}
         submitLabel="Record loan"

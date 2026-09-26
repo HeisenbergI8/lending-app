@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
+import { withSound } from '@/lib/sound.ts'
 import { addProof, markPaid } from '@/server/payments/actions.ts'
 
 /**
@@ -41,13 +42,20 @@ function useClearOnSuccess(action: (state: FormState, form: FormData) => Promise
   // the form clears BECAUSE something was saved, and saying so here is both
   // simpler and what the React compiler's rules ask for.
   const [state, formAction] = useActionState(async (previous: FormState, form: FormData) => {
-    const result = await action(previous, form)
+    const result = await withSound(action, 'create')(previous, form)
     if (result.error === null) formRef.current?.reset()
     return result
   }, NO_ERROR)
 
   return { formRef, state, formAction }
 }
+
+/**
+ * Wrapped for its sound, which costs this form its no-JavaScript fallback: the
+ * section is replaced the moment the payment lands, so nothing left on screen
+ * could play it afterwards.
+ */
+const markPaidWithSound = withSound(markPaid, 'cashIn')
 
 function today(): string {
   const now = new Date()
@@ -64,10 +72,9 @@ export function MarkPaidPanel({
   /** True on a loan collecting its interest weekly: this records February. */
   weekly?: boolean
 }) {
-  // markPaid itself, not a wrapper: this form is rendered server-side and posts
-  // without JavaScript. Nothing needs clearing afterwards — on success the whole
-  // section is replaced by the payment that was just recorded.
-  const [state, formAction] = useActionState(markPaid, NO_ERROR)
+  // Nothing needs clearing afterwards: on success the whole section is replaced
+  // by the payment that was just recorded.
+  const [state, formAction] = useActionState(markPaidWithSound, NO_ERROR)
 
   return (
     <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">

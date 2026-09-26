@@ -110,6 +110,7 @@ export default async function RecentlyDeletedPage({ searchParams }: PageProps<'/
             action={
               <ActionForm
                 action={restoreLoan}
+                sound="restore"
                 values={{ loanId: loan.id }}
                 variant="outline"
                 size="sm"
@@ -139,6 +140,7 @@ export default async function RecentlyDeletedPage({ searchParams }: PageProps<'/
             action={
               <ActionForm
                 action={restoreLender}
+                sound="restore"
                 values={{ lenderId: lender.id }}
                 variant="outline"
                 size="sm"
@@ -168,6 +170,7 @@ export default async function RecentlyDeletedPage({ searchParams }: PageProps<'/
             action={
               <ActionForm
                 action={restoreBorrower}
+                sound="restore"
                 values={{ borrowerId: borrower.id }}
                 variant="outline"
                 size="sm"
@@ -203,6 +206,7 @@ export default async function RecentlyDeletedPage({ searchParams }: PageProps<'/
             action={
               <ActionForm
                 action={restoreTransaction}
+                sound="restore"
                 values={{ transactionId: entry.id }}
                 variant="outline"
                 size="sm"

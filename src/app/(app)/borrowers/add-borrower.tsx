@@ -14,6 +14,7 @@ export function AddBorrower() {
   return (
     <FormDialog
       action={createBorrower}
+      sound="create"
       openLabel="Add borrower"
       title="New borrower"
       description="Name only. Their track record builds itself from their loans."

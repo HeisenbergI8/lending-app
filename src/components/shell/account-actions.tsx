@@ -1,14 +1,17 @@
 'use client'
 
-import { useActionState, useRef, useState } from 'react'
-import { KeyRound, LogOut } from 'lucide-react'
+import { useActionState, useRef, useState, useSyncExternalStore } from 'react'
+import { KeyRound, LogOut, Volume2, VolumeX } from 'lucide-react'
 
 import { FormDialog } from '@/components/forms.tsx'
 import { PasswordInput } from '@/components/password-input.tsx'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Label } from '@/components/ui/label'
 import { NO_ERROR } from '@/lib/form-state.ts'
+import { isMuted, play, setMuted, subscribeMuted, withSound } from '@/lib/sound.ts'
 import { changePassword, logout } from '@/server/auth/actions.ts'
+
+const logoutWithSound = withSound(logout, 'signOut')
 
 /**
  * The two things an account can do — change its password, sign out — offered
@@ -39,7 +42,9 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
   // The form lives outside any menu and is asked to submit from the item, so
   // the menu closing cannot take the form down with it mid-submit.
   const signOutRef = useRef<HTMLFormElement>(null)
-  const [, signOut] = useActionState(logout, NO_ERROR)
+  const [, signOut] = useActionState(logoutWithSound, NO_ERROR)
+  // The server has no say in this, so it renders as on until the browser answers.
+  const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false)
 
   const items = (
     <>
@@ -65,6 +70,19 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
         </DropdownMenuItem>
       )}
 
+      {/* The menu stays open on purpose, so the Admin sees the switch flip. */}
+      <DropdownMenuItem
+        onSelect={(event) => {
+          event.preventDefault()
+          setMuted(!muted)
+          if (muted) play('save')
+        }}
+        className="gap-2 px-2 py-2"
+      >
+        {muted ? <VolumeX className="size-4" aria-hidden /> : <Volume2 className="size-4" aria-hidden />}
+        {muted ? 'Sounds off' : 'Sounds on'}
+      </DropdownMenuItem>
+
       <DropdownMenuSeparator />
 
       {/* SIGNING OUT HAS NO "ARE YOU SURE", deliberately. The dialog was there
@@ -89,6 +107,7 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
 
       <FormDialog
         action={changePassword}
+        sound="save"
         open={changing}
         onOpenChange={setChanging}
         title="Change password"

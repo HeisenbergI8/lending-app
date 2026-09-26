@@ -25,6 +25,7 @@ import {
   weeksBetween,
 } from '@/lib/money/weeks.ts'
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
+import { type Sound, withSound } from '@/lib/sound.ts'
 
 /**
  * The loan form, with the sums shown as they are typed.
@@ -158,18 +159,22 @@ function readRate(value: string, fallback: number): number | null {
 
 export function LoanForm({
   action,
+  sound,
   borrowers,
   lenders,
   initial,
   submitLabel,
 }: {
   action: (state: FormState, form: FormData) => Promise<FormState>
+  /** A new loan is money going out; an edit is a save. */
+  sound: Sound
   borrowers: PersonOption[]
   lenders: LenderOption[]
   initial: LoanFormValues
   submitLabel: string
 }) {
-  const [state, formAction] = useActionState(action, NO_ERROR)
+  const soundAction = useMemo(() => withSound(action, sound), [action, sound])
+  const [state, formAction] = useActionState(soundAction, NO_ERROR)
 
   const [borrowerId, setBorrowerId] = useState(initial.borrowerId)
   const [capital, setCapital] = useState(initial.capital)

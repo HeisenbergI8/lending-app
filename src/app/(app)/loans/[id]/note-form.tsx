@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { NO_ERROR, type FormState } from '@/lib/form-state.ts'
+import { withSound } from '@/lib/sound.ts'
 import { addLoanNote } from '@/server/loans/actions.ts'
 
 /**
@@ -30,7 +31,7 @@ export function NoteForm({ loanId }: { loanId: string }) {
   // Clearing happens in the submit rather than in an effect watching the
   // result: the box empties BECAUSE something was saved, which is a cause.
   const [state, formAction] = useActionState(async (previous: FormState, form: FormData) => {
-    const result = await addLoanNote(previous, form)
+    const result = await withSound(addLoanNote, 'create')(previous, form)
     if (result.error === null) formRef.current?.reset()
     return result
   }, NO_ERROR)

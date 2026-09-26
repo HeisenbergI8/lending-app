@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NO_ERROR } from '@/lib/form-state.ts'
+import { withSound } from '@/lib/sound.ts'
 import { convertToWeekly } from '@/server/loans/convert.ts'
 
 /**
@@ -28,6 +29,8 @@ import { convertToWeekly } from '@/server/loans/convert.ts'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 
+const convertWithSound = withSound(convertToWeekly, 'save')
+
 export function ConvertToWeekly({
   loanId,
   weeks,
@@ -45,7 +48,7 @@ export function ConvertToWeekly({
 }) {
   const [open, setOpen] = useState(false)
   const [ticked, setTicked] = useState<Set<number>>(new Set())
-  const [state, formAction] = useActionState(convertToWeekly, NO_ERROR)
+  const [state, formAction] = useActionState(convertWithSound, NO_ERROR)
 
   if (!open) {
     return (

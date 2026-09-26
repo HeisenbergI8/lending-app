@@ -13,6 +13,7 @@ export function AddLender() {
   return (
     <FormDialog
       action={createLender}
+      sound="create"
       openLabel="Add lender"
       title="New lender"
       description="Name only. Record their money in once they are added."

@@ -30,6 +30,7 @@ export function AdvanceForm({
   return (
     <FormDialog
       action={recordAdvance}
+      sound="cashOut"
       openLabel="Take an advance"
       title="Advance against this loan"
       description={`Money out of the Admin pot now, against what this loan will return to it. ${headroom} is left to draw.`}

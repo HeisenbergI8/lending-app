@@ -139,6 +139,7 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
             )}
             <ActionForm
               action={deleteLoan}
+              sound="trash"
               values={{ loanId: loan.id }}
               variant="destructive"
               size="sm"
@@ -430,6 +431,7 @@ function NotesSection({ loanId, notes }: { loanId: string; notes: LoanDetail['no
                 <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap">{note.body}</p>
                 <ActionForm
                   action={deleteLoanNote}
+                  sound="trash"
                   values={{ noteId: note.id }}
                   variant="ghost"
                   size="sm"
@@ -484,6 +486,7 @@ function PaymentSection({
         </div>
         <ActionForm
           action={undoPayment}
+          sound="restore"
           values={{ loanId }}
           variant="ghost"
           size="sm"
@@ -540,6 +543,7 @@ function PaymentSection({
 
               <ActionForm
                 action={deleteProof}
+                sound="trash"
                 values={{ proofFileId: file.id }}
                 variant="ghost"
                 size="sm"

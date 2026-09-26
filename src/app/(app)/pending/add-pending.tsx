@@ -91,6 +91,7 @@ export function AddPendingLoan({ borrowers }: { borrowers: BorrowerName[] }) {
   return (
     <FormDialog
       action={createPendingLoan}
+      sound="create"
       openLabel="Add request"
       title="New loan request"
       description="Someone who wants to borrow. Nothing is lent until a lender is found for it."

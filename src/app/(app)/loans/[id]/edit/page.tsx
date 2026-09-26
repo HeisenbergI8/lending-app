@@ -65,6 +65,7 @@ export default async function EditLoanPage({ params }: PageProps<'/loans/[id]/ed
 
       <LoanForm
         action={updateLoan}
+        sound="save"
         borrowers={options.borrowers}
         lenders={options.lenders}
         submitLabel="Save changes"

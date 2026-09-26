@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { LoaderCircle, Plus } from 'lucide-react'
 
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
+import { type Sound, withSound } from '@/lib/sound.ts'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -154,6 +155,7 @@ function ConfirmButton({
  */
 export function ActionForm({
   action,
+  sound,
   values,
   children,
   className,
@@ -165,6 +167,8 @@ export function ActionForm({
   onDone,
 }: {
   action: Action
+  /** What the admin hears once it worked. Required, so no action is ever silent. */
+  sound: Sound
   values: Record<string, string>
   children: React.ReactNode
   /** On the <form>. `buttonClassName` is the one that reaches the button. */
@@ -200,14 +204,14 @@ export function ActionForm({
    */
   const submit = useCallback(
     async (previous: FormState, form: FormData): Promise<FormState> => {
-      const result = await action(previous, form)
-      if (result.error === null) {
+      const result = await withSound(action, sound)(previous, form)
+      if (result?.error === null) {
         onDone?.()
         router.refresh()
       }
       return result
     },
-    [action, onDone, router],
+    [action, sound, onDone, router],
   )
 
   const [state, formAction] = useActionState(submit, NO_ERROR)
@@ -265,6 +269,7 @@ export function ActionForm({
  */
 export function FormDialog({
   action,
+  sound,
   title,
   description,
   submitLabel,
@@ -275,6 +280,8 @@ export function FormDialog({
   onOpenChange,
 }: {
   action: Action
+  /** Required, like ActionForm's. A function when the sound depends on what was chosen. */
+  sound: Sound | ((form: FormData) => Sound)
   title: string
   description?: string
   submitLabel: string
@@ -320,8 +327,8 @@ export function FormDialog({
    */
   const submit = useCallback(
     async (previous: FormState, form: FormData): Promise<FormState> => {
-      const result = await action(previous, form)
-      if (result.error === null) {
+      const result = await withSound(action, sound)(previous, form)
+      if (result?.error === null) {
         formRef.current?.reset()
         setOpen(false)
         // Same reason as ActionForm: the new lender belongs in the list behind
@@ -330,7 +337,7 @@ export function FormDialog({
       }
       return result
     },
-    [action, router, setOpen],
+    [action, sound, router, setOpen],
   )
 
   const [state, formAction] = useActionState(submit, NO_ERROR)
