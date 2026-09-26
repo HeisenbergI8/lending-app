@@ -26,14 +26,10 @@ const DARK_QUERY = '(prefers-color-scheme: dark)'
  */
 const BAR = { light: '#f6f7f9', dark: '#0a0e15' }
 
-/** How long the cross-fade runs. Matches the transition in globals.css. */
-const FADE_MS = 550
-
 /** Kept in step with the functions below by hand: it runs before any module loads. */
 export const THEME_SCRIPT = `(function(){try{var m=localStorage.getItem("${KEY}");if(m==="dark"||(m==="system"&&matchMedia("${DARK_QUERY}").matches)){var r=document.documentElement;r.classList.add("dark");r.style.colorScheme="dark"}}catch(e){}})()`
 
 const listeners = new Set<() => void>()
-let fadeTimer: number | undefined
 
 export function getThemeMode(): ThemeMode {
   try {
@@ -63,24 +59,37 @@ export function setThemeMode(mode: ThemeMode) {
 /**
  * Puts the page in step with the stored choice.
  *
- * THE FADE IS SWITCHED ON ONLY FOR THE CHANGE. `theme-changing` gives every
- * element the same soft colour transition for just over half a second and is
- * then taken away, so the hovers and presses the app already animates keep
- * their own timing the rest of the time. Reduced motion skips it.
+ * THE WHOLE SCREEN FADES AS ONE PICTURE. The first version gave every element
+ * its own colour transition, and text inherits its colour from the element
+ * around it, so each layer began fading only as the one outside it moved: the
+ * deeper the text, the later it arrived, and buttons trailed the page in a way
+ * that looked like a fault. A view transition instead snapshots the old screen
+ * and fades it into the new one, so every pixel changes together, which is
+ * what iOS does. Browsers without view transitions, and reduced motion, switch
+ * at once.
  */
 export function applyTheme({ animate }: { animate: boolean }) {
   const root = document.documentElement
   const dark = isDark()
 
   if (root.classList.contains('dark') !== dark) {
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (animate && !still) {
-      root.classList.add('theme-changing')
-      window.clearTimeout(fadeTimer)
-      fadeTimer = window.setTimeout(() => root.classList.remove('theme-changing'), FADE_MS + 50)
+    // Buttons and links carry their own short colour transitions for hover,
+    // and left alone they would still trail the new screen by a beat. They are
+    // switched off for the one style pass of the flip, then handed back.
+    const flip = () => {
+      root.classList.add('theme-instant')
+      root.classList.toggle('dark', dark)
+      root.style.colorScheme = dark ? 'dark' : 'light'
+      window.getComputedStyle(document.body).color
+      window.setTimeout(() => root.classList.remove('theme-instant'), 1)
     }
-    root.classList.toggle('dark', dark)
-    root.style.colorScheme = dark ? 'dark' : 'light'
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (animate && !still && document.startViewTransition) {
+      root.classList.add('theme-changing')
+      document.startViewTransition(flip).finished.finally(() => root.classList.remove('theme-changing'))
+    } else {
+      flip()
+    }
   }
 
   // Both tags, whatever their media query says: the Admin's choice outranks

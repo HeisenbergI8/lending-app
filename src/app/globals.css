@@ -285,21 +285,23 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    THE THEME CHANGE
 
-   Light to dark is a cross-fade, the way iOS does it: every colour moves at once
-   on one soft curve rather than snapping. `theme-changing` is on <html> only for
-   the half second of the change (lib/theme.ts adds and removes it), so the rest
-   of the time every hover and press keeps its own timing.
+   Light to dark is a cross-fade of the whole screen, the way iOS does it:
+   lib/theme.ts runs the switch inside a view transition, which fades a picture
+   of the old screen into the live new one, so every colour arrives at once.
+   Scoped to `theme-changing` so any other view transition keeps the default.
+   `theme-instant` stops each element's own colour transition during the flip,
+   so nothing trails the fade; the sun and moon (.theme-icon) keep their turn.
    ───────────────────────────────────────────────────────────────────────────── */
-/* .theme-icon is left out: the bar's sun and moon turn on their own springier
-   curve, and this rule would otherwise strip the turn from them. */
-html.theme-changing,
-html.theme-changing *:not(.theme-icon),
-html.theme-changing *::before,
-html.theme-changing *::after {
-  transition-property: background-color, color, border-color, outline-color, fill, stroke,
-    box-shadow, text-decoration-color !important;
-  transition-duration: 550ms !important;
-  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1) !important;
+html.theme-instant *:not(.theme-icon),
+html.theme-instant *::before,
+html.theme-instant *::after {
+  transition: none !important;
+}
+
+html.theme-changing::view-transition-old(root),
+html.theme-changing::view-transition-new(root) {
+  animation-duration: 550ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
