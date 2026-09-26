@@ -9,6 +9,8 @@ import { SelectNative } from '@/components/ui/select-native.tsx'
 import { DAYS_PER_WEEK, describeTerm } from '@/lib/money/weeks.ts'
 import { createPendingLoan } from '@/server/pending/actions.ts'
 
+import { type BorrowerSuggestion, BorrowerNameFields } from './borrower-name-fields.tsx'
+
 /**
  * Taking down a loan request.
  *
@@ -27,7 +29,7 @@ import { createPendingLoan } from '@/server/pending/actions.ts'
 const WEEK_PRESETS = [1, 2, 3, 4]
 const CUSTOM = 'custom'
 
-export function AddPendingLoan() {
+export function AddPendingLoan({ borrowers }: { borrowers: BorrowerSuggestion[] }) {
   const [termChoice, setTermChoice] = useState('')
 
   return (
@@ -38,16 +40,7 @@ export function AddPendingLoan() {
       description="Someone who wants to borrow. Nothing is lent until a lender is found for it."
       submitLabel="Add request"
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="firstName">First name</Label>
-          <Input id="firstName" name="firstName" required autoComplete="off" autoFocus />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="lastName">Last name</Label>
-          <Input id="lastName" name="lastName" required autoComplete="off" />
-        </div>
-      </div>
+      <BorrowerNameFields borrowers={borrowers} />
 
       <div className="space-y-2">
         <Label htmlFor="capital">How much they want</Label>

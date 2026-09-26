@@ -290,6 +290,54 @@ export async function listBorrowerNames(
   })
 }
 
+/**
+ * Everyone the new-request form can suggest, with the rating shown beside each.
+ *
+ * The label and the counted record travel together here for the reason the
+ * badge gives: neither is shown alone. The record needs only each loan's status,
+ * next owed date and settling payment, so this skips the funding rows and the
+ * amounts that make a full summary row expensive.
+ *
+ * Not paged, for the reason `listBorrowerNames` gives — a suggestion list has to
+ * be able to find anyone. Deleted borrowers are left out.
+ */
+export async function listBorrowerSuggestions(
+  userId: string,
+): Promise<{ id: string; firstName: string; lastName: string; label: BorrowerLabel | null; record: TrackRecord }[]> {
+  const borrowers = await db.borrower.findMany({
+    where: { userId, deletedAt: null },
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      manualLabel: true,
+      loans: {
+        where: { deletedAt: null },
+        select: {
+          status: true,
+          nextDueOn: true,
+          payments: { select: { paidOn: true, deletedAt: true, weekNumber: true } },
+        },
+      },
+    },
+  })
+
+  return borrowers.map((borrower) => ({
+    id: borrower.id,
+    firstName: borrower.firstName,
+    lastName: borrower.lastName,
+    label: borrower.manualLabel,
+    record: trackRecord(
+      borrower.loans.map((loan) => ({
+        status: loan.status,
+        dueOn: loan.nextDueOn,
+        paidOn: settledOn(loan.payments),
+      })),
+    ),
+  }))
+}
+
 /** One borrower, with every loan they have ever taken. */
 export async function getBorrower(userId: string, borrowerId: string): Promise<BorrowerDetail | null> {
   const borrower = await db.borrower.findFirst({
