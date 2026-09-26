@@ -3,15 +3,9 @@
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
-import { useAccountActions } from './account-actions.tsx'
+import { AccountHeader, MENU, MENU_EDGE_GAP, useAccountActions } from './account-actions.tsx'
 import { Avatar } from '@/components/avatar.tsx'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 /**
  * The account, behind the avatar in the top bar.
@@ -60,20 +54,11 @@ export function AccountMenu({ username, isDemo }: { username: string; isDemo: bo
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          className="min-w-56"
+          collisionPadding={MENU_EDGE_GAP}
+          className={MENU}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          <DropdownMenuLabel className="flex items-center gap-2.5 py-2">
-            <Avatar name={username} className="size-8 text-[0.7rem]" />
-            <span className="min-w-0">
-              <span className="text-foreground block truncate text-sm font-medium">{username}</span>
-              <span className="block truncate text-xs font-normal">
-                {isDemo ? 'Demo account' : 'Signed in on this device'}
-              </span>
-            </span>
-          </DropdownMenuLabel>
-
-          <DropdownMenuSeparator />
+          <AccountHeader username={username} isDemo={isDemo} />
 
           {items}
         </DropdownMenuContent>

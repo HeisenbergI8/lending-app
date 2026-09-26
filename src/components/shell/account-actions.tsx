@@ -5,11 +5,39 @@ import { KeyRound, LogOut, Volume2, VolumeX } from 'lucide-react'
 
 import { FormDialog } from '@/components/forms.tsx'
 import { PasswordInput } from '@/components/password-input.tsx'
-import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { Avatar } from '@/components/avatar.tsx'
+import {
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { Label } from '@/components/ui/label'
 import { NO_ERROR } from '@/lib/form-state.ts'
 import { isMuted, play, setMuted, subscribeMuted, withSound } from '@/lib/sound.ts'
 import { changePassword, logout } from '@/server/auth/actions.ts'
+
+/**
+ * The look shared by both account menus: a full-width panel on a phone rather
+ * than a narrow one, rows tall enough for a thumb, and a gap from the screen
+ * edge so the panel does not look cut off against it.
+ */
+export const MENU = 'w-[min(20rem,calc(100vw-2rem))] rounded-2xl p-2 shadow-xl'
+export const MENU_EDGE_GAP = 16
+export const ITEM = 'gap-3 rounded-xl px-3 py-2.5 text-[15px] [&_svg]:size-[18px] not-data-[variant=destructive]:[&_svg]:text-muted-foreground'
+
+export function AccountHeader({ username, isDemo }: { username: string; isDemo: boolean }) {
+  return (
+    <DropdownMenuLabel className="bg-muted/60 mb-1 flex items-center gap-3 rounded-xl px-3 py-3">
+      <Avatar name={username} className="size-10 text-sm" />
+      <span className="min-w-0">
+        <span className="text-foreground block truncate text-[15px] font-semibold">{username}</span>
+        <span className="block truncate text-xs font-normal">
+          {isDemo ? 'Demo account' : 'Signed in on this device'}
+        </span>
+      </span>
+    </DropdownMenuLabel>
+  )
+}
 
 const logoutWithSound = withSound(logout, 'signOut')
 
@@ -52,7 +80,7 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
           is printed on the sign in screen, and changing it would lock out
           whoever opens the link next. The server refuses it too. */}
       {isDemo ? (
-        <p className="text-muted-foreground px-2 py-1.5 text-xs">
+        <p className="text-muted-foreground px-3 py-2 text-xs">
           The demo password stays as it is. It is printed on the sign in screen so anyone with the
           link can try the app.
         </p>
@@ -63,9 +91,9 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
             onSelect()
             setChanging(true)
           }}
-          className="gap-2 px-2 py-2"
+          className={ITEM}
         >
-          <KeyRound className="size-4" aria-hidden />
+          <KeyRound aria-hidden />
           Change password
         </DropdownMenuItem>
       )}
@@ -77,13 +105,13 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
           setMuted(!muted)
           if (muted) play('save')
         }}
-        className="gap-2 px-2 py-2"
+        className={ITEM}
       >
-        {muted ? <VolumeX className="size-4" aria-hidden /> : <Volume2 className="size-4" aria-hidden />}
+        {muted ? <VolumeX aria-hidden /> : <Volume2 aria-hidden />}
         {muted ? 'Sounds off' : 'Sounds on'}
       </DropdownMenuItem>
 
-      <DropdownMenuSeparator />
+      <DropdownMenuSeparator className="my-1.5" />
 
       {/* SIGNING OUT HAS NO "ARE YOU SURE", deliberately. The dialog was there
           because the button sat against the avatar in the bar, where a thumb
@@ -93,9 +121,9 @@ export function useAccountActions({ isDemo, onSelect }: { isDemo: boolean; onSel
       <DropdownMenuItem
         variant="destructive"
         onSelect={() => signOutRef.current?.requestSubmit()}
-        className="gap-2 px-2 py-2"
+        className={ITEM}
       >
-        <LogOut className="size-4" aria-hidden />
+        <LogOut aria-hidden />
         Sign out
       </DropdownMenuItem>
     </>

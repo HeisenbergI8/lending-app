@@ -5,14 +5,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { MoreHorizontal, Plus } from 'lucide-react'
 
-import { useAccountActions } from './account-actions.tsx'
+import { AccountHeader, ITEM, MENU, MENU_EDGE_GAP, useAccountActions } from './account-actions.tsx'
 import { NAV_ITEMS, isActive } from './nav-items.ts'
-import { Avatar } from '@/components/avatar.tsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -133,31 +131,30 @@ export function MobileNav({ username, isDemo }: { username: string; isDemo: bool
             <DropdownMenuContent
               align="end"
               side="top"
-              className="mb-2 min-w-52"
+              sideOffset={26}
+              collisionPadding={MENU_EDGE_GAP}
+              className={MENU}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {overflow.map((item) => (
-                <DropdownMenuItem key={item.href} asChild>
-                  <Link href={item.href} className="gap-2">
-                    <item.icon className="size-4" aria-hidden />
-                    {item.label}
-                  </Link>
-                </DropdownMenuItem>
-              ))}
+              {overflow.map((item) => {
+                const active = isActive(pathname, item.href)
+                return (
+                  <DropdownMenuItem key={item.href} asChild>
+                    <Link
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(ITEM, active && 'bg-brand-bg text-brand [&_svg]:text-brand')}
+                    >
+                      <item.icon aria-hidden />
+                      {item.label}
+                    </Link>
+                  </DropdownMenuItem>
+                )
+              })}
 
-              <DropdownMenuSeparator />
+              <DropdownMenuSeparator className="my-2" />
 
-              <DropdownMenuLabel className="flex items-center gap-2.5 py-2">
-                <Avatar name={username} className="size-8 text-[0.7rem]" />
-                <span className="min-w-0">
-                  <span className="text-foreground block truncate text-sm font-medium">
-                    {username}
-                  </span>
-                  <span className="block truncate text-xs font-normal">
-                    {isDemo ? 'Demo account' : 'Signed in on this device'}
-                  </span>
-                </span>
-              </DropdownMenuLabel>
+              <AccountHeader username={username} isDemo={isDemo} />
 
               {items}
             </DropdownMenuContent>
