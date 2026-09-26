@@ -143,12 +143,23 @@ export function StackedColumns({
           tallest column — the 100% one, which is always the labelled one — out
           of the top of the chart. Same flex rules and the same gap in every row,
           so the three stay in step. */}
-      <div className="flex gap-1">
-        {columns.map((column, index) => (
-          <div key={column.label} className="text-muted-foreground min-w-0 flex-1 truncate text-center text-[0.6rem] tabular-nums">
-            {index === tallest ? formatPesos(centavos(totals[index])) : '\u00a0'}
-          </div>
-        ))}
+      {/* The figure is wider than one month's slot on a phone, so it is not
+          boxed into that slot (it came out as "\u20b117\u2026"). It hangs off its column
+          toward whichever side has room: pinned to the slot's outer edge at
+          either end of the chart, centred over it in the middle. */}
+      <div className="text-muted-foreground relative h-4 text-[0.65rem] font-medium tabular-nums">
+        <span
+          className="absolute top-0 whitespace-nowrap"
+          style={
+            tallest >= columns.length - 2
+              ? { right: `${((columns.length - 1 - tallest) / columns.length) * 100}%` }
+              : tallest <= 1
+                ? { left: `${(tallest / columns.length) * 100}%` }
+                : { left: `${((tallest + 0.5) / columns.length) * 100}%`, transform: 'translateX(-50%)' }
+          }
+        >
+          {formatPesos(centavos(totals[tallest]))}
+        </span>
       </div>
 
       <div className={cn('flex items-end gap-1', height)}>
