@@ -1,6 +1,7 @@
 'use client'
 
-import { type FormEvent, type ReactNode, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import { CircleCheck } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 
@@ -26,6 +27,17 @@ import { Button } from '@/components/ui/button'
  */
 
 type Ready = { file: File } | null
+
+/**
+ * What the line under the buttons says. `done` carries a tick, because a
+ * download that finishes silently reads as one that never happened — on a
+ * phone especially, where the file goes to a sheet that has already closed.
+ * No colour: colour in this app means loan state and nothing else.
+ */
+type Status = { kind: 'working' | 'done' | 'note' | 'problem'; text: string } | null
+
+/** How long "Saved" stays up. Long enough to read, short enough not to go stale. */
+const DONE_FOR_MS = 8_000
 
 function fileNameFrom(disposition: string | null, fallback: string): string {
   if (!disposition) return fallback
@@ -71,25 +83,34 @@ export function DownloadForm({
 }) {
   const [busy, setBusy] = useState(false)
   const [ready, setReady] = useState<Ready>(null)
-  const [message, setMessage] = useState('')
+  const [status, setStatus] = useState<Status>(null)
+
+  useEffect(() => {
+    if (status?.kind !== 'done' && status?.kind !== 'note') return
+    const timer = setTimeout(() => setStatus(null), DONE_FOR_MS)
+    return () => clearTimeout(timer)
+  }, [status])
 
   async function share(file: File): Promise<void> {
     try {
       await navigator.share({ files: [file] })
       setReady(null)
-      setMessage('')
+      // The sheet does not say which of its options was picked — Save to Files
+      // and Messenger look the same from here — so "done", not "saved".
+      setStatus({ kind: 'done', text: `Done: ${file.name}` })
     } catch (error) {
       const name = error instanceof DOMException ? error.name : ''
       // Closing the sheet without picking anything is a choice, not a failure.
       if (name === 'AbortError') {
         setReady(null)
-        setMessage('')
+        setStatus({ kind: 'note', text: 'Cancelled, nothing was saved.' })
       } else if (name === 'NotAllowedError') {
         setReady({ file })
-        setMessage('')
+        setStatus(null)
       } else {
         saveThroughBrowser(file)
         setReady(null)
+        setStatus({ kind: 'done', text: `Saved: ${file.name}` })
       }
     }
   }
@@ -112,7 +133,7 @@ export function DownloadForm({
 
     setBusy(true)
     setReady(null)
-    setMessage('Preparing the file…')
+    setStatus({ kind: 'working', text: 'Preparing the file…' })
     try {
       const response = await fetch(url, { credentials: 'same-origin' })
       // An error page, or a login page after a lapsed session: show it the old
@@ -134,10 +155,10 @@ export function DownloadForm({
         await share(file)
       } else {
         saveThroughBrowser(file)
-        setMessage('')
+        setStatus({ kind: 'done', text: `Saved: ${file.name}` })
       }
     } catch {
-      setMessage('The file could not be made. Check the connection and try again.')
+      setStatus({ kind: 'problem', text: 'The file could not be made. Check the connection and try again.' })
     } finally {
       setBusy(false)
     }
@@ -155,8 +176,16 @@ export function DownloadForm({
         </div>
       ) : null}
 
-      <p className="text-muted-foreground basis-full text-xs empty:hidden" aria-live="polite">
-        {message}
+      <p
+        className={
+          status?.kind === 'done'
+            ? 'flex basis-full items-start gap-1.5 text-xs font-medium empty:hidden'
+            : 'text-muted-foreground basis-full text-xs empty:hidden'
+        }
+        aria-live="polite"
+      >
+        {status?.kind === 'done' ? <CircleCheck className="mt-px size-3.5 shrink-0" aria-hidden /> : null}
+        {status ? <span className="min-w-0 break-words">{status.text}</span> : null}
       </p>
     </form>
   )
