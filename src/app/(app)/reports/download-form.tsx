@@ -1,8 +1,9 @@
 'use client'
 
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
-import { CircleCheck } from 'lucide-react'
+import { type FormEvent, type ReactNode, useCallback, useState } from 'react'
+import { CircleCheck, Info, TriangleAlert } from 'lucide-react'
 
+import { Toast } from '@/components/toast.tsx'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -29,14 +30,14 @@ import { Button } from '@/components/ui/button'
 type Ready = { file: File } | null
 
 /**
- * What the line under the buttons says. `done` carries a tick, because a
- * download that finishes silently reads as one that never happened — on a
- * phone especially, where the file goes to a sheet that has already closed.
- * No colour: colour in this app means loan state and nothing else.
+ * What happened. `working` is a line beside the button; the rest are a toast,
+ * because a download that finishes silently reads as one that never happened —
+ * on a phone especially, where the file goes to a sheet that has already
+ * closed. No colour: colour in this app means loan state and nothing else.
  */
 type Status = { kind: 'working' | 'done' | 'note' | 'problem'; text: string } | null
 
-/** How long "Saved" stays up. Long enough to read, short enough not to go stale. */
+/** How long the toast stays up. Long enough to read, short enough not to go stale. */
 const DONE_FOR_MS = 8_000
 
 function fileNameFrom(disposition: string | null, fallback: string): string {
@@ -85,11 +86,8 @@ export function DownloadForm({
   const [ready, setReady] = useState<Ready>(null)
   const [status, setStatus] = useState<Status>(null)
 
-  useEffect(() => {
-    if (status?.kind !== 'done' && status?.kind !== 'note') return
-    const timer = setTimeout(() => setStatus(null), DONE_FOR_MS)
-    return () => clearTimeout(timer)
-  }, [status])
+  // Stable, so the toast's timer is not restarted by every render.
+  const clear = useCallback(() => setStatus(null), [])
 
   async function share(file: File): Promise<void> {
     try {
@@ -176,17 +174,29 @@ export function DownloadForm({
         </div>
       ) : null}
 
-      <p
-        className={
-          status?.kind === 'done'
-            ? 'flex basis-full items-start gap-1.5 text-xs font-medium empty:hidden'
-            : 'text-muted-foreground basis-full text-xs empty:hidden'
-        }
-        aria-live="polite"
-      >
-        {status?.kind === 'done' ? <CircleCheck className="mt-px size-3.5 shrink-0" aria-hidden /> : null}
-        {status ? <span className="min-w-0 break-words">{status.text}</span> : null}
+      {/* "Preparing" stays beside the button, where the tap was. The outcome
+          is a toast, because by then the Admin may be looking at the share
+          sheet rather than at this card. */}
+      <p className="text-muted-foreground basis-full text-xs empty:hidden" aria-live="polite">
+        {status?.kind === 'working' ? status.text : null}
       </p>
+
+      <Toast
+        onClose={clear}
+        // A problem stays until it is read and tapped away.
+        closeAfterMs={status?.kind === 'problem' ? undefined : DONE_FOR_MS}
+        icon={
+          status?.kind === 'done' ? (
+            <CircleCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
+          ) : status?.kind === 'problem' ? (
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          ) : (
+            <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+          )
+        }
+      >
+        {status && status.kind !== 'working' ? status.text : null}
+      </Toast>
     </form>
   )
 }
