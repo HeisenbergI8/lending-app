@@ -7,12 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native'
-import { ALL_LENDERS } from '@/lib/loan-export.ts'
+import { ALL_LENDERS, OVERALL } from '@/lib/loan-export.ts'
 import { type ReportKind, isReportKind, parseReportRange, rangeParams } from '@/lib/report-range.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { listBorrowerNames } from '@/server/borrowers/queries.ts'
 import { listLenderNames } from '@/server/lenders/queries.ts'
 
+import { DownloadForm } from './download-form.tsx'
 import { ReportFrame } from './report-frame.tsx'
 
 export const metadata = { title: 'Reports' }
@@ -154,12 +155,16 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
 
 /**
  * Every loan as a Word file, in the short NAME / DUE / AMOUNT / INTEREST / TOTAL
- * layout — overall, or by lender: one lender's loans, or every lender's in one
- * file under their own names.
+ * layout.
+ *
+ * ONE QUESTION, ONE BUTTON. It used to be a lender dropdown plus "Overall" and
+ * "Per lender" buttons, where Overall ignored the dropdown and Per lender
+ * needed it — two controls that only made sense together, read in the wrong
+ * order. Now "Whose loans" is a single dropdown holding every answer, and
+ * Download does whatever it says.
  *
  * Outside the grid, like the backup: it is a list of loans as they stand, and the
- * period above does not apply. Two submit buttons on one plain GET form, so the
- * lender dropdown is simply ignored by Overall.
+ * period above does not apply.
  */
 function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }) {
   return (
@@ -175,7 +180,28 @@ function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }
         </div>
       </div>
 
-      <form method="get" action="/api/reports/loans" className="mt-auto flex flex-wrap items-end gap-2">
+      <DownloadForm action="/api/reports/loans" className="mt-auto flex flex-wrap items-end gap-2">
+        <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1">
+          <Label htmlFor="loan-export-who" className="text-muted-foreground text-xs">
+            Whose loans
+          </Label>
+          <SelectNative id="loan-export-who" name="who" defaultValue={OVERALL}>
+            <option value={OVERALL}>Everyone, one list</option>
+            {lenders.length > 0 ? (
+              <>
+                <option value={ALL_LENDERS}>Everyone, grouped by lender</option>
+                <optgroup label="One lender">
+                  {lenders.map((lender) => (
+                    <option key={lender.id} value={lender.id}>
+                      {lender.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </>
+            ) : null}
+          </SelectNative>
+        </div>
+
         <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1 sm:max-w-40">
           <Label htmlFor="loan-export-status" className="text-muted-foreground text-xs">
             Loans
@@ -187,35 +213,11 @@ function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }
           </SelectNative>
         </div>
 
-        {lenders.length > 0 ? (
-          <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1">
-            <Label htmlFor="loan-export-lender" className="text-muted-foreground text-xs">
-              Lender (for Per lender)
-            </Label>
-            <SelectNative id="loan-export-lender" name="lender">
-              <option value={ALL_LENDERS}>All lenders, in one file</option>
-              {lenders.map((lender) => (
-                <option key={lender.id} value={lender.id}>
-                  {lender.name}
-                </option>
-              ))}
-            </SelectNative>
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap gap-1">
-          <Button type="submit" name="scope" value="overall">
-            <Download className="size-4" aria-hidden />
-            Overall
-          </Button>
-          {lenders.length > 0 ? (
-            <Button type="submit" variant="ghost" name="scope" value="lender">
-              <Download className="size-4" aria-hidden />
-              Per lender
-            </Button>
-          ) : null}
-        </div>
-      </form>
+        <Button type="submit">
+          <Download className="size-4" aria-hidden />
+          Download Word
+        </Button>
+      </DownloadForm>
 
       <p className="text-muted-foreground text-xs">Deleted loans are not in it.</p>
     </section>
@@ -231,8 +233,8 @@ function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }
  * Below the grid, with its own heading and the period ruled out in words, it
  * reads as the different kind of thing it is.
  *
- * A link, not a form: there is nothing to choose. No period, no person, no
- * preview — a spreadsheet previews itself in the program that opens it.
+ * A form with nothing to choose — no period, no person, no preview — only so
+ * the download goes through DownloadForm and stays on this page on a phone.
  */
 function BackupCard() {
   return (
@@ -248,14 +250,12 @@ function BackupCard() {
         </div>
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-3">
-        <Button asChild>
-          <a href="/api/reports/backup">
-            <Download className="size-4" aria-hidden />
-            Download Excel
-          </a>
+      <DownloadForm action="/api/reports/backup" className="mt-auto flex flex-wrap items-center gap-3">
+        <Button type="submit">
+          <Download className="size-4" aria-hidden />
+          Download Excel
         </Button>
-      </div>
+      </DownloadForm>
 
       {/* The one exclusion worth a line on screen. What else the file does and
           does not cover is on its own Read me sheet, which is where somebody
@@ -382,7 +382,7 @@ function ReportCard({
       {missingPeople ? (
         <p className="text-muted-foreground mt-auto text-sm">{emptyPeople}</p>
       ) : (
-        <form method="get" action="/api/reports" className="mt-auto flex flex-wrap items-end gap-2">
+        <DownloadForm action="/api/reports" className="mt-auto flex flex-wrap items-end gap-2">
           {/* The kind rides on the submit button when there is more than one, so
               each button is its own report and nothing has to be toggled first. */}
           {extraKind ? null : <input type="hidden" name="kind" value={kind} />}
@@ -434,7 +434,7 @@ function ReportCard({
               </Button>
             ) : null}
           </div>
-        </form>
+        </DownloadForm>
       )}
 
       {previewing ? (

@@ -6,6 +6,7 @@ import { DAYS_PER_WEEK } from './money/weeks.ts'
  * printing as a list.
  *
  *   NAME: Arianell Matel
+ *   LENDER: Juan Cruz            (overall file only)
  *   DUE: 09/22 - 10/20 (4weeks 7%)
  *   AMOUNT: 25,000
  *   INTEREST: 7,000 (Admin cut: 2,000)
@@ -15,18 +16,16 @@ import { DAYS_PER_WEEK } from './money/weeks.ts'
  * figure arrives already stored — nothing here works out interest.
  */
 
-export const LOAN_EXPORT_SCOPES = ['overall', 'lender'] as const
-export type LoanExportScope = (typeof LOAN_EXPORT_SCOPES)[number]
-
-/** The lender value that puts every lender in one file, each under their own name. */
-export const ALL_LENDERS = 'all'
+/**
+ * Whose loans go in the file — ONE choice rather than a scope plus a lender.
+ * Every loan (overall), every lender's grouped under their names, or else a
+ * single lender's id. Lender ids are cuids, so neither word can collide.
+ */
+export const OVERALL = 'overall'
+export const ALL_LENDERS = 'all-lenders'
 
 export const LOAN_EXPORT_STATUSES = ['active', 'paid', 'all'] as const
 export type LoanExportStatus = (typeof LOAN_EXPORT_STATUSES)[number]
-
-export function isLoanExportScope(value: string): value is LoanExportScope {
-  return (LOAN_EXPORT_SCOPES as readonly string[]).includes(value)
-}
 
 export function isLoanExportStatus(value: string): value is LoanExportStatus {
   return (LOAN_EXPORT_STATUSES as readonly string[]).includes(value)
@@ -34,6 +33,11 @@ export function isLoanExportStatus(value: string): value is LoanExportStatus {
 
 export type LoanExportEntry = {
   borrowerName: string
+  /**
+   * Whose money it is, e.g. "Juan Cruz" or "Juan Cruz 20,000 + Maria Cruz
+   * 30,000". Only the overall file sets it; per lender the heading says it.
+   */
+  lenders?: string
   /** Calendar dates, already read out of their `date` columns. */
   startOn: Date
   dueOn: Date
@@ -78,6 +82,7 @@ export function loanExportLines(entry: LoanExportEntry): string[] {
   const cut = entry.adminCut > 0 ? ` (Admin cut: ${formatAmount(entry.adminCut)})` : ''
   return [
     `NAME: ${entry.borrowerName}`,
+    ...(entry.lenders ? [`LENDER: ${entry.lenders}`] : []),
     `DUE: ${monthDay(entry.startOn)} - ${monthDay(entry.dueOn)} (${terms.join(' ')})`,
     `AMOUNT: ${formatAmount(entry.amount)}`,
     `INTEREST: ${formatAmount(entry.interest)}${cut}`,
