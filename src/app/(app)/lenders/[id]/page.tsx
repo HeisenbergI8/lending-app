@@ -664,12 +664,20 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      {describeTerm(funding.termDays)} · due {dateFormat.format(funding.dueOn)} ·
-                      earns <Money amount={funding.earnings} variant="display" />
+                      {describeTerm(funding.termDays)} · due {dateFormat.format(funding.dueOn)} ·{' '}
+                      <Money amount={funding.principal} variant="display" /> capital + earns{' '}
+                      <Money amount={funding.earnings} variant="display" />
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Money amount={funding.principal} variant="display" className="text-sm font-semibold" />
+                    {/* This pot's capital plus its own stored share of the interest,
+                        so the Admin cut is already out of it on another lender's
+                        row. Never the borrower's total. */}
+                    <Money
+                      amount={centavos(funding.principal + funding.earnings)}
+                      variant="display"
+                      className="text-sm font-semibold"
+                    />
                     <LoanStatusBadge state={funding.state} />
                   </div>
                 </Link>
@@ -717,12 +725,17 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
                       {describeTerm(funding.termDays)} ·{' '}
-                      {funding.paidOn ? `paid ${dateFormat.format(funding.paidOn)}` : 'paid'} · earned{' '}
+                      {funding.paidOn ? `paid ${dateFormat.format(funding.paidOn)}` : 'paid'} ·{' '}
+                      <Money amount={funding.principal} variant="display" /> capital + earned{' '}
                       <Money amount={funding.earnings} variant="display" />
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Money amount={funding.principal} variant="display" className="text-sm font-semibold" />
+                    <Money
+                      amount={centavos(funding.principal + funding.earnings)}
+                      variant="display"
+                      className="text-sm font-semibold"
+                    />
                     <LoanStatusBadge state={funding.state} />
                   </div>
                 </Link>
