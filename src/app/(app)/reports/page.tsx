@@ -176,7 +176,7 @@ function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }
       </div>
 
       <form method="get" action="/api/reports/loans" className="mt-auto flex flex-wrap items-end gap-2">
-        <div className="min-w-0 flex-1 space-y-1 sm:max-w-40">
+        <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1 sm:max-w-40">
           <Label htmlFor="loan-export-status" className="text-muted-foreground text-xs">
             Loans
           </Label>
@@ -188,7 +188,7 @@ function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }
         </div>
 
         {lenders.length > 0 ? (
-          <div className="min-w-0 flex-1 space-y-1">
+          <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1">
             <Label htmlFor="loan-export-lender" className="text-muted-foreground text-xs">
               Lender (for Per lender)
             </Label>
@@ -392,8 +392,11 @@ function ReportCard({
           <input type="hidden" name="from" value={defaults.from} />
           <input type="hidden" name="to" value={defaults.to} />
 
+          {/* ITS OWN ROW ON A PHONE. Beside the buttons it was left about
+              120px, and "Immanuel Rivera (Admin)" read as "Immanuel Rivera (Ac"
+              — the one field that must not be guessed at. */}
           {people ? (
-            <div className="min-w-0 flex-1 space-y-1">
+            <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1">
               <Label htmlFor={`${id}-person`} className="text-muted-foreground text-xs">
                 {peopleLabel}
               </Label>
