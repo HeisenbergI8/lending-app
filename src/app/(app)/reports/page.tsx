@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native'
+import { ALL_LENDERS } from '@/lib/loan-export.ts'
 import { type ReportKind, isReportKind, parseReportRange, rangeParams } from '@/lib/report-range.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { listBorrowerNames } from '@/server/borrowers/queries.ts'
@@ -153,7 +154,8 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
 
 /**
  * Every loan as a Word file, in the short NAME / DUE / AMOUNT / INTEREST / TOTAL
- * layout — overall, or only the loans one lender funded.
+ * layout — overall, or by lender: one lender's loans, or every lender's in one
+ * file under their own names.
  *
  * Outside the grid, like the backup: it is a list of loans as they stand, and the
  * period above does not apply. Two submit buttons on one plain GET form, so the
@@ -191,6 +193,7 @@ function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }
               Lender (for Per lender)
             </Label>
             <SelectNative id="loan-export-lender" name="lender">
+              <option value={ALL_LENDERS}>All lenders, in one file</option>
               {lenders.map((lender) => (
                 <option key={lender.id} value={lender.id}>
                   {lender.name}

@@ -3,13 +3,14 @@ import { zip } from './xlsx.ts'
 /**
  * Writing a plain .docx file, with no library — the same approach as xlsx.ts.
  *
- * A .docx is a ZIP of XML parts, and a document of a title and plain lines
+ * A .docx is a ZIP of XML parts, and a document of a title, headings and plain lines
  * needs only three of them. The text before the first ": " on a line is set in
  * bold, which is what makes "NAME:" and "AMOUNT:" read as labels.
  */
 
 export type DocLine =
   | { kind: 'title'; text: string }
+  | { kind: 'heading'; text: string }
   | { kind: 'line'; text: string }
   | { kind: 'blank' }
 
@@ -34,6 +35,7 @@ const TIGHT = '<w:spacing w:before="0" w:after="0"/>'
 
 function paragraph(line: DocLine): string {
   if (line.kind === 'blank') return `<w:p><w:pPr>${TIGHT}</w:pPr></w:p>`
+  if (line.kind === 'heading') return `<w:p><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>${run(line.text, { bold: true, size: 26 })}</w:p>`
   if (line.kind === 'title') return `<w:p><w:pPr><w:spacing w:after="120"/></w:pPr>${run(line.text, { bold: true, size: 32 })}</w:p>`
 
   const split = line.text.indexOf(': ')

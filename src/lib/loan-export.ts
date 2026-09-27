@@ -18,6 +18,9 @@ import { DAYS_PER_WEEK } from './money/weeks.ts'
 export const LOAN_EXPORT_SCOPES = ['overall', 'lender'] as const
 export type LoanExportScope = (typeof LOAN_EXPORT_SCOPES)[number]
 
+/** The lender value that puts every lender in one file, each under their own name. */
+export const ALL_LENDERS = 'all'
+
 export const LOAN_EXPORT_STATUSES = ['active', 'paid', 'all'] as const
 export type LoanExportStatus = (typeof LOAN_EXPORT_STATUSES)[number]
 

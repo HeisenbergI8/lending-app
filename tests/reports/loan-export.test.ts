@@ -67,3 +67,13 @@ describe('buildDocument', () => {
     assert.match(body, /A &lt;B&gt;/)
   })
 })
+
+describe('export options', () => {
+  test('only the known scopes and statuses are accepted', async () => {
+    const { isLoanExportScope, isLoanExportStatus } = await import('../../src/lib/loan-export.ts')
+    assert.ok(isLoanExportScope('overall') && isLoanExportScope('lender'))
+    assert.ok(!isLoanExportScope('everyone'))
+    assert.ok(isLoanExportStatus('active') && isLoanExportStatus('paid') && isLoanExportStatus('all'))
+    assert.ok(!isLoanExportStatus('late'))
+  })
+})
