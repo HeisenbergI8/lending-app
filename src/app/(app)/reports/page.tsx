@@ -134,6 +134,13 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
         />
       </div>
 
+      <LoanExportCard
+        lenders={lenders.map((lender) => ({
+          id: lender.id,
+          name: `${lender.firstName} ${lender.lastName}${lender.isSelf ? ' (Admin)' : ''}`,
+        }))}
+      />
+
       <BackupCard />
 
       <p className="text-muted-foreground text-xs">
@@ -141,6 +148,74 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
         period is picked — the ledger records movements, not nightly balances.
       </p>
     </div>
+  )
+}
+
+/**
+ * Every loan as a Word file, in the short NAME / DUE / AMOUNT / INTEREST / TOTAL
+ * layout — overall, or only the loans one lender funded.
+ *
+ * Outside the grid, like the backup: it is a list of loans as they stand, and the
+ * period above does not apply. Two submit buttons on one plain GET form, so the
+ * lender dropdown is simply ignored by Overall.
+ */
+function LoanExportCard({ lenders }: { lenders: { id: string; name: string }[] }) {
+  return (
+    <section className="bg-card flex flex-col gap-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+      <div className="flex items-start gap-3">
+        <IconChip icon={FileText} tint="violet" />
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight">Loan list (Word)</h2>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            Each loan with its name, due dates, amount, interest and total. On another lender&rsquo;s
+            money the Admin&rsquo;s cut is shown beside the interest. The period above does not apply.
+          </p>
+        </div>
+      </div>
+
+      <form method="get" action="/api/reports/loans" className="mt-auto flex flex-wrap items-end gap-2">
+        <div className="min-w-0 flex-1 space-y-1 sm:max-w-40">
+          <Label htmlFor="loan-export-status" className="text-muted-foreground text-xs">
+            Loans
+          </Label>
+          <SelectNative id="loan-export-status" name="status" defaultValue="active">
+            <option value="active">Active</option>
+            <option value="paid">Paid</option>
+            <option value="all">All</option>
+          </SelectNative>
+        </div>
+
+        {lenders.length > 0 ? (
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label htmlFor="loan-export-lender" className="text-muted-foreground text-xs">
+              Lender (for Per lender)
+            </Label>
+            <SelectNative id="loan-export-lender" name="lender">
+              {lenders.map((lender) => (
+                <option key={lender.id} value={lender.id}>
+                  {lender.name}
+                </option>
+              ))}
+            </SelectNative>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-1">
+          <Button type="submit" name="scope" value="overall">
+            <Download className="size-4" aria-hidden />
+            Overall
+          </Button>
+          {lenders.length > 0 ? (
+            <Button type="submit" variant="ghost" name="scope" value="lender">
+              <Download className="size-4" aria-hidden />
+              Per lender
+            </Button>
+          ) : null}
+        </div>
+      </form>
+
+      <p className="text-muted-foreground text-xs">Deleted loans are not in it.</p>
+    </section>
   )
 }
 

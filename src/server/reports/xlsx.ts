@@ -271,13 +271,14 @@ function crc32(data: Buffer): number {
 }
 
 /**
- * A ZIP archive of the parts, deflated.
+ * A ZIP archive of the parts, deflated. Shared with docx.ts — a .docx is the
+ * same kind of package.
  *
  * No timestamps: every field that would carry one is left at zero, so the same
  * data produces the same bytes. A backup taken twice in one minute that differs
  * only in a hidden clock is a backup nobody can compare.
  */
-function zip(parts: [string, string][]): Buffer {
+export function zip(parts: [string, string][]): Buffer {
   const locals: Buffer[] = []
   const central: Buffer[] = []
   let offset = 0
