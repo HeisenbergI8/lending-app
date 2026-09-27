@@ -533,3 +533,101 @@ html.theme-changing::view-transition-new(root) {
 @utility pondex-delay-2 {
   animation-delay: 0.24s;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THE DONE TOAST
+
+   A download landing is shown as the mark BUILDING ITSELF: the three parts of
+   the Pondex mark spring up out of a mint disc one after another, a tick pops
+   onto its corner, and a ring breathes out once. It borrows the loader's
+   grammar — the same parts, the same origins, the same overshoot-and-settle —
+   so "working" and "done" read as two moments of one object.
+
+   MINT, NOT THE PAID GREEN. --status-good means a loan is paid, and colour in
+   this app means loan state only; --chip-mint is the decorative green already
+   used on icon chips (the Excel card), so a finished download is green without
+   claiming anything about a loan.
+
+   Every keyframe starts hidden and ends at the element's own resting style,
+   with `both` fill. Under reduced motion the rule above runs each in 0.01ms, so
+   everything simply appears in its final place.
+   ───────────────────────────────────────────────────────────────────────────── */
+@keyframes toast-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.86);
+    animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1.25);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-leave {
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes toast-part-rise {
+  0% {
+    transform: scaleY(0);
+    animation-timing-function: cubic-bezier(0.1, 0.9, 0.3, 1);
+  }
+  62% {
+    transform: scaleY(1.1);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1);
+  }
+  82% {
+    transform: scaleY(0.97);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes toast-tick-pop {
+  0% {
+    transform: scale(0) rotate(-30deg);
+    animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes toast-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+@utility animate-toast-pop {
+  animation: toast-pop 0.42s both;
+}
+
+@utility animate-toast-leave {
+  animation: toast-leave 0.18s ease-in both;
+}
+
+/* fill-box for the same reason as the loader: each rect scales from its own
+   edge, not from the corner of the whole SVG. */
+@utility animate-toast-part {
+  transform-box: fill-box;
+  animation: toast-part-rise 0.5s both;
+}
+
+@utility animate-toast-tick {
+  animation: toast-tick-pop 0.36s 0.55s both;
+}
+
+@utility animate-toast-ring {
+  animation: toast-ring 0.9s 0.35s ease-out both;
+}

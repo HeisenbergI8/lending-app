@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { CalendarRange, Download, Expand, FileSpreadsheet, FileText, Printer } from 'lucide-react'
 
 import { IconChip } from '@/components/stat-tile.tsx'
+import { ToastHost } from '@/components/toast.tsx'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -144,6 +145,9 @@ export default async function ReportsPage({ searchParams }: PageProps<'/reports'
       />
 
       <BackupCard />
+
+      {/* Every download on this page reports through the one toast. */}
+      <ToastHost />
 
       <p className="text-muted-foreground text-xs">
         Floating funds, what is still out and what a borrower owes are always as of today, whatever

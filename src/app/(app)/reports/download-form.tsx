@@ -1,9 +1,9 @@
 'use client'
 
-import { type FormEvent, type ReactNode, useCallback, useState } from 'react'
-import { CircleCheck, Info, TriangleAlert } from 'lucide-react'
+import { type FormEvent, type ReactNode, useState } from 'react'
+import { Info, TriangleAlert } from 'lucide-react'
 
-import { Toast } from '@/components/toast.tsx'
+import { showToast } from '@/components/toast.tsx'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -30,15 +30,16 @@ import { Button } from '@/components/ui/button'
 type Ready = { file: File } | null
 
 /**
- * What happened. `working` is a line beside the button; the rest are a toast,
- * because a download that finishes silently reads as one that never happened —
- * on a phone especially, where the file goes to a sheet that has already
- * closed. No colour: colour in this app means loan state and nothing else.
+ * How long a result stays up. The toast sits mid-screen, so it is brief: long
+ * enough to read. A problem has no time limit and stays until tapped.
+ *
+ * Every outcome is a toast because a download that finishes silently reads as
+ * one that never happened — on a phone especially, where the file went to a
+ * sheet that has already closed.
  */
-type Status = { kind: 'working' | 'done' | 'note' | 'problem'; text: string } | null
+const SHOWN_FOR_MS = 3_200
 
-/** How long the toast stays up. Long enough to read, short enough not to go stale. */
-const DONE_FOR_MS = 8_000
+const saved = (file: File) => showToast({ tone: 'done', title: 'Saved', detail: file.name }, SHOWN_FOR_MS)
 
 function fileNameFrom(disposition: string | null, fallback: string): string {
   if (!disposition) return fallback
@@ -84,10 +85,6 @@ export function DownloadForm({
 }) {
   const [busy, setBusy] = useState(false)
   const [ready, setReady] = useState<Ready>(null)
-  const [status, setStatus] = useState<Status>(null)
-
-  // Stable, so the toast's timer is not restarted by every render.
-  const clear = useCallback(() => setStatus(null), [])
 
   async function share(file: File): Promise<void> {
     try {
@@ -95,20 +92,27 @@ export function DownloadForm({
       setReady(null)
       // The sheet does not say which of its options was picked — Save to Files
       // and Messenger look the same from here — so "done", not "saved".
-      setStatus({ kind: 'done', text: `Done: ${file.name}` })
+      showToast({ tone: 'done', title: 'Done', detail: file.name }, SHOWN_FOR_MS)
     } catch (error) {
       const name = error instanceof DOMException ? error.name : ''
       // Closing the sheet without picking anything is a choice, not a failure.
       if (name === 'AbortError') {
         setReady(null)
-        setStatus({ kind: 'note', text: 'Cancelled, nothing was saved.' })
+        showToast(
+          {
+            tone: 'plain',
+            title: 'Cancelled',
+            detail: 'Nothing was saved.',
+            icon: <Info className="text-muted-foreground size-8" aria-hidden />,
+          },
+          SHOWN_FOR_MS,
+        )
       } else if (name === 'NotAllowedError') {
         setReady({ file })
-        setStatus(null)
       } else {
         saveThroughBrowser(file)
         setReady(null)
-        setStatus({ kind: 'done', text: `Saved: ${file.name}` })
+        saved(file)
       }
     }
   }
@@ -131,7 +135,6 @@ export function DownloadForm({
 
     setBusy(true)
     setReady(null)
-    setStatus({ kind: 'working', text: 'Preparing the file…' })
     try {
       const response = await fetch(url, { credentials: 'same-origin' })
       // An error page, or a login page after a lapsed session: show it the old
@@ -153,10 +156,15 @@ export function DownloadForm({
         await share(file)
       } else {
         saveThroughBrowser(file)
-        setStatus({ kind: 'done', text: `Saved: ${file.name}` })
+        saved(file)
       }
     } catch {
-      setStatus({ kind: 'problem', text: 'The file could not be made. Check the connection and try again.' })
+      showToast({
+        tone: 'plain',
+        title: 'The file could not be made',
+        detail: 'Check the connection and try again.',
+        icon: <TriangleAlert className="text-muted-foreground size-8" aria-hidden />,
+      })
     } finally {
       setBusy(false)
     }
@@ -178,25 +186,8 @@ export function DownloadForm({
           is a toast, because by then the Admin may be looking at the share
           sheet rather than at this card. */}
       <p className="text-muted-foreground basis-full text-xs empty:hidden" aria-live="polite">
-        {status?.kind === 'working' ? status.text : null}
+        {busy ? 'Preparing the file…' : null}
       </p>
-
-      <Toast
-        onClose={clear}
-        // A problem stays until it is read and tapped away.
-        closeAfterMs={status?.kind === 'problem' ? undefined : DONE_FOR_MS}
-        icon={
-          status?.kind === 'done' ? (
-            <CircleCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
-          ) : status?.kind === 'problem' ? (
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          ) : (
-            <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
-          )
-        }
-      >
-        {status && status.kind !== 'working' ? status.text : null}
-      </Toast>
     </form>
   )
 }
