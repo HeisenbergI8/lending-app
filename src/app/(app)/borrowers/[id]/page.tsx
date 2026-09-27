@@ -140,13 +140,21 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
                   {loan.paidOn ? ` · paid ${dateFormat.format(loan.paidOn)}` : ''}
                 </div>
 
-                {/* Who funded it. On this screen it is context, not the subject —
-                    the lender's own page is where the money is tracked. */}
-                <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                {/* Who funded it, and how the interest splits: each funder's own
+                    stored share, and the Admin cut charged on it. Admin capital
+                    keeps the whole interest, so it has no cut to show. */}
+                <div className="text-muted-foreground mt-2 space-y-1 text-xs">
                   {loan.funders.map((funder) => (
-                    <span key={funder.lenderId}>
-                      {funder.name} <Money amount={funder.principal} variant="display" />
-                    </span>
+                    <div key={funder.lenderId}>
+                      {funder.name} <Money amount={funder.principal} variant="display" /> capital ·{' '}
+                      {funder.isAdmin ? 'Admin earns' : 'lender cut'}{' '}
+                      <Money amount={funder.earnings} variant="display" />
+                      {funder.adminCut > 0 ? (
+                        <>
+                          {' '}· Admin cut <Money amount={funder.adminCut} variant="display" />
+                        </>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
 

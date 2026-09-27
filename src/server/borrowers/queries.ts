@@ -50,7 +50,7 @@ export type BorrowerLoan = {
   paidOn: Date | null
   /** A payment recorded with no file attached. Flagged, never blocked. */
   missingProof: boolean
-  funders: { lenderId: string; name: string; principal: Centavos }[]
+  funders: { lenderId: string; name: string; isAdmin: boolean; principal: Centavos; earnings: Centavos; adminCut: Centavos }[]
 }
 
 export type BorrowerDetail = BorrowerSummary & { loans: BorrowerLoan[] }
@@ -362,7 +362,10 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     funders: loan.fundings.map((funding) => ({
       lenderId: funding.lenderId,
       name: funding.lender.isSelf ? 'Admin' : `${funding.lender.firstName} ${funding.lender.lastName}`,
+      isAdmin: funding.lender.isSelf,
       principal: centavos(funding.principalCentavos),
+      earnings: centavos(funding.earningsCentavos),
+      adminCut: centavos(funding.adminCutCentavos),
     })),
   }))
 
