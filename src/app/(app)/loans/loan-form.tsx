@@ -961,22 +961,23 @@ function Preview({
 
 /**
  * What a lender has floating, under their row — and, when this loan takes more
- * than that, by how much, in the words the save will refuse with.
+ * than that, by how much.
+ *
+ * FACTS ONLY. The "Not enough floating" badge at the top of the section is the
+ * warning, and the refused save says what to do about it; repeating both here
+ * put three alerts round one mistake. The row keeps what the badge cannot say
+ * on its own: WHICH lender is short, and by how much — which matters as soon
+ * as a loan has more than one funder.
  *
  * `asked` is the lender's total across every row of the loan, so two rows for
  * the same person are judged together, as the save judges them.
  */
 function FloatingNote({ floating, asked }: { floating: Centavos; asked: Centavos }) {
-  if (asked > floating) {
-    return (
-      <p className="text-destructive flex items-start gap-1.5 text-xs font-medium" role="alert">
-        <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
-        <span>
-          Only {formatPesos(floating)} floating. This is {formatPesos(centavos(asked - floating))} more than
-          they have. Record a deposit first, or take less from them.
-        </span>
-      </p>
-    )
-  }
-  return <p className="text-muted-foreground text-xs">{formatPesos(floating)} floating</p>
+  const short = asked > floating
+  return (
+    <p className={short ? 'text-destructive text-xs font-medium' : 'text-muted-foreground text-xs'}>
+      {formatPesos(floating)} floating
+      {short ? ` · ${formatPesos(centavos(asked - floating))} short` : null}
+    </p>
+  )
 }
