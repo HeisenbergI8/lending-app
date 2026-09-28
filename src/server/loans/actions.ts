@@ -8,10 +8,12 @@ import { computeInterest } from '../../lib/money/interest.ts'
 import { type Result, ok, err } from '../../lib/money/result.ts'
 import { DAYS_PER_WEEK, weeksBetween } from '../../lib/money/weeks.ts'
 import { nextUnpaidWeek } from '../../lib/money/weekly.ts'
+import { shortfalls } from '../../lib/money/floating.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
 import { borrowerNameTaken, lenderNameTaken } from '../people.ts'
+import { floatingByLender } from '../lenders/queries.ts'
 import {
   DEFAULT_ADMIN_CUT_BPS,
   DEFAULT_BORROWER_RATE_BPS,
@@ -243,6 +245,42 @@ async function resolveBorrower(
 }
 
 /**
+ * Why this loan would take a lender below zero floating, or null when it would not.
+ *
+ * A NEW LENDER typed straight into the form has put nothing in yet, so any
+ * share from them is money that is not there. The sentence says what to do
+ * instead rather than only that it failed.
+ *
+ * Checked before the transaction, against the same ledgers the lenders list
+ * reads. One Admin on one account makes two loans racing for the same pesos
+ * a non-question; the transaction stays as short as it was.
+ */
+async function overdrawn(userId: string, funders: FunderRow[]): Promise<string | null> {
+  const brandNew = funders.find((row) => row.lenderId === 'new' && row.principal > 0)
+  if (brandNew) {
+    return `${brandNew.firstName} ${brandNew.lastName} has no floating funds yet. Add them on Lenders and record their deposit first, then make the loan.`
+  }
+
+  const floating = await floatingByLender(userId)
+  const short = shortfalls(funders, (id) => floating.get(id) ?? centavos(0))
+  if (short.length === 0) return null
+
+  const names = new Map(
+    (
+      await db.lender.findMany({
+        where: { userId, id: { in: short.map((row) => row.lenderId) } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    ).map((lender) => [lender.id, `${lender.firstName} ${lender.lastName}`]),
+  )
+  const lines = short.map(
+    (row) =>
+      `${names.get(row.lenderId) ?? 'A lender'} has ${formatPesos(row.floating)} floating, but this loan takes ${formatPesos(row.asked)} from them.`,
+  )
+  return `Not enough floating funds. ${lines.join(' ')} Record a deposit first, or take less from them.`
+}
+
+/**
  * Record a new loan.
  *
  * The borrower and any new lender are created in the SAME transaction as the
@@ -266,6 +304,10 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
   const parsed = readForm(form)
   if (!parsed.ok) return failed(parsed.error)
   const input = parsed.value
+
+  // Floating can never be taken below zero by a new loan.
+  const refused = await overdrawn(user.id, input.funders)
+  if (refused) return failed(refused)
 
   let loanId: string
   try {

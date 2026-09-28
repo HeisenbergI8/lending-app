@@ -79,10 +79,11 @@ export const EMPTY_LEDGER: LenderLedger = {
 /**
  * Work out where a lender's money stands today.
  *
- * `floating` can come out NEGATIVE, and that is not a bug to clamp away. It means
- * more has been lent out than was ever put in — the admin covering a loan from
- * money that has not arrived. Showing it below zero is the only way the admin
- * finds out; flooring it at zero would hide exactly the situation worth seeing.
+ * `floating` can still come out NEGATIVE, and that is not a bug to clamp away:
+ * a withdrawal, an undone payment or a restored loan can all take it below
+ * zero. A NEW loan can no longer do it — see `shortfalls` below — but showing
+ * the figure as it is remains the only way the admin finds out about the rest;
+ * flooring it at zero would hide exactly the situation worth seeing.
  */
 export function lenderPosition(ledger: LenderLedger): LenderPosition {
   const earned = centavos(ledger.settledEarnings + ledger.settledAdminCuts)
@@ -98,4 +99,37 @@ export function lenderPosition(ledger: LenderLedger): LenderPosition {
     deposits: ledger.deposits,
     withdrawals: ledger.withdrawals,
   }
+}
+
+/** A lender a new loan would take more from than they have floating. */
+export type Shortfall = { lenderId: string; asked: Centavos; floating: Centavos }
+
+/**
+ * Which lenders a new loan would push below zero floating.
+ *
+ * A loan takes each funder's share out of their floating funds the moment it is
+ * made, so a share larger than what is floating is money that is not there.
+ * Added 2026-09-28 at the Admin's request: new loans may no longer be lent
+ * ahead of the deposit that pays for them.
+ *
+ * Shares are totalled per lender first. The same lender on two rows of one
+ * loan is one draw on one pot, and checking each row alone would let two
+ * ₱6,000 rows through against ₱10,000.
+ *
+ * A lender with no ledger at all has nothing floating, so any share from them
+ * is short by all of it.
+ */
+export function shortfalls(
+  shares: { lenderId: string; principal: Centavos }[],
+  floatingOf: (lenderId: string) => Centavos,
+): Shortfall[] {
+  const asked = new Map<string, number>()
+  for (const share of shares) asked.set(share.lenderId, (asked.get(share.lenderId) ?? 0) + share.principal)
+
+  const short: Shortfall[] = []
+  for (const [lenderId, total] of asked) {
+    const floating = floatingOf(lenderId)
+    if (total > floating) short.push({ lenderId, asked: centavos(total), floating })
+  }
+  return short
 }

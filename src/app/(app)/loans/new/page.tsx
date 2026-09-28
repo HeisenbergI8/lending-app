@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 
 import { requireUser } from '@/server/auth/guard.ts'
 import { createLoan } from '@/server/loans/actions.ts'
+import { floatingByLender } from '@/server/lenders/queries.ts'
 import { loanFormOptions } from '@/server/loans/queries.ts'
 import { pendingLoan } from '@/server/pending/queries.ts'
 import { addDays, calendarDate, toDateInput } from '@/lib/money/weeks.ts'
@@ -33,7 +34,7 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
   const fromRequest =
     typeof requestedId === 'string' ? await pendingLoan(user.id, requestedId) : null
 
-  const options = await loanFormOptions(user.id)
+  const [options, floating] = await Promise.all([loanFormOptions(user.id), floatingByLender(user.id)])
 
   const squash = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
   const matchingBorrower = fromRequest
@@ -74,6 +75,9 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
         borrowers={options.borrowers}
         lenders={options.lenders}
         submitLabel="Record loan"
+        // A new loan cannot take anyone below zero floating, so the form shows
+        // what each lender has and warns before the save refuses it.
+        floating={Object.fromEntries(options.lenders.map((lender) => [lender.id, floating.get(lender.id) ?? 0]))}
         initial={{
           pendingId: fromRequest?.id,
           // A request holds a typed name and no Borrower row, so converting one

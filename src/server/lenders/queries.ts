@@ -539,6 +539,15 @@ export async function listLenders(userId: string): Promise<LenderSummary[]> {
 }
 
 /**
+ * Every lender's floating funds, by id — the same figure the lenders list shows,
+ * from the same ledgers, for the one question a new loan asks: is the money there?
+ */
+export async function floatingByLender(userId: string): Promise<Map<string, Centavos>> {
+  const byLender = await ledgers(userId)
+  return new Map([...byLender].map(([id, ledger]) => [id, lenderPosition(ledger).floating]))
+}
+
+/**
  * Just the names, for a picker. See the borrower twin for why it is not paged.
  *
  * `listLenders` runs `ledgers()`, which reads every funding row and every

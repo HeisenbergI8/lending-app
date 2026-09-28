@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { centavos } from '../../src/lib/money/centavos.ts'
-import { EMPTY_LEDGER, lenderPosition } from '../../src/lib/money/floating.ts'
+import { EMPTY_LEDGER, lenderPosition, shortfalls } from '../../src/lib/money/floating.ts'
 
 const peso = (n: number) => centavos(Math.round(n * 100))
 const ledger = (over: Partial<Parameters<typeof lenderPosition>[0]>) => ({ ...EMPTY_LEDGER, ...over })
@@ -100,5 +100,50 @@ describe('every figure stays a whole number of centavos', () => {
     )
     assert.ok(Number.isInteger(position.floating))
     assert.equal(position.floating, centavos(100_001 - 33_333 + 7))
+  })
+})
+
+describe('shortfalls — a new loan may not take a lender below zero floating', () => {
+  const pots = new Map([
+    ['john', centavos(1_000_000)],
+    ['maria', centavos(500_000)],
+  ])
+  const floatingOf = (id: string) => pots.get(id) ?? centavos(0)
+
+  test('exactly what is floating is allowed', () => {
+    assert.deepEqual(shortfalls([{ lenderId: 'john', principal: centavos(1_000_000) }], floatingOf), [])
+  })
+
+  test('one centavo more is refused, with both figures', () => {
+    assert.deepEqual(shortfalls([{ lenderId: 'john', principal: centavos(1_000_001) }], floatingOf), [
+      { lenderId: 'john', asked: centavos(1_000_001), floating: centavos(1_000_000) },
+    ])
+  })
+
+  test('two rows for one lender are judged together', () => {
+    const rows = [
+      { lenderId: 'john', principal: centavos(600_000) },
+      { lenderId: 'john', principal: centavos(600_000) },
+    ]
+    assert.deepEqual(shortfalls(rows, floatingOf), [
+      { lenderId: 'john', asked: centavos(1_200_000), floating: centavos(1_000_000) },
+    ])
+  })
+
+  test('only the lender who is short is named', () => {
+    const rows = [
+      { lenderId: 'john', principal: centavos(900_000) },
+      { lenderId: 'maria', principal: centavos(600_000) },
+    ]
+    assert.deepEqual(shortfalls(rows, floatingOf).map((row) => row.lenderId), ['maria'])
+  })
+
+  test('a lender with no ledger has nothing floating', () => {
+    assert.equal(shortfalls([{ lenderId: 'nobody', principal: centavos(1) }], floatingOf).length, 1)
+  })
+
+  test('a lender already below zero cannot lend at all', () => {
+    const below = () => centavos(-5_000)
+    assert.equal(shortfalls([{ lenderId: 'john', principal: centavos(1) }], below).length, 1)
   })
 })

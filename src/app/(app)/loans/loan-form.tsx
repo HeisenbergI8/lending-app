@@ -164,6 +164,7 @@ export function LoanForm({
   lenders,
   initial,
   submitLabel,
+  floating,
 }: {
   action: (state: FormState, form: FormData) => Promise<FormState>
   /** A new loan is money going out; an edit is a save. */
@@ -172,6 +173,14 @@ export function LoanForm({
   lenders: LenderOption[]
   initial: LoanFormValues
   submitLabel: string
+  /**
+   * Each lender's floating funds in centavos, on a NEW loan only. With it, every
+   * funder row says what that lender has and warns when the loan takes more —
+   * the save refuses that since 2026-09-28 — and "Someone new" is left out,
+   * because a lender typed in here has nothing floating yet. An edit passes
+   * nothing and keeps the form as it was.
+   */
+  floating?: Record<string, number>
 }) {
   const soundAction = useMemo(() => withSound(action, sound), [action, sound])
   const [state, formAction] = useActionState(soundAction, NO_ERROR)
@@ -251,6 +260,17 @@ export function LoanForm({
     )
   }, [capital, rows])
 
+  // What this loan takes from each lender, rows for the same lender added
+  // together — the same totalling the save does, so the two cannot disagree.
+  const askedOf = useMemo(() => {
+    const asked = new Map<string, number>()
+    for (const row of rows) {
+      const value = readPesos(amounts.get(row.key) ?? '') ?? 0
+      asked.set(row.lenderId, (asked.get(row.lenderId) ?? 0) + value)
+    }
+    return asked
+  }, [amounts, rows])
+
   const preview = useMemo(() => {
     const capitalValue = readPesos(capital)
     const rateBps = readRate(borrowerRate, 700)
@@ -280,7 +300,14 @@ export function LoanForm({
   const creatingBorrower = borrowerId === NEW || borrowers.length === 0
 
   return (
-    <form action={formAction} className="space-y-6">
+    // NO RESET AFTER A REFUSED SAVE. React resets a form once its action
+    // returns, and on a refusal it put every dropdown back on its first option
+    // while the state behind it still held the real choice: the lender box
+    // showed "Admin pot" under a warning about Maria, and saving again posted
+    // the Admin's money. Every field here is controlled, so the reset has
+    // nothing to restore and only does harm; cancelling it keeps what was
+    // typed. A successful save redirects away, so nothing is left to clear.
+    <form action={formAction} onReset={(event) => event.preventDefault()} className="space-y-6">
       {initial.loanId ? <input type="hidden" name="loanId" value={initial.loanId} /> : null}
       {initial.pendingId ? <input type="hidden" name="pendingId" value={initial.pendingId} /> : null}
 
@@ -586,7 +613,7 @@ export function LoanForm({
                       {lender.isSelf ? `${lender.name} (Admin pot)` : lender.name}
                     </option>
                   ))}
-                  <option value={NEW}>+ Someone new…</option>
+                  {floating ? null : <option value={NEW}>+ Someone new…</option>}
                 </SelectNative>
 
                 <div className="flex gap-2">
@@ -623,6 +650,13 @@ export function LoanForm({
                   ) : null}
                 </div>
               </div>
+
+              {floating && row.lenderId !== NEW ? (
+                <FloatingNote
+                  floating={centavos(floating[row.lenderId] ?? 0)}
+                  asked={centavos(askedOf.get(row.lenderId) ?? 0)}
+                />
+              ) : null}
 
               {/* Every row posts all four fields, empty or not, so the arrays the
                   action reads line up by position. */}
@@ -892,4 +926,26 @@ function Preview({
       </p>
     </div>
   )
+}
+
+/**
+ * What a lender has floating, under their row — and, when this loan takes more
+ * than that, by how much, in the words the save will refuse with.
+ *
+ * `asked` is the lender's total across every row of the loan, so two rows for
+ * the same person are judged together, as the save judges them.
+ */
+function FloatingNote({ floating, asked }: { floating: Centavos; asked: Centavos }) {
+  if (asked > floating) {
+    return (
+      <p className="text-destructive flex items-start gap-1.5 text-xs font-medium" role="alert">
+        <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+        <span>
+          Only {formatPesos(floating)} floating. This is {formatPesos(centavos(asked - floating))} more than
+          they have. Record a deposit first, or take less from them.
+        </span>
+      </p>
+    )
+  }
+  return <p className="text-muted-foreground text-xs">{formatPesos(floating)} floating</p>
 }
