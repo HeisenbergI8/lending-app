@@ -661,10 +661,7 @@ export function LoanForm({
               </div>
 
               {floating && row.lenderId !== NEW ? (
-                <FloatingNote
-                  floating={centavos(floating[row.lenderId] ?? 0)}
-                  asked={centavos(askedOf.get(row.lenderId) ?? 0)}
-                />
+                <FloatingNote floating={centavos(floating[row.lenderId] ?? 0)} />
               ) : null}
 
               {/* Every row posts all four fields, empty or not, so the arrays the
@@ -960,24 +957,12 @@ function Preview({
 }
 
 /**
- * What a lender has floating, under their row — and, when this loan takes more
- * than that, by how much.
- *
- * FACTS ONLY. The "Not enough floating" badge at the top of the section is the
- * warning, and the refused save says what to do about it; repeating both here
- * put three alerts round one mistake. The row keeps what the badge cannot say
- * on its own: WHICH lender is short, and by how much — which matters as soon
- * as a loan has more than one funder.
- *
- * `asked` is the lender's total across every row of the loan, so two rows for
- * the same person are judged together, as the save judges them.
+ * What a lender has floating, under their row. Plain information, never a
+ * warning: the "Not enough floating" badge at the top of the section is the
+ * one warning, at the Admin's request, and the refused save says what to do.
+ * Set beside the amount typed above it, this figure is all it takes to see
+ * which lender is short.
  */
-function FloatingNote({ floating, asked }: { floating: Centavos; asked: Centavos }) {
-  const short = asked > floating
-  return (
-    <p className={short ? 'text-destructive text-xs font-medium' : 'text-muted-foreground text-xs'}>
-      {formatPesos(floating)} floating
-      {short ? ` · ${formatPesos(centavos(asked - floating))} short` : null}
-    </p>
-  )
+function FloatingNote({ floating }: { floating: Centavos }) {
+  return <p className="text-muted-foreground text-xs">{formatPesos(floating)} floating</p>
 }
