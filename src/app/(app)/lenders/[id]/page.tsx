@@ -336,8 +336,6 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
   if (!lender) notFound()
 
   const { position } = lender
-  const deposits = lender.transactions.filter((entry) => entry.type === 'DEPOSIT')
-  const withdrawals = lender.transactions.filter((entry) => entry.type === 'WITHDRAWAL')
   const settledEarnings = centavos(lender.settled.reduce((total, row) => total + row.earnings, 0))
 
   /* WHAT THE "Out with" ROWS EARN, added up. `lender.fundings` is every funding
@@ -373,8 +371,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
     cutsPaid: parsePage(query.cutsPaid).page,
     out: parsePage(query.out).page,
     paid: parsePage(query.paid).page,
-    in: parsePage(query.in).page,
-    withdrawn: parsePage(query.withdrawn).page,
+    history: parsePage(query.history).page,
   }
 
   return (
@@ -760,48 +757,26 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         <TransactionForm lenderId={lender.id} today={todayForInput()} />
       </section>
 
-      {/* MONEY IN AND MONEY OUT ARE TWO LISTS, not one mixed one.
-          They answer different questions — "what has this person put in" and
-          "what have they taken back" — and the second is the one the admin is
-          usually looking for, because it is the money that has left. In a single
-          list a withdrawal was a minus sign among a dozen deposits. */}
-      <section id="money-in" className="scroll-mt-4 space-y-3">
+      {/* ONE HISTORY, NOT TWO LISTS. "Money in" and "Withdrawal history" used
+          to stand apart, and neither could say where this pot's money went
+          between them: a repayment arriving and being lent straight out again
+          appeared in neither. Since 2026-09-28 every move of the floating money
+          is one line here, newest first, with the balance it left — deposits
+          and withdrawals (still tapped to edit), loans going out, repayments
+          and weekly interest coming back, and on the Admin pot the cut. */}
+      <section id="money-history" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-base font-semibold tracking-tight">Money in</h2>
-          {deposits.length > 0 ? (
-            <p className="text-muted-foreground text-xs">
-              <Money amount={position.deposits} variant="display" /> over{' '}
-              {deposits.length === 1 ? '1 deposit' : `${deposits.length} deposits`}
-            </p>
-          ) : null}
+          <h2 className="text-base font-semibold tracking-tight">Money history</h2>
+          <p className="text-muted-foreground text-xs">
+            Floating now <Money amount={position.floating} variant="display" />
+          </p>
         </div>
 
-        <TransactionList
-          entries={deposits}
-          empty="Nothing has been put into this pot yet."
-          page={paging.in}
-          noun="deposits"
-          href={href('in', 'money-in')}
-        />
-      </section>
-
-      <section id="withdrawals" className="scroll-mt-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-base font-semibold tracking-tight">Withdrawal history</h2>
-          {withdrawals.length > 0 ? (
-            <p className="text-muted-foreground text-xs">
-              <Money amount={position.withdrawals} variant="display" /> over{' '}
-              {withdrawals.length === 1 ? '1 withdrawal' : `${withdrawals.length} withdrawals`}
-            </p>
-          ) : null}
-        </div>
-
-        <TransactionList
-          entries={withdrawals}
-          empty="Nothing has been taken back out of this pot."
-          page={paging.withdrawn}
-          noun="withdrawals"
-          href={href('withdrawn', 'withdrawals')}
+        <MoneyHistoryList
+          events={lender.moneyHistory}
+          transactions={lender.transactions}
+          page={paging.history}
+          href={href('history', 'money-history')}
         />
       </section>
     </div>
@@ -919,105 +894,110 @@ function CutList({
 }
 
 /**
- * A run of movements, one way or the other.
+ * The money history: one row per move of this pot's floating money.
  *
- * Money going out is shown NEGATIVE, not merely greyed. A colour and an icon are
- * easy to skim past; a minus sign in front of the figure is not — and on the
- * withdrawal list, where every row is an outgoing one, the sign is the only
- * thing carrying the direction at all.
+ * A deposit or withdrawal keeps its edit layer, exactly as the old two lists
+ * had it — the row IS that record. Anything to do with a loan opens the loan.
+ * The figure under each amount is the floating balance that move left behind,
+ * so reading down the list shows the pot filling and emptying.
  */
-function TransactionList({
-  entries,
-  empty,
+function MoneyHistoryList({
+  events,
+  transactions,
   page: at,
-  noun,
   href,
 }: {
-  entries: LenderDetail['transactions']
-  empty: string
+  events: LenderDetail['moneyHistory']
+  transactions: LenderDetail['transactions']
   page: number
-  noun: string
   href: (page: number) => string
 }) {
-  if (entries.length === 0) {
+  if (events.length === 0) {
     return (
       <div className="bg-card/60 border-border rounded-2xl border border-dashed p-8 text-center">
         <HandCoins className="text-muted-foreground mx-auto size-6" aria-hidden />
-        <p className="text-muted-foreground mx-auto mt-2 max-w-xs text-sm">{empty}</p>
+        <p className="text-muted-foreground mx-auto mt-2 max-w-xs text-sm">
+          No money has moved in this pot yet.
+        </p>
       </div>
     )
   }
 
+  // The stored rows, for the edit dialog, which wants them as they came from
+  // the database rather than as the history re-dated them.
+  const byId = new Map(transactions.map((entry) => [entry.id, entry]))
+
   return (
     <>
       <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
-        {pageOf(entries, at).map((entry) => {
-          const isDeposit = entry.type === 'DEPOSIT'
-          const Icon = isDeposit ? ArrowDownLeft : ArrowUpRight
-          return (
-            /* RELATIVE, because the edit trigger is a layer over the whole row
-               rather than a button at the end of it — see EditTransaction. */
-            <li
-              key={entry.id}
-              className="hover:bg-muted/40 relative flex items-center gap-3 p-3 transition-colors duration-150"
-            >
-              <EditTransaction
-                entry={{
-                  id: entry.id,
-                  type: entry.type,
-                  amount: entry.amount,
-                  occurredOn: entry.occurredOn,
-                  note: entry.note,
-                  advance: entry.against !== null,
-                }}
-              />
+        {pageOf(events, at).map((event) => {
+          const incoming = event.amount >= 0
+          const Icon = incoming ? ArrowDownLeft : ArrowUpRight
+          const entry = event.move ? byId.get(event.move.id) : undefined
+
+          const body = (
+            <>
               <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
                 <Icon className="size-4" aria-hidden />
               </span>
-              {/* AN ADVANCE SAYS SO. It is an ordinary withdrawal in every other
-                  respect — same row, same effect on floating, same edit dialog —
-                  but it was drawn against a loan that has not been repaid, and a
-                  list that called it "Money out" like the rest would leave the
-                  admin no way to tell which withdrawals are already spoken for. */}
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
-                  {entry.against
-                    ? `Advance on ${entry.against.borrowerName}’s loan`
-                    : isDeposit
-                      ? 'Money in'
-                      : 'Money out'}
-                </div>
-                <div className="text-muted-foreground mt-0.5 truncate text-xs">
-                  {dateFormat.format(entry.occurredOn)}
-                  {entry.note ? ` · ${entry.note}` : ''}
-                  {entry.against ? (
-                    <>
-                      {' · '}
-                      {/* Lifted above the edit layer covering this row. Without
-                          the z-index it is a link nothing can reach. */}
-                      <Link
-                        href={`/loans/${entry.against.loanId}`}
-                        className="hover:text-foreground relative z-10 underline"
-                      >
-                        open the loan
-                      </Link>
-                    </>
-                  ) : null}
+                {/* WRAPS, not truncated. The amount column beside it is wide
+                    on a phone, and "Lent to Rico Mend…" hid the one word the
+                    line exists to say. */}
+                <div className="text-sm font-medium break-words">{event.title}</div>
+                <div className="text-muted-foreground mt-0.5 text-xs break-words">
+                  {dateFormat.format(event.on)}
+                  {event.detail ? ` · ${event.detail}` : ''}
                 </div>
               </div>
-              <Money
-                amount={isDeposit ? entry.amount : centavos(-entry.amount)}
-                variant="display"
-                className="text-sm font-semibold"
-                muted={!isDeposit}
-              />
-              <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              <div className="flex shrink-0 flex-col items-end">
+                <Money amount={event.amount} variant="display" className="text-sm font-semibold" muted={!incoming} />
+                <span className="text-muted-foreground text-xs">
+                  <Money amount={event.balance} variant="display" /> floating
+                </span>
+              </div>
+            </>
+          )
+
+          if (entry) {
+            return (
+              /* RELATIVE, because the edit trigger is a layer over the whole row
+                 rather than a button at the end of it — see EditTransaction. */
+              <li
+                key={event.key}
+                className="hover:bg-muted/40 relative flex items-center gap-3 p-3 transition-colors duration-150"
+              >
+                <EditTransaction
+                  entry={{
+                    id: entry.id,
+                    type: entry.type,
+                    amount: entry.amount,
+                    occurredOn: entry.occurredOn,
+                    note: entry.note,
+                    advance: entry.against !== null,
+                  }}
+                />
+                {body}
+                <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              </li>
+            )
+          }
+
+          return (
+            <li key={event.key}>
+              <Link
+                href={event.loanId ? `/loans/${event.loanId}` : '#money-history'}
+                className="hover:bg-muted/40 flex items-center gap-3 p-3 transition-colors duration-150"
+              >
+                {body}
+                <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              </Link>
             </li>
           )
         })}
       </ul>
 
-      <Pager page={at} total={entries.length} noun={noun} href={href} />
+      <Pager page={at} total={events.length} noun="moves" href={href} />
     </>
   )
 }

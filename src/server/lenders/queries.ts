@@ -6,6 +6,7 @@ import { DAYS_PER_WEEK, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
 import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
+import { type MoneyEvent, moneyHistory } from '../../lib/money/money-history.ts'
 import { db } from '../db.ts'
 import { SETTLING, liveWeeklyPayments, settledOn } from '../payments/settled.ts'
 
@@ -119,6 +120,12 @@ export type LenderDetail = LenderSummary & {
   transactions: LenderTransactionRow[]
   /** The last twelve months of this pot, oldest first. */
   history: LenderMonth[]
+  /**
+   * Every move of this pot's floating money, newest first, with the balance
+   * after each — see lib/money/money-history.ts. The balance on the newest line
+   * is `position.floating`.
+   */
+  moneyHistory: MoneyEvent[]
   /**
    * Interest this pot EARNED over `range`, spread across the days each loan ran.
    *
@@ -624,8 +631,14 @@ export async function getLender(
         principalCentavos: true,
         earningsCentavos: true,
         adminCutCentavos: true,
+        // Names and status for the money history: who was lent to, whose
+        // capital a cut came from, and whether the loan counts as repaid.
+        lender: { select: { firstName: true, lastName: true } },
         loan: {
           select: {
+            id: true,
+            status: true,
+            borrower: { select: { firstName: true, lastName: true } },
             startOn: true,
             termDays: true,
             interestCollection: true,
@@ -735,6 +748,43 @@ export async function getLender(
        the cut lives. `startOn` and `termDays` are the only two columns the
        spread reads. */
     rangeInterest: interestAccruedIn(lender.isSelf, lender.id, historyRows, range),
+    moneyHistory: moneyHistory(
+      lender.id,
+      lender.isSelf,
+      historyRows.map((row) => ({
+        loanId: row.loan.id,
+        lenderId: row.lenderId,
+        lenderName: `${row.lender.firstName} ${row.lender.lastName}`,
+        borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
+        principal: centavos(row.principalCentavos),
+        earnings: centavos(row.earningsCentavos),
+        adminCut: centavos(row.adminCutCentavos),
+        // All three are `date` columns, read back at midnight UTC.
+        startOn: storedCalendarDate(row.loan.startOn),
+        paidOn: (() => {
+          const on = settledOn(row.loan.payments)
+          return on ? storedCalendarDate(on) : null
+        })(),
+        // STATUS, the test `ledgers` uses — so the last balance is floating.
+        paid: row.loan.status === 'PAID',
+        termDays: row.loan.termDays,
+        weekly: row.loan.interestCollection === 'WEEKLY',
+        weeksPaid: liveWeeklyPayments(row.loan.payments).map((payment) => ({
+          week: payment.weekNumber as number,
+          paidOn: storedCalendarDate(payment.paidOn),
+        })),
+      })),
+      transactions.map((row) => ({
+        id: row.id,
+        type: row.type,
+        amount: centavos(row.amountCentavos),
+        occurredOn: storedCalendarDate(row.occurredOn),
+        note: row.note,
+        against: row.loan
+          ? { loanId: row.loan.id, borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}` }
+          : null,
+      })),
+    ),
     history: buildHistory(
       lender.isSelf,
       historyRows.map((row) => ({
