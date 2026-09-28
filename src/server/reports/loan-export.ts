@@ -217,14 +217,14 @@ export async function loanExport(
     }
   }
 
-  // WHOSE FILE IT IS, on every page and in the name it is saved under, so two
-  // downloads cannot be mixed up halfway down a page or in a Files folder. The
-  // time is in the name because two lists of the same lender on the same day
-  // are otherwise indistinguishable.
-  const header = `${subject} · ${STATUS_LABEL[status]} · ${when.long}`
+  // WHOSE FILE IT IS, in the title above and in the name it is saved under, so
+  // two downloads cannot be mixed up in a Files folder. The time is in the name
+  // because two lists of the same lender on the same day are otherwise
+  // indistinguishable. There is deliberately no running page header as well:
+  // it repeated the title on page one, and phone viewers drew it over it.
   const fileName = `Loan list - ${subject} - ${STATUS_LABEL[status]} - ${when.day} ${when.time}.docx`
     .replace(UNSAFE_IN_FILE_NAME, ' ')
     .replace(/\s+/g, ' ')
 
-  return { fileName, file: buildDocument(lines, { header }) }
+  return { fileName, file: buildDocument(lines) }
 }

@@ -46,15 +46,9 @@ function paragraph(line: DocLine): string {
   return `<w:p><w:pPr>${TIGHT}</w:pPr>${runs}</w:p>`
 }
 
-/**
- * The whole document as the bytes of a .docx file.
- *
- * `header` is repeated at the top of every page, in small grey type, so a page
- * printed or scrolled to on its own still says whose it is.
- */
-export function buildDocument(lines: DocLine[], { header }: { header?: string } = {}): Buffer {
-  const headerRef = header ? '<w:headerReference w:type="default" r:id="rIdHeader"/>' : ''
-  const parts: [string, string][] = [
+/** The whole document as the bytes of a .docx file. */
+export function buildDocument(lines: DocLine[]): Buffer {
+  return zip([
     [
       '[Content_Types].xml',
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -62,9 +56,6 @@ export function buildDocument(lines: DocLine[], { header }: { header?: string } 
         `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
         `<Default Extension="xml" ContentType="application/xml"/>` +
         `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
-        (header
-          ? `<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>`
-          : '') +
         `</Types>`,
     ],
     [
@@ -77,32 +68,11 @@ export function buildDocument(lines: DocLine[], { header }: { header?: string } 
     [
       'word/document.xml',
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
         `<w:body>${lines.map(paragraph).join('')}` +
         // A4 with one-inch margins; Word falls back to US Letter without it.
-        `<w:sectPr>${headerRef}<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>` +
+        `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>` +
         `</w:body></w:document>`,
     ],
-  ]
-
-  if (header) {
-    parts.push(
-      [
-        'word/_rels/document.xml.rels',
-        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-          `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-          `<Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>` +
-          `</Relationships>`,
-      ],
-      [
-        'word/header1.xml',
-        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-          `<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
-          `<w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:color w:val="666666"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${xml(header)}</w:t></w:r></w:p>` +
-          `</w:hdr>`,
-      ],
-    )
-  }
-
-  return zip(parts)
+  ])
 }

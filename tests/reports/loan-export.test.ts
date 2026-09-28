@@ -84,26 +84,4 @@ describe('whose file it is', () => {
       'DUE: 09/22 - 10/20 (4weeks 7%)',
     ])
   })
-
-  test('a header goes on every page', () => {
-    const file = buildDocument([{ kind: 'line', text: 'x' }], { header: 'Juan Cruz · Active loans' })
-    const names: string[] = []
-    let offset = 0
-    let header = ''
-    let document = ''
-    while (file.readUInt32LE(offset) === 0x04034b50) {
-      const nameLength = file.readUInt16LE(offset + 26)
-      const size = file.readUInt32LE(offset + 18)
-      const name = file.subarray(offset + 30, offset + 30 + nameLength).toString()
-      const start = offset + 30 + nameLength
-      const body = inflateRawSync(file.subarray(start, start + size)).toString()
-      if (name === 'word/header1.xml') header = body
-      if (name === 'word/document.xml') document = body
-      names.push(name)
-      offset = start + size
-    }
-    assert.ok(names.includes('word/_rels/document.xml.rels'))
-    assert.match(header, /Juan Cruz · Active loans/)
-    assert.match(document, /<w:headerReference w:type="default" r:id="rIdHeader"\/>/)
-  })
 })
