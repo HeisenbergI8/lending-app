@@ -589,7 +589,16 @@ export function LoanForm({
       <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold tracking-tight">Whose money</h2>
-          <FundedSoFar funded={preview.funded} remaining={preview.remaining} />
+          <FundedSoFar
+            funded={preview.funded}
+            remaining={preview.remaining}
+            // Any lender asked for more than they have floating. The same
+            // totals the notes under each row use, so badge and notes agree.
+            shortOfFloating={
+              floating !== undefined &&
+              [...askedOf].some(([id, asked]) => id !== NEW && asked > (floating[id] ?? 0))
+            }
+          />
         </div>
 
         <ul className="space-y-3">
@@ -860,8 +869,30 @@ function TermBadge({ basis, term }: { basis: InterestBasis; term: Term | null })
   )
 }
 
-function FundedSoFar({ funded, remaining }: { funded: Centavos; remaining: Centavos | null }) {
+function FundedSoFar({
+  funded,
+  remaining,
+  shortOfFloating,
+}: {
+  funded: Centavos
+  remaining: Centavos | null
+  /**
+   * A lender is asked for more than they have floating. "Fully funded" only
+   * ever meant the shares add up to the capital; beside a lender who does not
+   * have the money it read as "this loan is fine", so this wins over it.
+   */
+  shortOfFloating: boolean
+}) {
   if (remaining === null) return null
+
+  if (shortOfFloating) {
+    return (
+      <span className="text-destructive inline-flex items-center gap-1.5 text-xs font-medium">
+        <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+        Not enough floating
+      </span>
+    )
+  }
 
   if (remaining === 0 && funded > 0) {
     return (
