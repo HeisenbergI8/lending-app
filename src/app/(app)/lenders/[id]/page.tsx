@@ -356,8 +356,8 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
      Paged lists, whole-list sums: this counts every row, not the ten on screen. */
   const outEarnings = centavos(lender.fundings.reduce((total, row) => total + row.earnings, 0))
 
-  /* SIX LISTS, SIX PAGE NUMBERS. Every list on this page is capped at ten rows,
-     each with its own key in the query string, so paging the withdrawals does
+  /* FIVE LISTS, FIVE PAGE NUMBERS. Every list on this page is capped at ten rows,
+     each with its own key in the query string, so paging the money history does
      not send the loan lists back to the top.
 
      The counts in the section headings and the figures in the tiles are still
