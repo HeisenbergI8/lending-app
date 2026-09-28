@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   Trash2,
   Users,
-  Wallet,
+  Contact,
   HandCoins,
   type LucideIcon,
 } from 'lucide-react'
@@ -27,14 +27,17 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', short: 'Home', icon: LayoutDashboard, primary: true },
   { href: '/loans', label: 'Loans', short: 'Loans', icon: HandCoins, primary: true },
-  { href: '/borrowers', label: 'Borrowers', short: 'People', icon: Users, primary: true },
+  // Behind "More" on a phone since 2026-09-28: the Admin reaches for lenders'
+  // money far more often than for the borrower list, and every borrower is a
+  // tap away from their loan anyway.
+  { href: '/borrowers', label: 'Borrowers', short: 'Borrowers', icon: Contact, primary: false },
   // Behind "More" on a phone, not in the tab bar. On the sidebar it sits under
   // Loans, which is where it belongs in the sequence: a request becomes a loan.
   { href: '/pending', label: 'Pending loans', short: 'Pending', icon: Inbox, primary: false },
-  // Also behind "More". The tab bar now carries the Record button in its middle
-  // slot, which leaves room for four tabs around it rather than five, and the
-  // pot balances this screen breaks down are already on the Dashboard.
-  { href: '/lenders', label: 'Lenders', short: 'Funds', icon: Wallet, primary: false },
+  // The phone's People tab, at the Admin's request (2026-09-28). The tab bar
+  // carries the Record button in its middle slot, so there is room for four
+  // tabs around it, and Lenders took the one Borrowers had.
+  { href: '/lenders', label: 'Lenders', short: 'People', icon: Users, primary: true },
   { href: '/reports', label: 'Reports', short: 'Reports', icon: FileText, primary: false },
   { href: '/deleted', label: 'Recently Deleted', short: 'Deleted', icon: Trash2, primary: false },
 ]
