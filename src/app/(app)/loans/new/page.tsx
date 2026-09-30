@@ -62,11 +62,13 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
           {fromRequest ? 'Pending loans' : 'Loans'}
         </Link>
         <h1 className="mt-2 text-[1.75rem] font-semibold tracking-tight">New loan</h1>
-        <p className="text-muted-foreground text-sm">
-          {fromRequest
-            ? `${fromRequest.firstName} ${fromRequest.lastName}'s request, filled in. Saving it records the loan and clears the request.`
-            : 'The interest and everyone’s share are worked out once, when the loan is saved.'}
-        </p>
+        {/* Only a request needs a line here; a plain new loan is explained by
+            the form itself and the running total pinned under it. */}
+        {fromRequest ? (
+          <p className="text-muted-foreground text-sm">
+            {`${fromRequest.firstName} ${fromRequest.lastName}'s request, filled in. Saving it records the loan and clears the request.`}
+          </p>
+        ) : null}
       </div>
 
       <LoanForm

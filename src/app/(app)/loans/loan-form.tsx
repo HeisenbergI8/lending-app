@@ -311,31 +311,56 @@ export function LoanForm({
       {initial.loanId ? <input type="hidden" name="loanId" value={initial.loanId} /> : null}
       {initial.pendingId ? <input type="hidden" name="pendingId" value={initial.pendingId} /> : null}
 
-      {/* ── Who ───────────────────────────────────────────────────────────── */}
-      <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
-        <h2 className="text-base font-semibold tracking-tight">Who is borrowing</h2>
+      {/* ── Who, how much, how long ─────────────────────────────────────────
+          One card, not two: who is borrowing and how much are the first two
+          answers, and they sit side by side so the form is shorter to scroll. */}
+      <section className="bg-card space-y-4 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+        <h2 className="text-base font-semibold tracking-tight">The loan</h2>
 
-        <div className="space-y-2">
-          <Label htmlFor="borrowerId">Borrower</Label>
-          <SelectNative
-            id="borrowerId"
-            name="borrowerId"
-            value={creatingBorrower ? NEW : borrowerId}
-            onChange={(event) => setBorrowerId(event.target.value)}
-          >
-            {borrowers.map((borrower) => (
-              <option key={borrower.id} value={borrower.id}>
-                {borrower.name}
-              </option>
-            ))}
-            {/* Someone can be added without leaving the form — the spec is
-                explicit that a borrower need not exist beforehand. */}
-            <option value={NEW}>+ Someone new…</option>
-          </SelectNative>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0 space-y-2">
+            <Label htmlFor="borrowerId">Borrower</Label>
+            <SelectNative
+              id="borrowerId"
+              name="borrowerId"
+              value={creatingBorrower ? NEW : borrowerId}
+              onChange={(event) => setBorrowerId(event.target.value)}
+            >
+              {borrowers.map((borrower) => (
+                <option key={borrower.id} value={borrower.id}>
+                  {borrower.name}
+                </option>
+              ))}
+              {/* Someone can be added without leaving the form — the spec is
+                  explicit that a borrower need not exist beforehand. */}
+              <option value={NEW}>+ Someone new…</option>
+            </SelectNative>
+          </div>
+
+          <div className="min-w-0 space-y-2">
+            {/* "Amount" and "Capital" are the same thing — one field, never two. */}
+            <Label htmlFor="capital">Capital</Label>
+            <div className="relative">
+              <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm" aria-hidden>
+                ₱
+              </span>
+              <Input
+                id="capital"
+                name="capital"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="30,000"
+                className="money-column pl-7"
+                value={capital}
+                onChange={(event) => setCapital(event.target.value)}
+                required
+              />
+            </div>
+          </div>
         </div>
 
         {creatingBorrower ? (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="borrowerFirstName">First name</Label>
               <Input
@@ -358,56 +383,37 @@ export function LoanForm({
             </div>
           </div>
         ) : null}
-      </section>
-
-      {/* ── How much, and for how long ────────────────────────────────────── */}
-      <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
-        <h2 className="text-base font-semibold tracking-tight">The loan</h2>
-
-        <div className="space-y-2">
-          {/* "Amount" and "Capital" are the same thing — one field, never two. */}
-          <Label htmlFor="capital">Capital handed over</Label>
-          <div className="relative">
-            <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm" aria-hidden>
-              ₱
-            </span>
-            <Input
-              id="capital"
-              name="capital"
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="30,000"
-              className="money-column pl-7"
-              value={capital}
-              onChange={(event) => setCapital(event.target.value)}
-              required
-            />
-          </div>
-        </div>
 
         {/* HOW LONG IT RUNS. Almost every loan is a round one to four weeks,
-            so that is one pick rather than two dates counted out on a calendar.
-            Custom dates is what opens the two date fields. */}
-        <div className="space-y-2">
-          <Label htmlFor="termChoice">How long</Label>
-          <SelectNative
-            id="termChoice"
-            value={termChoice}
-            onChange={(event) => chooseTerm(event.target.value)}
-            required
-          >
-            {/* Nothing is pre-picked on a new loan, and the select is required,
-                so a length that was never read cannot be saved. */}
-            {termChoice === '' ? <option value="">Choose a length…</option> : null}
-            {WEEK_PRESETS.map((weeks) => (
-              <option key={weeks} value={weeks}>
-                {describeTerm(weeks * DAYS_PER_WEEK)}
-              </option>
-            ))}
-            <option value={CUSTOM}>Custom dates</option>
-          </SelectNative>
+            so that is one tap on a visible choice rather than a dropdown to
+            open, read and close. Custom opens the two date fields.
+
+            Real radios, required, so a length that was never picked still
+            cannot be saved — nothing is pre-picked on a new loan. */}
+        <fieldset className="space-y-2">
+          <legend className="text-sm leading-none font-medium select-none">How long</legend>
+          <div className="grid grid-cols-[repeat(4,minmax(0,1fr))_auto] gap-1.5 sm:max-w-md">
+            {[...WEEK_PRESETS.map((weeks) => ({ value: String(weeks), label: `${weeks} wk${weeks === 1 ? '' : 's'}` })), { value: CUSTOM, label: 'Custom' }].map(
+              (choice) => (
+                <label key={choice.value} className="cursor-pointer">
+                  <input
+                    type="radio"
+                    name="termChoice"
+                    value={choice.value}
+                    checked={termChoice === choice.value}
+                    onChange={() => chooseTerm(choice.value)}
+                    className="peer sr-only"
+                    required
+                  />
+                  <span className="border-input text-muted-foreground peer-checked:bg-brand-bg peer-checked:ring-brand-line peer-checked:text-foreground peer-focus-visible:ring-ring/50 flex h-10 items-center justify-center rounded-lg border px-2.5 text-[13px] font-medium whitespace-nowrap sm:text-sm transition-colors peer-checked:border-transparent peer-checked:ring-1 peer-focus-visible:ring-3 pointer-fine:h-8">
+                    {choice.label}
+                  </span>
+                </label>
+              ),
+            )}
+          </div>
           {termChoice !== '' && termChoice !== CUSTOM ? <DatesFromLength startOn={startOn} dueOn={dueOn} /> : null}
-        </div>
+        </fieldset>
 
         {termChoice === CUSTOM ? (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -574,21 +580,26 @@ export function LoanForm({
             component may not import — so this hides the choice instead of
             disabling it with an explanation. */}
         {basis === 'WEEKLY_RATE' ? (
-          <label className="border-border/70 flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm">
+          // A slim row with a switch on the right, not a bordered box: it is
+          // one yes-or-no, and reads as one.
+          <label className="flex cursor-pointer items-center justify-between gap-3 text-sm">
+            <span className="min-w-0">
+              <span className="font-medium">Collect the interest every week</span>
+              <span className="text-muted-foreground block text-xs">Capital comes back on the due date.</span>
+            </span>
             <input
               type="checkbox"
+              role="switch"
               name="interestCollection"
               value="WEEKLY"
               checked={weekly}
               onChange={(event) => setWeekly(event.target.checked)}
-              className="border-input text-brand-strong mt-0.5 size-4 rounded"
+              className="peer sr-only"
             />
-            <span>
-              <span className="font-medium">Collect the interest every week</span>
-              <span className="text-muted-foreground mt-0.5 block text-xs">
-                Capital comes back on the due date. The total does not change.
-              </span>
-            </span>
+            <span
+              aria-hidden
+              className="bg-input peer-checked:bg-brand-strong peer-focus-visible:ring-ring/50 relative inline-flex h-6 w-10 shrink-0 rounded-full transition-colors peer-focus-visible:ring-3 after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:after:translate-x-4"
+            />
           </label>
         ) : null}
       </section>
@@ -719,17 +730,21 @@ export function LoanForm({
         </Button>
       </section>
 
-      <Preview capital={preview.capital} interest={preview.interest} total={preview.total} term={preview.term} />
-
       {state.error ? (
         <Alert variant="destructive" role="alert">
           <AlertDescription>{state.error}</AlertDescription>
         </Alert>
       ) : null}
 
-      <SubmitButton pendingLabel="Saving…" className="w-full sm:w-auto">
-        {submitLabel}
-      </SubmitButton>
+      {/* PINNED TO THE BOTTOM OF THE SCREEN while the form scrolls: what they
+          will repay, and the button, are always in reach. On a phone it sits
+          just above the tab bar; on a laptop, at the foot of the window. */}
+      <div className="bg-background/95 supports-[backdrop-filter]:bg-background/90 border-border/70 sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-30 -mx-4 flex items-center gap-3 border-t px-4 py-3 backdrop-blur-xl md:bottom-0 md:mx-0 md:border-t-0 md:px-0">
+        <Preview capital={preview.capital} interest={preview.interest} total={preview.total} term={preview.term} />
+        <SubmitButton pendingLabel="Saving…" className="shrink-0">
+          {submitLabel}
+        </SubmitButton>
+      </div>
     </form>
   )
 }
@@ -929,37 +944,26 @@ function Preview({
 }) {
   if (capital === null || interest === null || total === null || !term?.ok) {
     return (
-      <div className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-4 text-center text-sm">
-        Fill in the capital and both dates to see what is owed.
-      </div>
+      <p className="text-muted-foreground min-w-0 flex-1 text-xs">Fill in the capital and a length to see what is owed.</p>
     )
   }
 
+  // One line for the answer, one for how it is made up — small enough to stay
+  // pinned without covering the form.
   return (
-    <div className="bg-brand-bg ring-brand-line rounded-2xl p-4 ring-1">
-      <dl className="grid grid-cols-3 gap-3 text-center">
-        <div>
-          <dt className="text-muted-foreground text-xs">Capital</dt>
-          <dd className="mt-0.5 text-sm font-medium">
-            <Money amount={capital} variant="display" />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground text-xs">Interest · {describeTerm(term.days)}</dt>
-          <dd className="mt-0.5 text-sm font-medium">
-            <Money amount={interest} variant="display" />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground text-xs">They repay</dt>
-          <dd className="mt-0.5 text-base font-semibold">
-            <Money amount={total} variant="display" />
-          </dd>
-        </div>
-      </dl>
-      <p className="text-muted-foreground mt-3 text-center text-xs">
-        Worked out once, now. It never changes afterwards.
-      </p>
+    <div className="min-w-0 flex-1" aria-live="polite">
+      <div className="text-sm">
+        <span className="text-muted-foreground">They repay </span>
+        <Money amount={total} variant="display" className="font-semibold" />
+      </div>
+      <div className="text-muted-foreground text-xs">
+        <span className="whitespace-nowrap">
+          <Money amount={capital} variant="display" /> +
+        </span>{' '}
+        <span className="whitespace-nowrap">
+          <Money amount={interest} variant="display" /> interest
+        </span>
+      </div>
     </div>
   )
 }
