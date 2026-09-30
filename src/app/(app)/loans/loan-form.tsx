@@ -585,7 +585,7 @@ export function LoanForm({
           <label className="flex cursor-pointer items-center justify-between gap-3 text-sm">
             <span className="min-w-0">
               <span className="font-medium">Collect the interest every week</span>
-              <span className="text-muted-foreground block text-xs">Capital comes back on the due date.</span>
+              <span className="text-muted-foreground block text-xs">Capital comes back on the due date. The total does not change.</span>
             </span>
             <input
               type="checkbox"
@@ -962,7 +962,9 @@ function Preview({
         </span>{' '}
         <span className="whitespace-nowrap">
           <Money amount={interest} variant="display" /> interest
-        </span>
+        </span>{' '}
+        {/* The figure is fixed once saved; nothing recalculates it later. */}
+        <span className="whitespace-nowrap">· fixed once saved</span>
       </div>
     </div>
   )
