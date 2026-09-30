@@ -61,29 +61,28 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
           Borrowers
         </Link>
 
-        {/* Their face, where the initials would be everywhere else. Tap it
-            to add or change it. */}
-        <div className="mt-3">
-          <PhotoPicker
-            borrowerId={borrower.id}
-            name={`${borrower.firstName} ${borrower.lastName}`}
-            photo={photos.get(borrower.id) ?? null}
-          />
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[1.75rem] font-semibold tracking-tight">
-                {borrower.firstName} {borrower.lastName}
-              </h1>
-              {borrower.label ? <BorrowerLabelBadge label={borrower.label} /> : null}
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-4">
+            {/* Their face, where the initials would be everywhere else. Tap it
+                to add, change or remove it. */}
+            <PhotoPicker
+              borrowerId={borrower.id}
+              name={`${borrower.firstName} ${borrower.lastName}`}
+              photo={photos.get(borrower.id) ?? null}
+            />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-[1.75rem] font-semibold tracking-tight">
+                  {borrower.firstName} {borrower.lastName}
+                </h1>
+                {borrower.label ? <BorrowerLabelBadge label={borrower.label} /> : null}
+              </div>
+              <p className="text-muted-foreground text-sm">
+                {record.total === 0
+                  ? 'No loans yet.'
+                  : `${record.total === 1 ? '1 loan' : `${record.total} loans`} · ${record.paidOnTime} paid on time · ${record.paidLate} late`}
+              </p>
             </div>
-            <p className="text-muted-foreground text-sm">
-              {record.total === 0
-                ? 'No loans yet.'
-                : `${record.total === 1 ? '1 loan' : `${record.total} loans`} · ${record.paidOnTime} paid on time · ${record.paidLate} late`}
-            </p>
           </div>
           <BorrowerSettings
             borrowerId={borrower.id}
