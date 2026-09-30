@@ -1,6 +1,6 @@
 'use client'
 
-import { type PointerEvent, type ReactNode, useRef, useState } from 'react'
+import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { X } from 'lucide-react'
 
@@ -73,6 +73,17 @@ export function PhotoViewer({
   }
 
   const src = full && !broken ? full : square
+
+  // THE PHONE'S STATUS BAR GOES DARK WITH THE VIEWER. Left alone it stays the
+  // page's colour, a white strip above a black screen. The app's own colour is
+  // put back on close, exactly as it was.
+  useEffect(() => {
+    if (!open) return
+    const metas = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')]
+    const before = metas.map((meta) => meta.content)
+    metas.forEach((meta) => (meta.content = '#000000'))
+    return () => metas.forEach((meta, index) => (meta.content = before[index]))
+  }, [open])
   // The dark ground thins as the picture is dragged away, so the page behind
   // shows through before it closes — the cue that letting go will close it.
   const dim = Math.max(0.35, 0.94 - drag / 400)
@@ -114,8 +125,15 @@ export function PhotoViewer({
             <DialogPrimitive.Title className="min-w-0 truncate text-base font-semibold tracking-tight">
               {name}
             </DialogPrimitive.Title>
-            <DialogPrimitive.Close className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/12 transition-colors hover:bg-white/20 focus-visible:ring-3 focus-visible:ring-white/50 focus-visible:outline-none">
-              <X className="size-5" aria-hidden />
+            {/* FROSTED GLASS, the way close buttons read on a current iPhone: a
+                small translucent disc that blurs what is behind it, a hairline
+                edge, a light catch along the top, and a slim X. The grey
+                filled circle it replaced looked like a dated web modal. The
+                44px tap area is the button; the 36px disc is drawn inside it. */}
+            <DialogPrimitive.Close className="group flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none">
+              <span className="flex size-9 items-center justify-center rounded-full bg-white/14 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_16px_rgb(0_0_0/0.35)] ring-1 ring-white/20 backdrop-blur-xl backdrop-saturate-150 transition-[background-color,scale] duration-200 ease-out ring-inset group-hover:bg-white/22 group-focus-visible:ring-2 group-focus-visible:ring-white/70 group-active:scale-90">
+                <X className="size-4" strokeWidth={2.5} aria-hidden />
+              </span>
               <span className="sr-only">Close</span>
             </DialogPrimitive.Close>
           </div>
