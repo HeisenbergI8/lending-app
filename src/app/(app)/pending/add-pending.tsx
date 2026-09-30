@@ -53,7 +53,14 @@ function suggestionsFor(query: string, borrowers: BorrowerName[]): BorrowerName[
  * here only fills in the two name boxes. Converting the request later matches
  * the name back to that borrower.
  */
-export function AddPendingLoan({ borrowers }: { borrowers: BorrowerName[] }) {
+export function AddPendingLoan({
+  borrowers,
+  photos = {},
+}: {
+  borrowers: BorrowerName[]
+  /** Borrower id to photo link, so a borrower with a photo shows it in the suggestions. */
+  photos?: Record<string, string>
+}) {
   const [termChoice, setTermChoice] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -144,7 +151,7 @@ export function AddPendingLoan({ borrowers }: { borrowers: BorrowerName[] }) {
                     index === active ? 'bg-accent text-accent-foreground' : ''
                   }`}
                 >
-                  <Avatar name={`${borrower.firstName} ${borrower.lastName}`} />
+                  <Avatar name={`${borrower.firstName} ${borrower.lastName}`} photo={photos[borrower.id]} />
                   <span className="truncate">
                     {borrower.firstName} {borrower.lastName}
                   </span>

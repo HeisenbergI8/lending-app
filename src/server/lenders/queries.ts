@@ -77,6 +77,7 @@ export type LenderTransactionRow = {
  */
 export type AdminCutRow = {
   loanId: string
+  borrowerId: string
   borrowerName: string
   /** Whose capital the cut was taken on. Never the Admin's own: that row's cut is zero. */
   lenderName: string
@@ -671,7 +672,7 @@ export async function getLender(
                 dueOn: true,
                 nextDueOn: true,
                 termDays: true,
-                borrower: { select: { firstName: true, lastName: true } },
+                borrower: { select: { id: true, firstName: true, lastName: true } },
                 payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
               },
             },
@@ -722,6 +723,7 @@ export async function getLender(
     adminCuts: splitCuts(
       cutRows.map((row) => ({
         loanId: row.loan.id,
+        borrowerId: row.loan.borrower.id,
         borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
         lenderName: `${row.lender.firstName} ${row.lender.lastName}`,
         cut: centavos(row.adminCutCentavos),

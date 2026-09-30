@@ -11,6 +11,7 @@ import { describeTerm } from '@/lib/money/weeks.ts'
 import { parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { listBorrowerNames } from '@/server/borrowers/queries.ts'
+import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { deletePendingLoan } from '@/server/pending/actions.ts'
 import { listPendingLoans } from '@/server/pending/queries.ts'
 
@@ -39,9 +40,10 @@ function ratePercent(bps: number): string {
 export default async function PendingLoansPage({ searchParams }: PageProps<'/pending'>) {
   const user = await requireUser()
   const paging = parsePage((await searchParams).page)
-  const [{ rows, totals }, borrowers] = await Promise.all([
+  const [{ rows, totals }, borrowers, photos] = await Promise.all([
     listPendingLoans(user.id, paging),
     listBorrowerNames(user.id),
+    borrowerPhotoUrls(user.id),
   ])
 
   return (
@@ -63,7 +65,7 @@ export default async function PendingLoansPage({ searchParams }: PageProps<'/pen
             {totals.all > 0 ? ` · ${formatPesos(totals.askedFor)} asked for` : ''}
           </p>
         </div>
-        <AddPendingLoan borrowers={borrowers} />
+        <AddPendingLoan borrowers={borrowers} photos={Object.fromEntries(photos)} />
       </div>
 
       {rows.length === 0 ? (

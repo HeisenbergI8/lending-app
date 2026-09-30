@@ -579,6 +579,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             total={position.adminCutPending}
             empty="No running loan is funded by anyone else right now."
             page={paging.cutsOut}
+            photos={photos}
             href={href('cutsOut', 'cuts-running')}
           />
           <CutList
@@ -588,6 +589,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             total={position.adminCutEarned}
             empty="No loan funded by anyone else has been repaid yet."
             page={paging.cutsPaid}
+            photos={photos}
             href={href('cutsPaid', 'cuts-repaid')}
           />
         </section>
@@ -811,7 +813,9 @@ function CutList({
   empty,
   page: at,
   href,
+  photos,
 }: {
+  photos: Map<string, string>
   id: string
   title: string
   rows: LenderDetail['adminCuts']['running']
@@ -869,7 +873,7 @@ function CutList({
                 href={`/loans/${row.loanId}`}
                 className="hover:bg-muted/40 flex items-center gap-3 p-3 transition-colors duration-150"
               >
-                <Avatar name={row.borrowerName} />
+                <Avatar name={row.borrowerName} photo={photos.get(row.borrowerId)} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{row.borrowerName}</div>
                   <div className="text-muted-foreground mt-0.5 truncate text-xs">
