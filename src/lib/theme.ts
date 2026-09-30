@@ -26,8 +26,17 @@ const DARK_QUERY = '(prefers-color-scheme: dark)'
  */
 const BAR = { light: '#f6f7f9', dark: '#0a0e15' }
 
+/**
+ * THE COLOUR THEME, alongside light and dark (2026-09-30). The palettes are in
+ * globals.css under "COLOUR THEMES"; this only says which one is chosen. Navy
+ * is the default and is stored as nothing, like light.
+ */
+export const ACCENTS = ['navy', 'pink', 'violet', 'teal', 'graphite'] as const
+export type Accent = (typeof ACCENTS)[number]
+const ACCENT_KEY = 'pondex:accent'
+
 /** Kept in step with the functions below by hand: it runs before any module loads. */
-export const THEME_SCRIPT = `(function(){try{var m=localStorage.getItem("${KEY}");if(m==="dark"||(m==="system"&&matchMedia("${DARK_QUERY}").matches)){var r=document.documentElement;r.classList.add("dark");r.style.colorScheme="dark"}}catch(e){}})()`
+export const THEME_SCRIPT = `(function(){try{var r=document.documentElement;var m=localStorage.getItem("${KEY}");if(m==="dark"||(m==="system"&&matchMedia("${DARK_QUERY}").matches)){r.classList.add("dark");r.style.colorScheme="dark"}var a=localStorage.getItem("${ACCENT_KEY}");if(a&&${JSON.stringify(ACCENTS.filter((a) => a !== 'navy'))}.indexOf(a)>=0){r.setAttribute("data-accent",a)}}catch(e){}})()`
 
 const listeners = new Set<() => void>()
 
@@ -53,6 +62,41 @@ export function setThemeMode(mode: ThemeMode) {
     // Private windows can refuse storage; the choice then lasts until reload.
   }
   applyTheme({ animate: true })
+  listeners.forEach((listener) => listener())
+}
+
+export function getAccent(): Accent {
+  try {
+    const stored = localStorage.getItem(ACCENT_KEY)
+    return (ACCENTS as readonly string[]).includes(stored ?? '') ? (stored as Accent) : 'navy'
+  } catch {
+    return 'navy'
+  }
+}
+
+/**
+ * Switch the colour theme. The same whole-screen fade as light and dark, so
+ * every colour arrives at once rather than button by button.
+ */
+export function setAccent(accent: Accent) {
+  try {
+    if (accent === 'navy') localStorage.removeItem(ACCENT_KEY)
+    else localStorage.setItem(ACCENT_KEY, accent)
+  } catch {
+    // Private windows can refuse storage; the choice then lasts until reload.
+  }
+  const root = document.documentElement
+  const flip = () => {
+    if (accent === 'navy') root.removeAttribute('data-accent')
+    else root.setAttribute('data-accent', accent)
+  }
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!still && document.startViewTransition) {
+    root.classList.add('theme-changing')
+    document.startViewTransition(flip).finished.finally(() => root.classList.remove('theme-changing'))
+  } else {
+    flip()
+  }
   listeners.forEach((listener) => listener())
 }
 

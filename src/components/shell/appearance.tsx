@@ -1,10 +1,20 @@
 'use client'
 
 import { useEffect, useSyncExternalStore } from 'react'
-import { Moon, Smartphone, Sun } from 'lucide-react'
+import { Check, Moon, Smartphone, Sun } from 'lucide-react'
 
 import { DropdownMenuItem, DropdownMenuLabel } from '@/components/ui/dropdown-menu'
-import { applyTheme, getThemeMode, isDark, setThemeMode, subscribeTheme, type ThemeMode } from '@/lib/theme.ts'
+import {
+  type Accent,
+  applyTheme,
+  getAccent,
+  getThemeMode,
+  isDark,
+  setAccent,
+  setThemeMode,
+  subscribeTheme,
+  type ThemeMode,
+} from '@/lib/theme.ts'
 import { cn } from '@/lib/utils'
 
 /**
@@ -96,6 +106,69 @@ export function AppearanceItems() {
             {option.label}
           </DropdownMenuItem>
         ))}
+      </div>
+    </>
+  )
+}
+
+/**
+ * The swatch each colour theme shows. Literal colours rather than tokens: a
+ * swatch has to show the OTHER themes too, while only one is applied. They are
+ * the light-theme brand of each palette in globals.css.
+ */
+const SWATCHES: { accent: Accent; label: string; color: string }[] = [
+  { accent: 'navy', label: 'Navy', color: 'oklch(0.393 0.134 260.2)' },
+  { accent: 'pink', label: 'Pink', color: 'oklch(0.56 0.2 356)' },
+  { accent: 'violet', label: 'Violet', color: 'oklch(0.47 0.19 300)' },
+  { accent: 'teal', label: 'Teal', color: 'oklch(0.5 0.1 195)' },
+  { accent: 'graphite', label: 'Graphite', color: 'oklch(0.32 0.012 260)' },
+]
+
+/**
+ * The colour theme, as a row of swatches under Light / Dark / Device.
+ *
+ * Menu items for the same reason as the segments above: arrow keys reach them,
+ * and choosing one leaves the menu open so the whole app can be seen changing
+ * behind it. The chosen one carries a tick as well as a ring, so it does not
+ * rest on colour alone.
+ */
+export function ColourItems() {
+  const accent = useSyncExternalStore(subscribeTheme, getAccent, () => 'navy' as const)
+
+  return (
+    <>
+      <DropdownMenuLabel className="text-muted-foreground px-3 pt-2 pb-1.5 text-xs font-medium">
+        Colour
+      </DropdownMenuLabel>
+      <div className="mx-1 mb-1 flex items-center justify-between gap-1 px-1">
+        {SWATCHES.map((swatch) => {
+          const on = accent === swatch.accent
+          return (
+            <DropdownMenuItem
+              key={swatch.accent}
+              role="menuitemradio"
+              aria-checked={on}
+              aria-label={swatch.label}
+              title={swatch.label}
+              onSelect={(event) => {
+                event.preventDefault()
+                setAccent(swatch.accent)
+              }}
+              className="flex size-11 items-center justify-center rounded-full p-0 focus:bg-transparent focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  'flex size-8 items-center justify-center rounded-full text-white transition-transform duration-200',
+                  on ? 'ring-foreground/80 ring-offset-popover scale-110 ring-2 ring-offset-2' : 'ring-1 ring-black/10',
+                )}
+                style={{ backgroundColor: swatch.color }}
+              >
+                {on ? <Check className="size-4" strokeWidth={3} /> : null}
+              </span>
+            </DropdownMenuItem>
+          )
+        })}
       </div>
     </>
   )
