@@ -645,7 +645,8 @@ html.theme-changing::view-transition-new(root) {
 
    Each theme sets the brand (buttons, the active tab, focus rings, the hero
    tile, the sidebar's active pill) and --hue, which tints every neutral above.
-   The light steps hold white text at 4.5:1 or better; the dark steps lighten
+   The light steps hold white text at 4.5:1 or better — the sidebar's active
+   pill included (checked 2026-09-30) — and the dark steps lighten
    to read on a dark surface, with a deep --hero kept behind white text.
 
    NONE OF THEM IS A STATUS COLOUR. Green, amber, orange and red mean loan
@@ -657,7 +658,8 @@ html[data-accent='pink'] {
   --hue: 350;
   --brand: oklch(0.56 0.2 356);
   --brand-strong: oklch(0.48 0.19 356);
-  --sidebar-primary: oklch(0.6 0.2 356);
+  /* The brand's own step: a lighter one measured 4.2:1 under white text. */
+  --sidebar-primary: oklch(0.54 0.2 356);
 }
 html.dark[data-accent='pink'] {
   --hero: oklch(0.5 0.17 356);
@@ -685,7 +687,8 @@ html[data-accent='teal'] {
   --hue: 200;
   --brand: oklch(0.5 0.1 195);
   --brand-strong: oklch(0.43 0.09 195);
-  --sidebar-primary: oklch(0.56 0.1 195);
+  /* The brand's own step: a lighter one measured 4.23:1 under white text. */
+  --sidebar-primary: oklch(0.5 0.1 195);
 }
 html.dark[data-accent='teal'] {
   --hero: oklch(0.45 0.09 195);
