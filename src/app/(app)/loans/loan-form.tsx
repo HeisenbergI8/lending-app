@@ -739,7 +739,7 @@ export function LoanForm({
       {/* PINNED TO THE BOTTOM OF THE SCREEN while the form scrolls: what they
           will repay, and the button, are always in reach. On a phone it sits
           just above the tab bar; on a laptop, at the foot of the window. */}
-      <div className="bg-background/95 supports-[backdrop-filter]:bg-background/90 border-border/70 sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-30 -mx-4 flex items-center gap-3 border-t px-4 py-3 backdrop-blur-xl md:bottom-0 md:mx-0 md:border-t-0 md:px-0">
+      <div className="bg-background/95 supports-[backdrop-filter]:bg-background/90 border-border/70 sticky bottom-[calc(4.375rem+env(safe-area-inset-bottom,0px))] z-30 -mx-4 flex items-center gap-3 border-t px-4 py-3 backdrop-blur-xl md:bottom-0 md:mx-0 md:border-t-0 md:px-0">
         <Preview capital={preview.capital} interest={preview.interest} total={preview.total} term={preview.term} />
         <SubmitButton pendingLabel="Saving…" className="shrink-0">
           {submitLabel}
