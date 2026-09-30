@@ -141,39 +141,57 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
           <ul className="space-y-2">
             {loans.map((loan) => (
               <li key={loan.id} className="bg-card rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+                {/* Read top to bottom: what is owed and where it stands, when,
+                    what it is made of, then who put the money in. */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <Money amount={loan.total} variant="display" className="text-base font-semibold" />
-                    <div className="text-muted-foreground mt-0.5 text-xs">
-                      <Money amount={loan.capital} variant="display" /> capital ·{' '}
-                      {describeTerm(loan.termDays)} · interest{' '}
-                      <Money amount={loan.interest} variant="display" />
-                    </div>
+                    <Money amount={loan.total} variant="display" className="text-lg font-semibold" />
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.dueOn)} · {describeTerm(loan.termDays)}
+                      {loan.paidOn ? ` · paid ${dateFormat.format(loan.paidOn)}` : ''}
+                    </p>
                   </div>
                   <LoanStatusBadge state={loan.state} />
                 </div>
 
-                <div className="text-muted-foreground mt-2 text-xs">
-                  {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.dueOn)}
-                  {loan.paidOn ? ` · paid ${dateFormat.format(loan.paidOn)}` : ''}
-                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <dt className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">Capital</dt>
+                    <dd className="mt-0.5 text-sm font-medium">
+                      <Money amount={loan.capital} variant="display" />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">Interest</dt>
+                    <dd className="mt-0.5 text-sm font-medium">
+                      <Money amount={loan.interest} variant="display" />
+                    </dd>
+                  </div>
+                </dl>
 
                 {/* Who funded it, and how the interest splits: each funder's own
                     stored share, and the Admin cut charged on it. Admin capital
                     keeps the whole interest, so it has no cut to show. */}
-                <div className="text-muted-foreground mt-2 space-y-1 text-xs">
-                  {loan.funders.map((funder) => (
-                    <div key={funder.lenderId}>
-                      {funder.name} <Money amount={funder.principal} variant="display" /> capital ·{' '}
-                      {funder.isAdmin ? 'Admin earns' : 'lender cut'}{' '}
-                      <Money amount={funder.earnings} variant="display" />
-                      {funder.adminCut > 0 ? (
-                        <>
-                          {' '}· Admin cut <Money amount={funder.adminCut} variant="display" />
-                        </>
-                      ) : null}
-                    </div>
-                  ))}
+                <div className="bg-muted/50 mt-3 rounded-xl px-3 py-2.5">
+                  <p className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">Funded by</p>
+                  <ul className="divide-border/70 mt-1 divide-y">
+                    {loan.funders.map((funder) => (
+                      <li key={funder.lenderId} className="py-1.5">
+                        <div className="flex items-baseline justify-between gap-3 text-sm">
+                          <span className="min-w-0 truncate font-medium">{funder.name}</span>
+                          <Money amount={funder.principal} variant="display" className="shrink-0" />
+                        </div>
+                        <p className="text-muted-foreground mt-0.5 text-xs">
+                          {funder.isAdmin ? 'Admin earns' : 'earns'} <Money amount={funder.earnings} variant="display" />
+                          {funder.adminCut > 0 ? (
+                            <>
+                              {' '}· Admin cut <Money amount={funder.adminCut} variant="display" />
+                            </>
+                          ) : null}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
                 {/* Proof is optional but flagged — a payment can be recorded with
