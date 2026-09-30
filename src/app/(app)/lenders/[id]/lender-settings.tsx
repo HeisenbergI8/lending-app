@@ -40,7 +40,9 @@ export function LenderSettings({
   // The buttons stay put while the dialog is open. Swapping them out for the
   // form was what put the form in the page header in the first place.
   return (
-    <div className="flex items-center gap-2">
+    // WRAPS on the narrowest phones, where the three buttons are wider than
+    // the screen and would otherwise push the page sideways.
+    <div className="flex flex-wrap items-center gap-2">
       <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
         <Pencil className="size-4" aria-hidden />
         Rename
