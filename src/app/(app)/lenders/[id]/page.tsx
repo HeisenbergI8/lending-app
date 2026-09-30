@@ -665,15 +665,15 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                     {/* Two lines, each one kind of fact: when, then the money.
                         The figures are a shade darker than the words around them. */}
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      Due {formatListDate(funding.dueOn)} · {describeTerm(funding.termDays)}
+                      <span className="whitespace-nowrap">Due {formatListDate(funding.dueOn)}</span> ·{' '}
+                      <span className="whitespace-nowrap">{describeTerm(funding.termDays)}</span>
                     </div>
                     <div className="text-muted-foreground text-xs">
                       {/* Each phrase kept whole, so a narrow screen breaks the
                           line at the "+" and never between a figure and its word. */}
                       <span className="whitespace-nowrap">
-                        <Money amount={funding.principal} variant="display" className="text-foreground/80" /> capital
+                        <Money amount={funding.principal} variant="display" className="text-foreground/80" /> capital +
                       </span>{' '}
-                      +{' '}
                       <span className="whitespace-nowrap">
                         earns <Money amount={funding.earnings} variant="display" className="text-foreground/80" />
                       </span>
@@ -734,15 +734,17 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      {funding.paidOn ? `Paid ${formatListDate(funding.paidOn)}` : 'Paid'} · {describeTerm(funding.termDays)}
+                      <span className="whitespace-nowrap">
+                        {funding.paidOn ? `Paid ${formatListDate(funding.paidOn)}` : 'Paid'}
+                      </span>{' '}
+                      · <span className="whitespace-nowrap">{describeTerm(funding.termDays)}</span>
                     </div>
                     <div className="text-muted-foreground text-xs">
                       {/* Each phrase kept whole, so a narrow screen breaks the
                           line at the "+" and never between a figure and its word. */}
                       <span className="whitespace-nowrap">
-                        <Money amount={funding.principal} variant="display" className="text-foreground/80" /> capital
+                        <Money amount={funding.principal} variant="display" className="text-foreground/80" /> capital +
                       </span>{' '}
-                      +{' '}
                       <span className="whitespace-nowrap">
                         earned <Money amount={funding.earnings} variant="display" className="text-foreground/80" />
                       </span>
@@ -895,8 +897,10 @@ function CutList({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{row.borrowerName}</div>
                   <div className="text-muted-foreground mt-0.5 text-xs">
-                    {row.paidOn ? `Paid ${formatListDate(row.paidOn)}` : `Due ${formatListDate(row.dueOn)}`} ·{' '}
-                    {describeTerm(row.termDays)}
+                    <span className="whitespace-nowrap">
+                      {row.paidOn ? `Paid ${formatListDate(row.paidOn)}` : `Due ${formatListDate(row.dueOn)}`}
+                    </span>{' '}
+                    · <span className="whitespace-nowrap">{describeTerm(row.termDays)}</span>
                   </div>
                   <div className="text-muted-foreground truncate text-xs">on {row.lenderName}&rsquo;s money</div>
                 </div>
@@ -972,10 +976,15 @@ function MoneyHistoryList({
                   <div className="text-muted-foreground text-xs break-words">
                     {/* "₱30,000.00 capital + ₱12,000.00 interest" breaks at the
                         "+", never inside a phrase. */}
-                    {event.detail.split(' + ').map((part, index) => (
+                    {event.detail.split(' + ').map((part, index, parts) => (
                       <span key={index}>
-                        {index > 0 ? ' + ' : null}
-                        <span className="whitespace-nowrap">{part}</span>
+                        {index > 0 ? ' ' : null}
+                        {/* The "+" rides at the end of the phrase before it, so
+                            it never sits alone on a line. */}
+                        <span className="whitespace-nowrap">
+                          {part}
+                          {index < parts.length - 1 ? ' +' : null}
+                        </span>
                       </span>
                     ))}
                   </div>

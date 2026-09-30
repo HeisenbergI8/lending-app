@@ -188,7 +188,10 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                         {/* "Week due" is not decoration. Without it a ₱4,200
                             week reads exactly like a ₱144,000 capital repayment
                             falling on the same day. */}
-                        {loan.dueIsWeekly ? 'Week due' : 'Due'} {formatListDate(loan.dueOn)} ·{' '}
+                        <span className="whitespace-nowrap">
+                          {loan.dueIsWeekly ? 'Week due' : 'Due'} {formatListDate(loan.dueOn)}
+                        </span>{' '}
+                        ·{' '}
                         <Money amount={loan.capital} variant="display" className="text-foreground/80" />
                       </div>
                     </div>
