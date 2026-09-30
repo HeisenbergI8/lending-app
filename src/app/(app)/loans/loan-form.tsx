@@ -449,45 +449,25 @@ export function LoanForm({
           </>
         )}
 
+      </section>
+
+      {/* ── How the interest works ─────────────────────────────────────────
+          Its own card: the loan card above is what is handed over and for how
+          long; this is what it costs. One block of settings read as clutter. */}
+      <section className="bg-card space-y-4 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+        <h2 className="text-base font-semibold tracking-tight">Interest</h2>
+
         {/* HOW THE INTEREST IS SET, chosen per loan and never hidden behind a
             disclosure. A switch rather than two described cards: it is a choice
             between two words, and the fields that appear underneath say what
             each one means better than a subtitle can. */}
         <fieldset>
-          <legend className="text-muted-foreground text-xs">How the interest is set</legend>
-          <div className="border-input mt-2 grid grid-cols-2 gap-1 rounded-lg border p-1">
+          <legend className="sr-only">How the interest is set</legend>
+          <div className="border-input grid grid-cols-2 gap-1 rounded-lg border p-1">
             <BasisChoice value="WEEKLY_RATE" current={basis} onSelect={setBasis} label="Weekly rate" />
             <BasisChoice value="FIXED_AMOUNT" current={basis} onSelect={setBasis} label="Fixed amount" />
           </div>
         </fieldset>
-
-        {/* WHEN the interest is collected, which is a different question from how
-            it is set. Only on a weekly rate: a fixed amount has no week count to
-            instal against and the server refuses it, so the box is not offered
-            rather than offered and rejected.
-
-            The refusal sentences live in server/loans/terms.ts, which a client
-            component may not import — so this hides the choice instead of
-            disabling it with an explanation. */}
-        {basis === 'WEEKLY_RATE' ? (
-          <label className="flex items-start gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              name="interestCollection"
-              value="WEEKLY"
-              checked={weekly}
-              onChange={(event) => setWeekly(event.target.checked)}
-              className="border-input text-brand-strong mt-0.5 size-4 rounded"
-            />
-            <span>
-              <span className="font-medium">Collect the interest every week</span>
-              <span className="text-muted-foreground block text-xs">
-                The borrower pays the interest weekly and returns the capital on the due date, with
-                the last week. The total does not change.
-              </span>
-            </span>
-          </label>
-        ) : null}
 
         {basis === 'FIXED_AMOUNT' ? (
           <div className="text-sm">
@@ -538,51 +518,79 @@ export function LoanForm({
           <div className="text-sm">
             {/* THE RATES ARE NOT HIDDEN. They were behind a collapsed <details>
                 and a loan went out at 5% instead of 7% without anyone seeing it:
-                a field you have to open is a field nobody checks. */}
-            <p className="text-muted-foreground text-xs">
-              Rates. The usual 7% to the borrower, 2% to the Admin. Change them for this loan only.
-            </p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                a field you have to open is a field nobody checks.
+
+                SIDE BY SIDE even on a phone: two short numbers read as the pair
+                they are, and the card is half as tall. */}
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="borrowerRate">Borrower pays, per week</Label>
+                <Label htmlFor="borrowerRate">Borrower pays</Label>
                 <div className="relative">
                   <Input
                     id="borrowerRate"
                     name="borrowerRate"
                     inputMode="decimal"
                     placeholder="7"
-                    className="pr-7"
+                    className="pr-16"
                     value={borrowerRate}
                     onChange={(event) => setBorrowerRate(event.target.value)}
                   />
                   <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
-                    %
+                    % a week
                   </span>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="adminCut">Admin cut, per week</Label>
+                <Label htmlFor="adminCut">Admin cut</Label>
                 <div className="relative">
                   <Input
                     id="adminCut"
                     name="adminCut"
                     inputMode="decimal"
                     placeholder="2"
-                    className="pr-7"
+                    className="pr-16"
                     value={adminCut}
                     onChange={(event) => setAdminCut(event.target.value)}
                   />
                   <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
-                    %
+                    % a week
                   </span>
                 </div>
-                <p className="text-muted-foreground text-xs">
-                  The Admin pot earns the whole {borrowerRate || '7'}%, with no one to pay a share to.
-                </p>
               </div>
             </div>
+            <p className="text-muted-foreground mt-2 text-xs">
+              Usually 7% and 2%, changed here for this loan only. Money from the Admin pot earns the whole{' '}
+              {borrowerRate || '7'}%, with no cut.
+            </p>
           </div>
         )}
+
+        {/* WHEN the interest is collected, which is a different question from how
+            it is set. Only on a weekly rate: a fixed amount has no week count to
+            instal against and the server refuses it, so the box is not offered
+            rather than offered and rejected.
+
+            The refusal sentences live in server/loans/terms.ts, which a client
+            component may not import — so this hides the choice instead of
+            disabling it with an explanation. */}
+        {basis === 'WEEKLY_RATE' ? (
+          <label className="border-border/70 flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm">
+            <input
+              type="checkbox"
+              name="interestCollection"
+              value="WEEKLY"
+              checked={weekly}
+              onChange={(event) => setWeekly(event.target.checked)}
+              className="border-input text-brand-strong mt-0.5 size-4 rounded"
+            />
+            <span>
+              <span className="font-medium">Collect the interest every week</span>
+              <span className="text-muted-foreground mt-0.5 block text-xs">
+                Capital comes back on the due date. The total does not change.
+              </span>
+            </span>
+          </label>
+        ) : null}
       </section>
 
       {/* ── Whose money ───────────────────────────────────────────────────── */}
