@@ -47,7 +47,7 @@ export type PendingTotals = {
  * What a request would cost, from the three columns that decide it.
  *
  * Exported so the promise the screen makes can be tested without a database:
- * the words beside these two figures are "would owe", and this is the whole of
+ * the words beside the total are "Total to repay", and this is the whole of
  * what produces them. It is the loan arithmetic exactly — computeInterest is
  * the same function server/loans/terms.ts stores from — which is what makes a
  * request convert into a loan showing the same numbers.

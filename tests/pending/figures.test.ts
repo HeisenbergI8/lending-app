@@ -6,7 +6,7 @@ import { requestFigures } from '../../src/server/pending/queries.ts'
 /**
  * What the pending list promises beside each request.
  *
- * The screen says "would owe" and prints an interest figure next to a weekly
+ * The screen says "Total to repay" and prints an interest figure next to a weekly
  * rate. This is the whole of what produces both, so this file is where those
  * words are either true or not.
  *

@@ -100,11 +100,12 @@ export default async function PendingLoansPage({ searchParams }: PageProps<'/pen
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  {/* Capital plus that interest. "Would owe" rather than "Total"
-                      because nothing has been agreed: no money has changed
-                      hands, no lender is behind it, and the figure moves if the
-                      rate or the length is corrected. A loan's total cannot. */}
-                  <div className="text-muted-foreground text-xs">would owe</div>
+                  {/* Capital plus that interest: what comes BACK. It said "would
+                      owe" until 2026-09-30, which the Admin read as the amount
+                      borrowed or the amount owed to them — so it now names the
+                      thing itself. Still a projection: nothing is agreed, and
+                      the figure moves if the rate or the length is corrected. */}
+                  <div className="text-muted-foreground text-xs">Total to repay</div>
                   <Money amount={request.total} variant="display" className="text-sm font-semibold" />
                 </div>
               </div>
