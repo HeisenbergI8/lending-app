@@ -10,7 +10,7 @@ import { describeTerm } from '@/lib/money/weeks.ts'
 import { PAGE_SIZE, parsePage } from '@/lib/pagination.ts'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { requireUser } from '@/server/auth/guard.ts'
-import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
+import { borrowerFullPhotoUrl, borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { getBorrower } from '@/server/borrowers/queries.ts'
 
 import { PhotoPicker } from './photo-picker.tsx'
@@ -39,7 +39,11 @@ export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>)
 export default async function BorrowerPage({ params, searchParams }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
   const id = (await params).id
-  const [borrower, photos] = await Promise.all([getBorrower(user.id, id), borrowerPhotoUrls(user.id)])
+  const [borrower, photos, full] = await Promise.all([
+    getBorrower(user.id, id),
+    borrowerPhotoUrls(user.id),
+    borrowerFullPhotoUrl(user.id, id),
+  ])
   if (!borrower) notFound()
 
   const { record } = borrower
@@ -68,6 +72,7 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
             borrowerId={borrower.id}
             name={`${borrower.firstName} ${borrower.lastName}`}
             photo={photos.get(borrower.id) ?? null}
+            full={full}
           />
         </div>
 

@@ -19,6 +19,18 @@ const folder = (userId: string) => `borrower-photos/${userId}/`
 export const borrowerPhotoPath = (userId: string, borrowerId: string) => `${folder(userId)}${borrowerId}.jpg`
 
 /**
+ * TWO FILES PER BORROWER. `<id>.jpg` is the small square the circles use, on
+ * every list; `<id>-full.jpg` is the whole picture, uncropped and sharper, for
+ * the full-screen view on their page (added 2026-09-30). Lists never load the
+ * big one, so a screen of twenty faces stays a few hundred kilobytes.
+ *
+ * A photo saved before the full view existed has no `-full` file; the viewer
+ * then shows the square one.
+ */
+const FULL = '-full.jpg'
+const fullPath = (userId: string, borrowerId: string) => `${folder(userId)}${borrowerId}${FULL}`
+
+/**
  * A link to every borrower's photo on the account, by borrower id. Two requests
  * however many faces: one list, one batch of signatures.
  *
@@ -31,7 +43,7 @@ export async function borrowerPhotoUrls(userId: string): Promise<Map<string, str
     const files = await listFolder(folder(userId))
     const byPath = new Map(
       files
-        .filter((file) => file.name.endsWith('.jpg'))
+        .filter((file) => file.name.endsWith('.jpg') && !file.name.endsWith(FULL))
         .map((file) => [`${folder(userId)}${file.name}`, file.name.slice(0, -'.jpg'.length)] as const),
     )
     const signed = await signMany([...byPath.keys()])
@@ -46,10 +58,37 @@ export async function borrowerPhotoUrls(userId: string): Promise<Map<string, str
   }
 }
 
-export async function saveBorrowerPhoto(userId: string, borrowerId: string, jpeg: ArrayBuffer): Promise<void> {
-  await replaceFile(borrowerPhotoPath(userId, borrowerId), jpeg, 'image/jpeg')
+/**
+ * A link to one borrower's full picture, or null when there is none — a photo
+ * from before the full view, or storage not set up. The caller falls back to
+ * the square one.
+ */
+export async function borrowerFullPhotoUrl(userId: string, borrowerId: string): Promise<string | null> {
+  if (!storageConfigured()) return null
+  try {
+    const path = fullPath(userId, borrowerId)
+    return (await signMany([path])).get(path) ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The full picture goes FIRST. If it fails nothing has changed; if the square
+ * then fails, the old circle still shows while the new full picture waits to
+ * be replaced by the next try — never a circle pointing at nothing.
+ */
+export async function saveBorrowerPhoto(
+  userId: string,
+  borrowerId: string,
+  square: ArrayBuffer,
+  full: ArrayBuffer | null,
+): Promise<void> {
+  if (full) await replaceFile(fullPath(userId, borrowerId), full, 'image/jpeg')
+  await replaceFile(borrowerPhotoPath(userId, borrowerId), square, 'image/jpeg')
 }
 
 export async function removeBorrowerPhoto(userId: string, borrowerId: string): Promise<void> {
   await removeProof(borrowerPhotoPath(userId, borrowerId))
+  await removeProof(fullPath(userId, borrowerId))
 }

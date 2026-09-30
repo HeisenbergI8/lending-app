@@ -145,35 +145,43 @@ export async function restoreBorrower(_prev: FormState, form: FormData): Promise
   return NO_ERROR
 }
 
-/** A photo is shrunk in the browser to a small JPEG first, so this is generous. */
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024
+/** The square is small; the full picture is at most 1600px on its long side. */
+const MAX_SQUARE_BYTES = 2 * 1024 * 1024
+const MAX_FULL_BYTES = 5 * 1024 * 1024
+
+/** A JPEG starts FF D8 FF, whatever the upload claims its type is. */
+async function jpegBytes(file: FormDataEntryValue | null, max: number): Promise<ArrayBuffer | null | 'bad'> {
+  if (!(file instanceof File) || file.size === 0) return null
+  if (file.size > max) return 'bad'
+  const bytes = await file.arrayBuffer()
+  const head = new Uint8Array(bytes.slice(0, 3))
+  return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff ? bytes : 'bad'
+}
 
 /**
  * Set or replace a borrower's photo.
  *
- * The browser has already cropped it square and made it a small JPEG (see
- * photo-picker.tsx), so only a JPEG is accepted, checked by its first bytes
- * rather than by the type the upload claims.
+ * The browser has already made two JPEGs of it (see photo-picker.tsx): a small
+ * square for the circles, and the whole picture for the full-screen view. Both
+ * are checked by their first bytes rather than by the type the upload claims.
  */
 export async function setBorrowerPhoto(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
   const borrowerId = text(form, 'borrowerId')
-  const photo = form.get('photo')
 
   const borrower = await db.borrower.findFirst({
     where: { id: borrowerId, userId: user.id, deletedAt: null },
     select: { id: true },
   })
   if (!borrower) return failed('That borrower no longer exists.')
-  if (!(photo instanceof File) || photo.size === 0) return failed('Choose a photo first.')
-  if (photo.size > MAX_PHOTO_BYTES) return failed('That photo is too large. Try another.')
 
-  const bytes = await photo.arrayBuffer()
-  const head = new Uint8Array(bytes.slice(0, 3))
-  if (head[0] !== 0xff || head[1] !== 0xd8 || head[2] !== 0xff) return failed('That file is not a photo.')
+  const square = await jpegBytes(form.get('photo'), MAX_SQUARE_BYTES)
+  const full = await jpegBytes(form.get('full'), MAX_FULL_BYTES)
+  if (square === null) return failed('Choose a photo first.')
+  if (square === 'bad' || full === 'bad') return failed('That file is not a photo, or it is too large.')
 
   try {
-    await saveBorrowerPhoto(user.id, borrower.id, bytes)
+    await saveBorrowerPhoto(user.id, borrower.id, square, full)
   } catch (error) {
     return failed(
       error instanceof StorageUnavailable ? `The photo could not be saved: ${error.message}` : 'The photo could not be saved. Try again.',
