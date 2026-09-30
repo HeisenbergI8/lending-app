@@ -85,10 +85,18 @@ export async function saveBorrowerPhoto(
   full: ArrayBuffer | null,
 ): Promise<void> {
   if (full) await replaceFile(fullPath(userId, borrowerId), full, 'image/jpeg')
+  // No full picture sent: the old one, of the previous photo, must not stay
+  // behind to be shown under a new face.
+  else await removeProof(fullPath(userId, borrowerId))
   await replaceFile(borrowerPhotoPath(userId, borrowerId), square, 'image/jpeg')
 }
 
+/** Both files, each tried even if the other fails; the first failure is then reported. */
 export async function removeBorrowerPhoto(userId: string, borrowerId: string): Promise<void> {
-  await removeProof(borrowerPhotoPath(userId, borrowerId))
-  await removeProof(fullPath(userId, borrowerId))
+  const results = await Promise.allSettled([
+    removeProof(borrowerPhotoPath(userId, borrowerId)),
+    removeProof(fullPath(userId, borrowerId)),
+  ])
+  const failed = results.find((result) => result.status === 'rejected')
+  if (failed) throw (failed as PromiseRejectedResult).reason
 }

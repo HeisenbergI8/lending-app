@@ -44,6 +44,9 @@ export function PhotoViewer({
 }) {
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  // The full picture would not load (a link that expired while the page sat
+  // open, say): show the square instead of blurring forever.
+  const [broken, setBroken] = useState(false)
   const [drag, setDrag] = useState(0)
   // Whether a finger is down: the picture follows it with no easing, and
   // springs back with it.
@@ -69,7 +72,7 @@ export function PhotoViewer({
     setDrag(0)
   }
 
-  const src = full ?? square
+  const src = full && !broken ? full : square
   // The dark ground thins as the picture is dragged away, so the page behind
   // shows through before it closes — the cue that letting go will close it.
   const dim = Math.max(0.35, 0.94 - drag / 400)
@@ -80,6 +83,12 @@ export function PhotoViewer({
       onOpenChange={(next) => {
         setOpen(next)
         setDrag(0)
+        // Every opening starts from the placeholder again, so a picture that
+        // has to be fetched anew never leaves a blank dark screen.
+        if (next) {
+          setLoaded(false)
+          setBroken(false)
+        }
       }}
     >
       <DialogPrimitive.Trigger asChild>{children}</DialogPrimitive.Trigger>
@@ -147,6 +156,7 @@ export function PhotoViewer({
                 src={src}
                 alt={`Photo of ${name}`}
                 onLoad={() => setLoaded(true)}
+                onError={() => (src !== square ? setBroken(true) : setLoaded(true))}
                 draggable={false}
                 className={
                   loaded

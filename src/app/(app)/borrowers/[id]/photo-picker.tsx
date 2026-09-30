@@ -355,13 +355,15 @@ export function PhotoPicker({
           </PhotoViewer>
           <DropdownMenu>
             <DropdownMenuTrigger asChild disabled={pending}>
-              {/* A 44px target around the 28px badge, for a thumb. */}
+              {/* A 44px target for a thumb, grown OUTWARD from the 28px badge —
+                  down and to the right, off the photo — so a tap on the picture
+                  just above the badge still opens the picture. */}
               <button
                 type="button"
                 aria-label={`Change or remove ${name}’s photo`}
-                className="focus-visible:ring-ring/50 absolute -right-2 -bottom-2 flex size-11 cursor-pointer items-end justify-end rounded-full focus-visible:ring-3 focus-visible:outline-none"
+                className="focus-visible:ring-ring/50 absolute -right-4 -bottom-4 flex size-11 cursor-pointer items-start justify-start rounded-full focus-visible:ring-3 focus-visible:outline-none"
               >
-                <span className={cn(badge, 'right-2 bottom-2')}>
+                <span className={cn(badge, 'static')}>
                   <Camera className="size-3.5" aria-hidden />
                 </span>
               </button>
