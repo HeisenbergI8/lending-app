@@ -10,8 +10,10 @@ import { describeTerm } from '@/lib/money/weeks.ts'
 import { PAGE_SIZE, parsePage } from '@/lib/pagination.ts'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { requireUser } from '@/server/auth/guard.ts'
+import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { getBorrower } from '@/server/borrowers/queries.ts'
 
+import { PhotoPicker } from './photo-picker.tsx'
 import { BorrowerSettings, LabelPicker } from './borrower-settings.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -36,7 +38,8 @@ export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>)
  */
 export default async function BorrowerPage({ params, searchParams }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
-  const borrower = await getBorrower(user.id, (await params).id)
+  const id = (await params).id
+  const [borrower, photos] = await Promise.all([getBorrower(user.id, id), borrowerPhotoUrls(user.id)])
   if (!borrower) notFound()
 
   const { record } = borrower
@@ -57,6 +60,16 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
           <ArrowLeft className="size-4" aria-hidden />
           Borrowers
         </Link>
+
+        {/* Their face, where the initials would be everywhere else. Tap it
+            to add or change it. */}
+        <div className="mt-3">
+          <PhotoPicker
+            borrowerId={borrower.id}
+            name={`${borrower.firstName} ${borrower.lastName}`}
+            photo={photos.get(borrower.id) ?? null}
+          />
+        </div>
 
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>

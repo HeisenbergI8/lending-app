@@ -7,6 +7,7 @@ import { Money } from '@/components/money.tsx'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { requireUser } from '@/server/auth/guard.ts'
+import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { borrowerCounts, topBorrowers } from '@/server/borrowers/queries.ts'
 import { listLenders } from '@/server/lenders/queries.ts'
 import { interestSummary, overdueSummary } from '@/server/loans/queries.ts'
@@ -28,7 +29,7 @@ const SHOWN = 6
 export default async function DashboardPage() {
   const user = await requireUser()
 
-  const [lenders, borrowers, people, overdue, interest] = await Promise.all([
+  const [lenders, borrowers, people, overdue, interest, photos] = await Promise.all([
     listLenders(user.id),
     // The six shown, ranked by what they owe, chosen by Postgres. This screen
     // used to load EVERY borrower with EVERY loan and payment and sort them in
@@ -44,6 +45,7 @@ export default async function DashboardPage() {
     // rows: the schema's rate invariant means both routes give the same figure,
     // and the loan is the shorter one.
     interestSummary(user.id),
+    borrowerPhotoUrls(user.id),
   ])
 
   const pots = lenders.reduce(
@@ -278,7 +280,7 @@ export default async function DashboardPage() {
                     href={`/borrowers/${borrower.id}`}
                     className="bg-card ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line group flex items-center gap-3 rounded-2xl p-3.5 ring-1 transition-[box-shadow,--tw-ring-color] duration-200"
                   >
-                    <Avatar name={`${borrower.firstName} ${borrower.lastName}`} />
+                    <Avatar name={`${borrower.firstName} ${borrower.lastName}`} photo={photos.get(borrower.id)} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-sm font-medium">

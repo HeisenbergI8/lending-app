@@ -7,6 +7,8 @@ import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, failed, personName, text } from '../forms.ts'
 import { borrowerNameTaken, borrowerRestoreBlocked } from '../people.ts'
+import { removeBorrowerPhoto, saveBorrowerPhoto } from '../storage/borrower-photos.ts'
+import { StorageUnavailable } from '../storage/proof-bucket.ts'
 
 /**
  * Writing borrowers.
@@ -139,6 +141,62 @@ export async function restoreBorrower(_prev: FormState, form: FormData): Promise
   })
   if (count === 0) return failed('That borrower no longer exists.')
 
+  refresh()
+  return NO_ERROR
+}
+
+/** A photo is shrunk in the browser to a small JPEG first, so this is generous. */
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024
+
+/**
+ * Set or replace a borrower's photo.
+ *
+ * The browser has already cropped it square and made it a small JPEG (see
+ * photo-picker.tsx), so only a JPEG is accepted, checked by its first bytes
+ * rather than by the type the upload claims.
+ */
+export async function setBorrowerPhoto(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+  const borrowerId = text(form, 'borrowerId')
+  const photo = form.get('photo')
+
+  const borrower = await db.borrower.findFirst({
+    where: { id: borrowerId, userId: user.id, deletedAt: null },
+    select: { id: true },
+  })
+  if (!borrower) return failed('That borrower no longer exists.')
+  if (!(photo instanceof File) || photo.size === 0) return failed('Choose a photo first.')
+  if (photo.size > MAX_PHOTO_BYTES) return failed('That photo is too large. Try another.')
+
+  const bytes = await photo.arrayBuffer()
+  const head = new Uint8Array(bytes.slice(0, 3))
+  if (head[0] !== 0xff || head[1] !== 0xd8 || head[2] !== 0xff) return failed('That file is not a photo.')
+
+  try {
+    await saveBorrowerPhoto(user.id, borrower.id, bytes)
+  } catch (error) {
+    return failed(
+      error instanceof StorageUnavailable ? `The photo could not be saved: ${error.message}` : 'The photo could not be saved. Try again.',
+    )
+  }
+  refresh()
+  return NO_ERROR
+}
+
+/** Take a borrower's photo away; their initials show again. */
+export async function clearBorrowerPhoto(_prev: FormState, form: FormData): Promise<FormState> {
+  const user = await requireUser()
+  const borrower = await db.borrower.findFirst({
+    where: { id: text(form, 'borrowerId'), userId: user.id },
+    select: { id: true },
+  })
+  if (!borrower) return failed('That borrower no longer exists.')
+
+  try {
+    await removeBorrowerPhoto(user.id, borrower.id)
+  } catch {
+    return failed('The photo could not be removed. Try again.')
+  }
   refresh()
   return NO_ERROR
 }

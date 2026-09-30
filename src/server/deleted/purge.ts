@@ -1,4 +1,5 @@
 import { db } from '../db.ts'
+import { removeBorrowerPhoto } from '../storage/borrower-photos.ts'
 import { removeProof, storageConfigured } from '../storage/proof-bucket.ts'
 import { purgeCutoff } from './window.ts'
 
@@ -138,13 +139,22 @@ export async function purgeExpired(options: { userId?: string; now?: Date } = {}
   //    just went in this same run leaves in it too.
   const borrowers = await db.borrower.findMany({
     where: expired,
-    select: { id: true, _count: { select: { loans: true } } },
+    select: { id: true, userId: true, _count: { select: { loans: true } } },
   })
   const freeBorrowers = borrowers.filter((row) => row._count.loans === 0).map((row) => row.id)
   report.heldBorrowers = borrowers.length - freeBorrowers.length
   if (freeBorrowers.length > 0) {
     const { count } = await db.borrower.deleteMany({ where: { id: { in: freeBorrowers } } })
     report.borrowers = count
+
+    // Their photo goes with them. Best effort, AFTER the row: a photo left
+    // behind is a file nobody can reach from the app, while a borrower whose
+    // photo went first would come back from Recently Deleted without a face.
+    if (bucketReady) {
+      for (const row of borrowers.filter((row) => row._count.loans === 0)) {
+        await removeBorrowerPhoto(row.userId, row.id).catch(() => {})
+      }
+    }
   }
 
   // A lender's transactions cascade, so only their funding rows hold them back.

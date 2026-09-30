@@ -111,6 +111,62 @@ export async function removeProof(path: string): Promise<void> {
   }
 }
 
+/**
+ * Put a file at a FIXED path, replacing whatever was there. Borrower photos
+ * use it: one photo per borrower, at a path made from their id, so changing
+ * the photo is simply writing it again.
+ */
+export async function replaceFile(path: string, body: ArrayBuffer, contentType: string): Promise<void> {
+  const { url, key, bucket } = config()
+
+  const response = await fetch(`${url}/storage/v1/object/${bucket}/${encodePath(path)}`, {
+    method: 'POST',
+    headers: { ...headers(key), 'Content-Type': contentType, 'x-upsert': 'true', 'cache-control': 'no-cache' },
+    body,
+  })
+
+  if (!response.ok) throw new StorageUnavailable(await describeFailure(response, 'upload'))
+}
+
+/** The files directly inside one folder, with when each last changed. */
+export async function listFolder(prefix: string): Promise<{ name: string; updatedAt: string | null }[]> {
+  const { url, key, bucket } = config()
+
+  const response = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
+    method: 'POST',
+    headers: { ...headers(key), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prefix, limit: 1000, offset: 0 }),
+  })
+  if (!response.ok) return []
+
+  const rows = (await response.json()) as { name: string; id: string | null; updated_at?: string | null }[]
+  // A row with no id is a sub-folder, not a file.
+  return rows.filter((row) => row.id !== null).map((row) => ({ name: row.name, updatedAt: row.updated_at ?? null }))
+}
+
+/**
+ * Short-lived links to many files in ONE request — a list of borrowers with
+ * photos would otherwise be a request per face.
+ */
+export async function signMany(paths: string[], expiresInSeconds = 3600): Promise<Map<string, string>> {
+  const links = new Map<string, string>()
+  if (paths.length === 0) return links
+  const { url, key, bucket } = config()
+
+  const response = await fetch(`${url}/storage/v1/object/sign/${bucket}`, {
+    method: 'POST',
+    headers: { ...headers(key), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn: expiresInSeconds, paths }),
+  })
+  if (!response.ok) return links
+
+  const signed = (await response.json()) as { path: string | null; signedURL: string | null; error: string | null }[]
+  for (const row of signed) {
+    if (row.path && row.signedURL && !row.error) links.set(row.path, `${url}/storage/v1${row.signedURL}`)
+  }
+  return links
+}
+
 /** Each segment encoded on its own, so the slashes stay slashes. */
 function encodePath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/')

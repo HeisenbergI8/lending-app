@@ -26,6 +26,7 @@ import {
 } from '@/lib/report-range.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { type LenderDetail, getLender } from '@/server/lenders/queries.ts'
+import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 
 import { LenderSettings } from './lender-settings.tsx'
 import { EditTransaction, TransactionForm } from './transaction-form.tsx'
@@ -332,7 +333,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
      the earned-over-a-period card rather than above the row of tiles. */
   const range = parseReportRange({ from: one(query.from), to: one(query.to) })
 
-  const lender = await getLender(user.id, (await params).id, range)
+  const [lender, photos] = await Promise.all([getLender(user.id, (await params).id, range), borrowerPhotoUrls(user.id)])
   if (!lender) notFound()
 
   const { position } = lender
@@ -657,7 +658,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   href={`/borrowers/${funding.borrowerId}`}
                   className="bg-card group flex items-center gap-3 p-3 rounded-2xl ring-1 ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line transition-[box-shadow,--tw-ring-color] duration-200"
                 >
-                  <Avatar name={funding.borrowerName} />
+                  <Avatar name={funding.borrowerName} photo={photos.get(funding.borrowerId)} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
@@ -717,7 +718,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   href={`/loans/${funding.loanId}`}
                   className="bg-card group flex items-center gap-3 p-3 rounded-2xl ring-1 ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line transition-[box-shadow,--tw-ring-color] duration-200"
                 >
-                  <Avatar name={funding.borrowerName} />
+                  <Avatar name={funding.borrowerName} photo={photos.get(funding.borrowerId)} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">

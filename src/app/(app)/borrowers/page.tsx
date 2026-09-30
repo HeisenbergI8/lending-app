@@ -8,6 +8,7 @@ import { Pager } from '@/components/pager.tsx'
 import { parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { listBorrowers } from '@/server/borrowers/queries.ts'
+import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 
 import { AddBorrower } from './add-borrower.tsx'
 
@@ -26,7 +27,7 @@ export const metadata = { title: 'Borrowers' }
 export default async function BorrowersPage({ searchParams }: PageProps<'/borrowers'>) {
   const user = await requireUser()
   const paging = parsePage((await searchParams).page)
-  const { rows, totals } = await listBorrowers(user.id, paging)
+  const [{ rows, totals }, photos] = await Promise.all([listBorrowers(user.id, paging), borrowerPhotoUrls(user.id)])
 
   return (
     <div className="space-y-6">
@@ -60,7 +61,7 @@ export default async function BorrowersPage({ searchParams }: PageProps<'/borrow
                 href={`/borrowers/${borrower.id}`}
                 className="bg-card group flex items-center gap-3 p-3.5 rounded-2xl ring-1 ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line transition-[box-shadow,--tw-ring-color] duration-200"
               >
-                <Avatar name={`${borrower.firstName} ${borrower.lastName}`} />
+                <Avatar name={`${borrower.firstName} ${borrower.lastName}`} photo={photos.get(borrower.id)} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate font-medium">

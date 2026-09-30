@@ -10,6 +10,7 @@ import { Pager } from '@/components/pager.tsx'
 import { isFiltered, loanFilterHref, parseLoanFilter } from '@/lib/loan-filter.ts'
 import { parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
+import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { listLoans } from '@/server/loans/queries.ts'
 
 import { LoanSearch } from './search-form.tsx'
@@ -34,7 +35,10 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
   const params = await searchParams
   const filter = parseLoanFilter(params)
   const paging = parsePage(params.page)
-  const { rows, totals } = await listLoans(user.id, filter, paging)
+  const [{ rows, totals }, photos] = await Promise.all([
+    listLoans(user.id, filter, paging),
+    borrowerPhotoUrls(user.id),
+  ])
 
   const searching = isFiltered(filter)
   // A page number past the end of the list. It is not "nothing matches" — the
@@ -178,7 +182,7 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                   className="bg-card group block p-3.5 rounded-2xl ring-1 ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line transition-[box-shadow,--tw-ring-color] duration-200"
                 >
                   <div className="flex items-center gap-3">
-                    <Avatar name={loan.borrowerName} />
+                    <Avatar name={loan.borrowerName} photo={photos.get(loan.borrowerId)} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{loan.borrowerName}</div>
                       <div className="text-muted-foreground mt-0.5 text-xs">

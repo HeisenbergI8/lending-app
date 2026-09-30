@@ -1,3 +1,5 @@
+import Image from 'next/image'
+
 import { cn } from '@/lib/utils'
 
 /**
@@ -44,11 +46,29 @@ function initialsFor(name: string): string {
 
 export function Avatar({
   name,
+  photo,
   className,
 }: {
   name: string
+  /**
+   * A borrower's photo (a short-lived signed link), shown in place of the
+   * initials when there is one. Served as-is, like the payment proofs: the
+   * bucket is private, so Next's optimizer could not fetch it anyway.
+   */
+  photo?: string | null
   className?: string
 }) {
+  if (photo) {
+    return (
+      <span
+        className={cn('bg-muted relative flex size-9 shrink-0 overflow-hidden rounded-full', className)}
+        aria-hidden
+      >
+        <Image src={photo} alt="" fill sizes="96px" unoptimized className="object-cover" />
+      </span>
+    )
+  }
+
   return (
     <span
       className={cn(
