@@ -18,7 +18,6 @@ import { LoanSearch } from './search-form.tsx'
 
 export const metadata = { title: 'Loans' }
 
-
 /**
  * Every loan, soonest due first.
  *

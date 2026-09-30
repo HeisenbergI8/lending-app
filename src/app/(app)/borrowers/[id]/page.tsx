@@ -17,7 +17,6 @@ import { getBorrower } from '@/server/borrowers/queries.ts'
 import { PhotoPicker } from './photo-picker.tsx'
 import { BorrowerSettings, LabelPicker } from './borrower-settings.tsx'
 
-
 export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
   const borrower = await getBorrower(user.id, (await params).id)

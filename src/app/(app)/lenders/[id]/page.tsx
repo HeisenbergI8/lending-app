@@ -32,7 +32,6 @@ import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { LenderSettings } from './lender-settings.tsx'
 import { EditTransaction, TransactionForm } from './transaction-form.tsx'
 
-
 /** First value only. A query string can carry a key twice; a date box cannot. */
 const one = (value: string | string[] | undefined): string =>
   (Array.isArray(value) ? value[0] : value) ?? ''
