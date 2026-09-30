@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { formatListDate } from '@/lib/dates.ts'
 import { describeTerm } from '@/lib/money/weeks.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { cn } from '@/lib/utils'
@@ -31,7 +32,6 @@ import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { LenderSettings } from './lender-settings.tsx'
 import { EditTransaction, TransactionForm } from './transaction-form.tsx'
 
-const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 
 /** First value only. A query string can carry a key twice; a date box cannot. */
 const one = (value: string | string[] | undefined): string =>
@@ -663,10 +663,21 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   <Avatar name={funding.borrowerName} photo={photos.get(funding.borrowerId)} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
+                    {/* Two lines, each one kind of fact: when, then the money.
+                        The figures are a shade darker than the words around them. */}
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      {describeTerm(funding.termDays)} · due {dateFormat.format(funding.dueOn)} ·{' '}
-                      <Money amount={funding.principal} variant="display" /> capital + earns{' '}
-                      <Money amount={funding.earnings} variant="display" />
+                      Due {formatListDate(funding.dueOn)} · {describeTerm(funding.termDays)}
+                    </div>
+                    <div className="text-muted-foreground text-xs">
+                      {/* Each phrase kept whole, so a narrow screen breaks the
+                          line at the "+" and never between a figure and its word. */}
+                      <span className="whitespace-nowrap">
+                        <Money amount={funding.principal} variant="display" className="text-foreground/80" /> capital
+                      </span>{' '}
+                      +{' '}
+                      <span className="whitespace-nowrap">
+                        earns <Money amount={funding.earnings} variant="display" className="text-foreground/80" />
+                      </span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -724,10 +735,18 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{funding.borrowerName}</div>
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      {describeTerm(funding.termDays)} ·{' '}
-                      {funding.paidOn ? `paid ${dateFormat.format(funding.paidOn)}` : 'paid'} ·{' '}
-                      <Money amount={funding.principal} variant="display" /> capital + earned{' '}
-                      <Money amount={funding.earnings} variant="display" />
+                      {funding.paidOn ? `Paid ${formatListDate(funding.paidOn)}` : 'Paid'} · {describeTerm(funding.termDays)}
+                    </div>
+                    <div className="text-muted-foreground text-xs">
+                      {/* Each phrase kept whole, so a narrow screen breaks the
+                          line at the "+" and never between a figure and its word. */}
+                      <span className="whitespace-nowrap">
+                        <Money amount={funding.principal} variant="display" className="text-foreground/80" /> capital
+                      </span>{' '}
+                      +{' '}
+                      <span className="whitespace-nowrap">
+                        earned <Money amount={funding.earnings} variant="display" className="text-foreground/80" />
+                      </span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -876,12 +895,11 @@ function CutList({
                 <Avatar name={row.borrowerName} photo={photos.get(row.borrowerId)} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{row.borrowerName}</div>
-                  <div className="text-muted-foreground mt-0.5 truncate text-xs">
-                    on {row.lenderName}&rsquo;s money · {describeTerm(row.termDays)} ·{' '}
-                    {row.paidOn
-                      ? `paid ${dateFormat.format(row.paidOn)}`
-                      : `due ${dateFormat.format(row.dueOn)}`}
+                  <div className="text-muted-foreground mt-0.5 text-xs">
+                    {row.paidOn ? `Paid ${formatListDate(row.paidOn)}` : `Due ${formatListDate(row.dueOn)}`} ·{' '}
+                    {describeTerm(row.termDays)}
                   </div>
+                  <div className="text-muted-foreground truncate text-xs">on {row.lenderName}&rsquo;s money</div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <Money amount={row.cut} variant="display" className="text-sm font-semibold" />
@@ -950,10 +968,19 @@ function MoneyHistoryList({
                     on a phone, and "Lent to Rico Mend…" hid the one word the
                     line exists to say. */}
                 <div className="text-sm font-medium break-words">{event.title}</div>
-                <div className="text-muted-foreground mt-0.5 text-xs break-words">
-                  {dateFormat.format(event.on)}
-                  {event.detail ? ` · ${event.detail}` : ''}
-                </div>
+                <div className="text-muted-foreground mt-0.5 text-xs">{formatListDate(event.on)}</div>
+                {event.detail ? (
+                  <div className="text-muted-foreground text-xs break-words">
+                    {/* "₱30,000.00 capital + ₱12,000.00 interest" breaks at the
+                        "+", never inside a phrase. */}
+                    {event.detail.split(' + ').map((part, index) => (
+                      <span key={index}>
+                        {index > 0 ? ' + ' : null}
+                        <span className="whitespace-nowrap">{part}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-col items-end">
                 <Money amount={event.amount} variant="display" className="text-sm font-semibold" muted={!incoming} />

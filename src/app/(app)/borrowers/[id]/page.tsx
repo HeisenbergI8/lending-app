@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowLeft, HandCoins } from 'lucide-react'
 
 import { BorrowerLabelBadge } from '@/components/borrower-rating.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
+import { formatListDate } from '@/lib/dates.ts'
 import { Money } from '@/components/money.tsx'
 import { Pager } from '@/components/pager.tsx'
 import { describeTerm } from '@/lib/money/weeks.ts'
@@ -16,7 +17,6 @@ import { getBorrower } from '@/server/borrowers/queries.ts'
 import { PhotoPicker } from './photo-picker.tsx'
 import { BorrowerSettings, LabelPicker } from './borrower-settings.tsx'
 
-const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 
 export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
@@ -147,8 +147,8 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
                   <div className="min-w-0">
                     <Money amount={loan.total} variant="display" className="text-lg font-semibold" />
                     <p className="text-muted-foreground mt-0.5 text-xs">
-                      {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.dueOn)} · {describeTerm(loan.termDays)}
-                      {loan.paidOn ? ` · paid ${dateFormat.format(loan.paidOn)}` : ''}
+                      {formatListDate(loan.startOn)} → {formatListDate(loan.dueOn)} · {describeTerm(loan.termDays)}
+                      {loan.paidOn ? ` · paid ${formatListDate(loan.paidOn)}` : ''}
                     </p>
                   </div>
                   <LoanStatusBadge state={loan.state} />

@@ -3,6 +3,7 @@ import { AlertTriangle, Clock, HandCoins, MessageSquareText, Plus, SearchX } fro
 
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
+import { formatListDate } from '@/lib/dates.ts'
 import { Money } from '@/components/money.tsx'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
@@ -17,7 +18,6 @@ import { LoanSearch } from './search-form.tsx'
 
 export const metadata = { title: 'Loans' }
 
-const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 
 /**
  * Every loan, soonest due first.
@@ -186,11 +186,11 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{loan.borrowerName}</div>
                       <div className="text-muted-foreground mt-0.5 text-xs">
-                        <Money amount={loan.capital} variant="display" /> ·{' '}
-                        {/* "week due" is not decoration. Without it a ₱4,200
+                        {/* "Week due" is not decoration. Without it a ₱4,200
                             week reads exactly like a ₱144,000 capital repayment
                             falling on the same day. */}
-                        {loan.dueIsWeekly ? 'week due' : 'due'} {dateFormat.format(loan.dueOn)}
+                        {loan.dueIsWeekly ? 'Week due' : 'Due'} {formatListDate(loan.dueOn)} ·{' '}
+                        <Money amount={loan.capital} variant="display" className="text-foreground/80" />
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
