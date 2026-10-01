@@ -5,7 +5,7 @@ import { Avatar } from '@/components/avatar.tsx'
 import { BorrowerLabelBadge, TrackRecordLine } from '@/components/borrower-rating.tsx'
 import { Money } from '@/components/money.tsx'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
-import { centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { type Centavos, centavos } from '@/lib/money/centavos.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { borrowerCounts, topBorrowers } from '@/server/borrowers/queries.ts'
@@ -90,7 +90,7 @@ export default async function DashboardPage() {
           tint="mint"
           value={<Money amount={centavos(pots.floating)} variant="display" />}
           // Zero is a state, not an empty field: say what it means.
-          note={pots.floating > 0 ? 'idle, ready to lend' : 'nothing idle to lend'}
+          note={pots.floating > 0 ? 'ready to lend' : 'nothing idle'}
         />
         <Link href="/loans?status=overdue" className="block">
           <StatTile
@@ -107,7 +107,9 @@ export default async function DashboardPage() {
             value={String(overdue.borrowers)}
             note={
               overdue.borrowers > 0
-                ? `${overdue.loans === 1 ? '1 loan' : `${overdue.loans} loans`} · ${formatPesos(overdue.total)} unpaid`
+                ? // The sum only, figure first: the count of loans is on the list
+                  // this opens, and the tile's own figure is the people.
+                  <><Figure amount={overdue.total} /> unpaid</>
                 : 'nobody late'
             }
             className="h-full"
@@ -133,10 +135,10 @@ export default async function DashboardPage() {
             value={<Money amount={due.total} variant="display" />}
             note={
               due.loans === 0
-                ? 'nothing due in the next 7 days'
-                : // Loans AND people: the list this opens has one row per loan,
-                  // and one borrower can have several due.
-                  `${due.loans === 1 ? '1 loan' : `${due.loans} loans`} · ${due.borrowers === 1 ? '1 borrower' : `${due.borrowers} borrowers`}`
+                ? 'nothing due'
+                : // Loans first, because the list this opens has a row per loan;
+                  // people second, because one borrower can have several due.
+                  `${due.loans === 1 ? '1 loan' : `${due.loans} loans`} · ${due.borrowers === 1 ? '1 person' : `${due.borrowers} people`}`
             }
             className="h-full"
           />
@@ -144,7 +146,7 @@ export default async function DashboardPage() {
         {/* INTEREST CHARGED, NOT INTEREST KEPT, and the two are far apart. This
             is the whole 7% on every loan on record — the funding lenders' 5%
             and the Admin's 2% together. The Admin's own share is the Earned line
-            on the Admin pot below. Labelled "Total interest" and noted as to date,
+            on the Admin pot below. Labelled "Interest to date" (2026-10-01; was "Total interest" with "to date" in the note),
             because it is every loan ever, not this month: a range belongs on
             the reports screen, which has the dates for it. Deleted loans are
             out, and a repayment that was undone stops counting as collected.
@@ -163,7 +165,7 @@ export default async function DashboardPage() {
             Measured 2026-09-25: no loan collects weekly yet, so "back" equals
             the interest on settled loans exactly as before. */}
         <StatTile
-          label="Total interest"
+          label="Interest to date"
           icon={TrendingUp}
           tint="amber"
           value={<Money amount={interest.charged} variant="display" />}
@@ -171,11 +173,16 @@ export default async function DashboardPage() {
             interest.charged === 0
               ? 'no loans on record yet'
               : (
-                  // One figure per line, so neither breaks across two.
-                  <>
-                    <span className="block">to date · {formatPesos(interest.collected)} back</span>
-                    <span className="block">{formatPesos(interest.pending)} still out</span>
-                  </>
+                  // Two labelled rows, words left and figures right, so the
+                  // eye runs down one column of numbers instead of a sentence.
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-2">
+                    <dt>Back</dt>
+                    <dd className="text-right"><Figure amount={interest.collected} /></dd>
+                    {/* "Owed", not "Still out": two words wrapped at 320px. Interest on
+                        unpaid loans, not yet in. */}
+                    <dt>Owed</dt>
+                    <dd className="text-right"><Figure amount={interest.pending} /></dd>
+                  </dl>
                 )
           }
         />
@@ -368,4 +375,9 @@ function EmptyCard({
       </Link>
     </div>
   )
+}
+
+/** A peso figure inside a tile's grey note: a shade darker than the words, so it is what the eye finds. */
+function Figure({ amount }: { amount: Centavos }) {
+  return <Money amount={amount} variant="display" className="text-foreground/80 font-medium" />
 }
