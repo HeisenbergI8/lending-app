@@ -814,8 +814,9 @@ export async function loanFormOptions(userId: string) {
  *
  * WHAT IT COUNTS is decided in money/due-window.ts: the whole total of an
  * end-collected loan due in the window; on a weekly loan each unpaid week dated
- * in the window, with the capital on the last. Money whose date has already
- * passed is NOT here — it is the Overdue tile's, so the two never overlap.
+ * in the window, with the capital on the last. A loan already behind (its next
+ * unpaid date is before today) is left out entirely — it is the Overdue tile's,
+ * at its full unpaid total, so the two tiles never count the same loan.
  *
  * Unpaid (status ACTIVE) and not deleted, like everywhere but Recently Deleted.
  * An undone payment is not a payment: weeks are read off live payments only.
@@ -834,6 +835,12 @@ export async function dueThisWeek(
       deletedAt: null,
       status: 'ACTIVE',
       dueOn: { gte: from },
+      // NOT ALREADY BEHIND. A loan with an unpaid date before today is on the
+      // Overdue tile at its full unpaid total, and a weekly one that has missed
+      // a week still has a later week falling due — counting that week here too
+      // put the same pesos on both tiles. A loan that is behind is chased from
+      // Overdue; this tile is the loans that are on time.
+      nextDueOn: { gte: from },
       OR: [
         { interestCollection: 'AT_END', dueOn: { lte: to } },
         // A weekly loan's first week falls a week after it starts, so one that

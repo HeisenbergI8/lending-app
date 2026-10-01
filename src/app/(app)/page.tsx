@@ -112,8 +112,9 @@ export default async function DashboardPage() {
             days — dueThisWeek in server/loans/queries.ts, decided in
             money/due-window.ts. An end-collected loan counts its whole total
             (capital + interest); a weekly loan, each unpaid week dated in the
-            window, with the capital on its last week. Money already late is the
-            Overdue tile's and is NOT counted here, so the two never overlap.
+            window, with the capital on its last week. A loan already behind is
+            the Overdue tile's and is left out here entirely, so the two tiles
+            never count the same loan (fixed after reconciliation, 2026-10-01).
             PEOPLE in the note, like Overdue: one borrower with two loans due is
             one person to message. Replaced "Admin earnings" on 2026-10-01, which
             repeated the Admin pot's Earned figure further down the screen. */}
