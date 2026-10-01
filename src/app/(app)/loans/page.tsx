@@ -39,7 +39,9 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
     borrowerPhotoUrls(user.id),
     // Only under the This week chip, where the first tile is what is due in
     // the window rather than everything still to collect on those loans.
-    filter.status === 'week' ? dueThisWeek(user.id) : null,
+    // Not when a name or dates narrow it further: dueThisWeek is the whole
+    // account's figure, and beside fewer rows it would describe loans not shown.
+    filter.status === 'week' && filter.query === '' && !filter.from && !filter.to ? dueThisWeek(user.id) : null,
   ])
 
   const searching = isFiltered(filter)
