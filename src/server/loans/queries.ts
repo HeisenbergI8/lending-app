@@ -3,7 +3,8 @@ import { type InterestBasis, type InterestCollection } from '../../lib/money/int
 import { type AdminStake, adminStakeInLoan, adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
 import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
-import { DAYS_PER_WEEK, calendarDate } from '../../lib/money/weeks.ts'
+import { DAYS_PER_WEEK, addDays, calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
+import { dueInWindow } from '../../lib/money/due-window.ts'
 import {
   MIN_WEEKLY_WEEKS,
   nextUnpaidWeek,
@@ -805,4 +806,73 @@ export async function loanFormOptions(userId: string) {
     borrowers: borrowers.map((b) => ({ id: b.id, name: `${b.firstName} ${b.lastName}` })),
     lenders: lenders.map((l) => ({ id: l.id, name: funderName(l), isSelf: l.isSelf })),
   }
+}
+
+/**
+ * Money owed from today through the next six days — the dashboard's "Due this
+ * week". Seven calendar days, today included, at local midday (money/weeks.ts).
+ *
+ * WHAT IT COUNTS is decided in money/due-window.ts: the whole total of an
+ * end-collected loan due in the window; on a weekly loan each unpaid week dated
+ * in the window, with the capital on the last. Money whose date has already
+ * passed is NOT here — it is the Overdue tile's, so the two never overlap.
+ *
+ * Unpaid (status ACTIVE) and not deleted, like everywhere but Recently Deleted.
+ * An undone payment is not a payment: weeks are read off live payments only.
+ *
+ * The where clause only narrows the rows fetched; due-window.ts makes the call.
+ */
+export async function dueThisWeek(
+  userId: string,
+): Promise<{ total: Centavos; loans: number; borrowers: number; from: Date; to: Date }> {
+  const from = calendarDate(new Date())
+  const to = addDays(from, DAYS_PER_WEEK - 1)
+
+  const rows = await db.loan.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      status: 'ACTIVE',
+      dueOn: { gte: from },
+      OR: [
+        { interestCollection: 'AT_END', dueOn: { lte: to } },
+        // A weekly loan's first week falls a week after it starts, so one that
+        // starts after (to - 7) has nothing dated in the window.
+        { interestCollection: 'WEEKLY', startOn: { lte: addDays(to, -DAYS_PER_WEEK) } },
+      ],
+    },
+    select: {
+      borrowerId: true,
+      interestCollection: true,
+      startOn: true,
+      dueOn: true,
+      termDays: true,
+      capitalCentavos: true,
+      totalCentavos: true,
+      fundings: { select: { lenderId: true, earningsCentavos: true, adminCutCentavos: true } },
+      payments: { where: { deletedAt: null }, select: { weekNumber: true } },
+    },
+  })
+
+  const summary = dueInWindow(
+    rows.map((loan) => ({
+      borrowerId: loan.borrowerId,
+      interestCollection: loan.interestCollection,
+      startOn: storedCalendarDate(loan.startOn),
+      dueOn: storedCalendarDate(loan.dueOn),
+      termDays: loan.termDays,
+      capital: centavos(loan.capitalCentavos),
+      total: centavos(loan.totalCentavos),
+      fundings: loan.fundings.map((funding) => ({
+        lenderId: funding.lenderId,
+        earnings: centavos(funding.earningsCentavos),
+        adminCut: centavos(funding.adminCutCentavos),
+      })),
+      paidWeeks: new Set(loan.payments.flatMap((payment) => (payment.weekNumber === null ? [] : [payment.weekNumber]))),
+    })),
+    from,
+    to,
+  )
+
+  return { ...summary, from, to }
 }

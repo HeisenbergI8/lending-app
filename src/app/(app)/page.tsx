@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { AlertTriangle, ChevronRight, HandCoins, PiggyBank, TrendingUp, Users, Wallet } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronRight, HandCoins, PiggyBank, TrendingUp, Users, Wallet } from 'lucide-react'
 
 import { Avatar } from '@/components/avatar.tsx'
 import { BorrowerLabelBadge, TrackRecordLine } from '@/components/borrower-rating.tsx'
@@ -10,7 +10,7 @@ import { requireUser } from '@/server/auth/guard.ts'
 import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { borrowerCounts, topBorrowers } from '@/server/borrowers/queries.ts'
 import { listLenders } from '@/server/lenders/queries.ts'
-import { interestSummary, overdueSummary } from '@/server/loans/queries.ts'
+import { dueThisWeek, interestSummary, overdueSummary } from '@/server/loans/queries.ts'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -29,7 +29,7 @@ const SHOWN = 6
 export default async function DashboardPage() {
   const user = await requireUser()
 
-  const [lenders, borrowers, people, overdue, interest, photos] = await Promise.all([
+  const [lenders, borrowers, people, overdue, interest, photos, due] = await Promise.all([
     listLenders(user.id),
     // The six shown, ranked by what they owe, chosen by Postgres. This screen
     // used to load EVERY borrower with EVERY loan and payment and sort them in
@@ -46,6 +46,7 @@ export default async function DashboardPage() {
     // and the loan is the shorter one.
     interestSummary(user.id),
     borrowerPhotoUrls(user.id),
+    dueThisWeek(user.id),
   ])
 
   const pots = lenders.reduce(
@@ -55,11 +56,6 @@ export default async function DashboardPage() {
     }),
     { floating: 0, out: 0 },
   )
-
-  // The admin is a lender row with isSelf — their earnings are their own cut on
-  // other people's money plus what their own capital made, already added up by
-  // lenderPosition. There is no separate admin ledger to reconcile.
-  const self = lenders.find((lender) => lender.isSelf)
 
   return (
     <div className="space-y-6">
@@ -112,21 +108,33 @@ export default async function DashboardPage() {
             className="h-full"
           />
         </Link>
-        <StatTile
-          label="Admin earnings"
-          icon={Wallet}
-          tint="violet"
-          value={<Money amount={self?.position.earned ?? centavos(0)} variant="display" />}
-          note={
-            self && self.position.pending > 0
-              ? `${formatPesos(self.position.pending)} still to come`
-              : 'already back with the Admin'
-          }
-        />
+        {/* DUE THIS WEEK: what should come back from today through the next six
+            days — dueThisWeek in server/loans/queries.ts, decided in
+            money/due-window.ts. An end-collected loan counts its whole total
+            (capital + interest); a weekly loan, each unpaid week dated in the
+            window, with the capital on its last week. Money already late is the
+            Overdue tile's and is NOT counted here, so the two never overlap.
+            PEOPLE in the note, like Overdue: one borrower with two loans due is
+            one person to message. Replaced "Admin earnings" on 2026-10-01, which
+            repeated the Admin pot's Earned figure further down the screen. */}
+        <Link href="/loans?status=active" className="block">
+          <StatTile
+            label="Due this week"
+            icon={CalendarClock}
+            tint="violet"
+            value={<Money amount={due.total} variant="display" />}
+            note={
+              due.borrowers === 0
+                ? 'nothing due in the next 7 days'
+                : `${due.borrowers === 1 ? '1 borrower' : `${due.borrowers} borrowers`} · next 7 days`
+            }
+            className="h-full"
+          />
+        </Link>
         {/* INTEREST CHARGED, NOT INTEREST KEPT, and the two are far apart. This
             is the whole 7% on every loan on record — the funding lenders' 5%
-            and the Admin's 2% together — where the tile beside it is only the
-            Admin's share. Labelled "Total interest" and noted as to date,
+            and the Admin's 2% together. The Admin's own share is the Earned line
+            on the Admin pot below. Labelled "Total interest" and noted as to date,
             because it is every loan ever, not this month: a range belongs on
             the reports screen, which has the dates for it. Deleted loans are
             out, and a repayment that was undone stops counting as collected.
