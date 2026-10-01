@@ -98,7 +98,7 @@ export default async function LendersPage() {
                     demo's numbers and would have started clipping the day a
                     larger one was entered. Label left and figure right has no
                     such ceiling. */}
-                <dl className="mt-3 grid gap-1 sm:grid-cols-2 sm:gap-2 lg:grid-cols-5">
+                <dl className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-1 sm:grid-cols-2 sm:gap-2 lg:grid-cols-5">
                   {/* `startingCapital` is read STRAIGHT OFF Lender.startingCapitalCentavos.
                       It is not a sum, not a balance and not derived from anything:
                       the Admin typed it, and it is the money this person put in
@@ -126,7 +126,7 @@ export default async function LendersPage() {
                       said yet. */}
                   <div className="flex items-baseline justify-between gap-3 sm:block">
                     <dt className="text-muted-foreground shrink-0 text-xs">Starting capital</dt>
-                    <dd className="truncate text-sm sm:mt-0.5">
+                    <dd className="min-w-0 truncate text-sm sm:mt-0.5">
                       {lender.startingCapital === 0 ? (
                         <span className="text-muted-foreground">not set</span>
                       ) : (
@@ -136,13 +136,13 @@ export default async function LendersPage() {
                   </div>
                   <div className="flex items-baseline justify-between gap-3 sm:block">
                     <dt className="text-muted-foreground shrink-0 text-xs">Floating</dt>
-                    <dd className="truncate text-sm font-semibold sm:mt-0.5">
+                    <dd className="min-w-0 truncate text-sm font-semibold sm:mt-0.5">
                       <Money amount={lender.position.floating} variant="display" />
                     </dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-3 sm:block">
                     <dt className="text-muted-foreground shrink-0 text-xs">Out on loan</dt>
-                    <dd className="truncate text-sm sm:mt-0.5">
+                    <dd className="min-w-0 truncate text-sm sm:mt-0.5">
                       <Money amount={lender.position.outOnLoan} variant="display" muted={lender.position.outOnLoan === 0} />
                     </dd>
                   </div>
@@ -154,7 +154,7 @@ export default async function LendersPage() {
                       rather than hiding it in the total. */}
                   <div className="flex items-baseline justify-between gap-3 sm:block">
                     <dt className="text-muted-foreground shrink-0 text-xs">Earned</dt>
-                    <dd className="truncate text-sm sm:mt-0.5">
+                    <dd className="min-w-0 truncate text-sm sm:mt-0.5">
                       <Money amount={lender.position.earned} variant="display" muted={lender.position.earned === 0} />
                       {lender.position.adminCutEarned > 0 ? (
                         <span className="text-muted-foreground block truncate text-xs">
@@ -174,7 +174,7 @@ export default async function LendersPage() {
                       low for no visible reason. */}
                   <div className="flex items-baseline justify-between gap-3 sm:block">
                     <dt className="text-muted-foreground shrink-0 text-xs">Withdrawn</dt>
-                    <dd className="truncate text-sm sm:mt-0.5">
+                    <dd className="min-w-0 truncate text-sm sm:mt-0.5">
                       <Money
                         amount={lender.position.withdrawals}
                         variant="display"
