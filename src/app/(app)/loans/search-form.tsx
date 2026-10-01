@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 const CHIPS: { value: LoanStatusFilter; label: string }[] = [
   { value: 'active', label: 'Active' },
   { value: 'overdue', label: 'Overdue' },
+  { value: 'week', label: 'This week' },
   { value: 'paid', label: 'Paid' },
 ]
 

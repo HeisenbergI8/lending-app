@@ -116,18 +116,21 @@ export default async function DashboardPage() {
             the Overdue tile's and is left out here entirely, so the two tiles
             never count the same loan (fixed after reconciliation, 2026-10-01).
             PEOPLE in the note, like Overdue: one borrower with two loans due is
-            one person to message. Replaced "Admin earnings" on 2026-10-01, which
+            one person to message. Tapping it opens exactly these loans: the
+            loans list's `week` filter is the same set. Replaced "Admin earnings" on 2026-10-01, which
             repeated the Admin pot's Earned figure further down the screen. */}
-        <Link href="/loans?status=active" className="block">
+        <Link href="/loans?status=week" className="block">
           <StatTile
             label="Due this week"
             icon={CalendarClock}
             tint="violet"
             value={<Money amount={due.total} variant="display" />}
             note={
-              due.borrowers === 0
+              due.loans === 0
                 ? 'nothing due in the next 7 days'
-                : `${due.borrowers === 1 ? '1 borrower' : `${due.borrowers} borrowers`} · next 7 days`
+                : // Loans AND people: the list this opens has one row per loan,
+                  // and one borrower can have several due.
+                  `${due.loans === 1 ? '1 loan' : `${due.loans} loans`} · ${due.borrowers === 1 ? '1 borrower' : `${due.borrowers} borrowers`}`
             }
             className="h-full"
           />

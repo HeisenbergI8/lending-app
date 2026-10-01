@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { AlertTriangle, Clock, HandCoins, MessageSquareText, Plus, SearchX } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Clock, HandCoins, MessageSquareText, Plus, SearchX } from 'lucide-react'
 
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
@@ -12,7 +12,7 @@ import { isFiltered, loanFilterHref, parseLoanFilter } from '@/lib/loan-filter.t
 import { parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
-import { listLoans } from '@/server/loans/queries.ts'
+import { dueThisWeek, listLoans } from '@/server/loans/queries.ts'
 
 import { LoanSearch } from './search-form.tsx'
 
@@ -34,9 +34,12 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
   const params = await searchParams
   const filter = parseLoanFilter(params)
   const paging = parsePage(params.page)
-  const [{ rows, totals }, photos] = await Promise.all([
+  const [{ rows, totals }, photos, due] = await Promise.all([
     listLoans(user.id, filter, paging),
     borrowerPhotoUrls(user.id),
+    // Only under the This week chip, where the first tile is what is due in
+    // the window rather than everything still to collect on those loans.
+    filter.status === 'week' ? dueThisWeek(user.id) : null,
   ])
 
   const searching = isFiltered(filter)
@@ -148,12 +151,25 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                 (the interestCollection column did not exist in the database at
                 that point), so the subtrahend is zero everywhere and this tile
                 reads exactly as it did before. */}
-            <StatTile
-              icon={HandCoins}
-              tint="indigo"
-              label="Still to collect"
-              value={<Money amount={totals.outstanding} variant="display" />}
-            />
+            {/* UNDER THIS WEEK, the dashboard's own figure. A weekly loan in this
+                list owes one week now and the rest later, so "Still to collect"
+                on these rows would be a different, larger number than the tile
+                that was tapped to get here. dueThisWeek is the same query. */}
+            {due ? (
+              <StatTile
+                icon={CalendarClock}
+                tint="violet"
+                label="Due this week"
+                value={<Money amount={due.total} variant="display" />}
+              />
+            ) : (
+              <StatTile
+                icon={HandCoins}
+                tint="indigo"
+                label="Still to collect"
+                value={<Money amount={totals.outstanding} variant="display" />}
+              />
+            )}
             {/* COUNT of status = ACTIVE, which INCLUDES the overdue ones — an
                 overdue loan is still unpaid. So this tile and the one beside it
                 overlap rather than adding up, and the badges below use "Active"

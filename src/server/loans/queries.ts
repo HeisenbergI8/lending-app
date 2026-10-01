@@ -360,13 +360,21 @@ export function loanWhere(userId: string, filter: LoanFilter) {
     // applies to the capital date, so a from-date later than today keeps
     // narrowing the result — it just narrows the right column now.
     ...(filter.status === 'active' ? { gte: today } : {}),
+    // DUE THIS WEEK: the next owed date is today through today+6. This is the
+    // exact set dueThisWeek counts: an end-collected loan's next date is its due
+    // date, and a weekly loan that is not behind has an unpaid week in the
+    // window exactly when its EARLIEST unpaid week is in it. A loan already
+    // behind has a next date before today and is left out, as on the tile.
+    ...(filter.status === 'week' ? { gte: today, lte: addDays(today, DAYS_PER_WEEK - 1) } : {}),
   }
 
   return {
     userId,
     deletedAt: null,
     ...(filter.status === 'paid' ? { status: 'PAID' as const } : {}),
-    ...(filter.status === 'active' || filter.status === 'overdue' ? { status: 'ACTIVE' as const } : {}),
+    ...(filter.status === 'active' || filter.status === 'overdue' || filter.status === 'week'
+      ? { status: 'ACTIVE' as const }
+      : {}),
     ...(Object.keys(dueOn).length > 0 ? { dueOn } : {}),
     ...(Object.keys(nextDueOn).length > 0 ? { nextDueOn } : {}),
     // An amount matches either figure, because the admin remembers a loan by the

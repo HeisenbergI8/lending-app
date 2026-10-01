@@ -16,9 +16,14 @@ import { parseCalendarDate, toDateInput } from './money/weeks.ts'
  */
 
 /** The one-tap filters from the spec. They are loan states, not a second vocabulary. */
-export type LoanStatusFilter = 'active' | 'overdue' | 'paid'
+export type LoanStatusFilter = 'active' | 'overdue' | 'paid' | 'week'
 
-const STATUSES: LoanStatusFilter[] = ['active', 'overdue', 'paid']
+/**
+ * `week` is the dashboard's "Due this week": unpaid loans whose next owed date
+ * is today or within the next six days. The same set dueThisWeek counts — see
+ * loanWhere for why the two agree.
+ */
+const STATUSES: LoanStatusFilter[] = ['active', 'overdue', 'paid', 'week']
 
 export type LoanFilter = {
   /** Exactly what was typed, so the box can show it back. */

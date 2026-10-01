@@ -122,4 +122,10 @@ describe('loanWhere — a search as a query', () => {
   test('every word in a name has to match something', () => {
     assert.equal(where({ q: 'Angel Cruz' }).AND?.length, 2)
   })
+
+  test('this week is unpaid with the next owed date from today through today+6', () => {
+    const clause = where({ status: 'week' })
+    assert.equal(clause.status, 'ACTIVE')
+    assert.deepEqual(clause.nextDueOn, { gte: today, lte: addDays(today, 6) })
+  })
 })
