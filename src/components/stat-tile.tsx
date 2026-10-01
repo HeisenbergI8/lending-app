@@ -1,3 +1,5 @@
+import { ChevronRight } from 'lucide-react'
+
 import { cn } from '@/lib/utils'
 
 /**
@@ -69,12 +71,15 @@ export function StatTile({
   tone,
   icon: Icon,
   tint = 'indigo',
+  linked = false,
   className,
 }: {
   label: string
   value: React.ReactNode
-  note?: string
+  note?: React.ReactNode
   hero?: boolean
+  /** The tile is inside a link: a small chevron says it can be tapped. */
+  linked?: boolean
   tone?: 'critical' | 'good'
   icon?: React.ComponentType<{ className?: string }>
   tint?: ChipTint
@@ -117,36 +122,43 @@ export function StatTile({
   return (
     <div
       className={cn(
-        'bg-card ring-border/70 rounded-2xl p-3 ring-1 lg:p-4',
+        // A column, so the note sits on the tile's floor: tiles side by side
+        // are the same height, and their notes line up instead of floating.
+        'bg-card ring-border/70 flex flex-col rounded-2xl p-3 ring-1 lg:p-4',
         'shadow-rest hover:shadow-hover transition-[box-shadow,transform] duration-200',
         className,
       )}
     >
-      <div className="flex items-start gap-2.5">
-        {Icon ? <IconChip icon={Icon} tint={tone === 'critical' ? 'amber' : tint} /> : null}
-        <div className="min-w-0 flex-1">
-          <div className="text-muted-foreground truncate text-xs font-medium">{label}</div>
-          <div
-            className={cn(
-              'mt-0.5 font-semibold tracking-tight',
-              // The supporting step climbs in three stages rather than one,
-              // because a peso amount is a LONG string — "₱223,500.00" is eleven
-              // characters — and the column it sits in does NOT simply get wider
-              // with the screen: from `md` the sidebar takes 224px back. Sized in
-              // one jump it was clipped mid-figure on every phone AND on iPad
-              // Mini and iPad Air. A number reading "₱12,000.0" is worse than a
-              // small one.
-              'text-lg md:text-xl lg:text-2xl',
-              tone === 'critical' && 'text-status-critical',
-              tone === 'good' && 'text-status-good',
-            )}
-          >
-            {value}
-          </div>
-        </div>
+      {/* ICON BESIDE THE LABEL, NOT BESIDE THE FIGURE. Beside the figure it
+          took ~46px of a half-width phone tile, and "₱181,100.00" was cut off
+          at 320px. Up here it labels the tile and the figure gets the full
+          width under it. */}
+      <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+        {Icon ? <IconChip icon={Icon} tint={tone === 'critical' ? 'amber' : tint} className="size-7 rounded-lg [&>svg]:size-4" /> : null}
+        {/* Wraps rather than truncating: "Due thi…" on a 320px phone hid
+            the word that says which week. */}
+        <span className="min-w-0 leading-tight">{label}</span>
+        {linked ? <ChevronRight className="-ml-0.5 size-3.5 shrink-0 opacity-70" aria-hidden /> : null}
+      </div>
+      <div
+        className={cn(
+          'mt-2 font-semibold tracking-tight',
+          // The supporting step climbs in three stages rather than one,
+          // because a peso amount is a LONG string — "₱223,500.00" is eleven
+          // characters — and the column it sits in does NOT simply get wider
+          // with the screen: from `md` the sidebar takes 224px back. Sized in
+          // one jump it was clipped mid-figure on every phone AND on iPad
+          // Mini and iPad Air. A number reading "₱12,000.0" is worse than a
+          // small one.
+          'text-lg md:text-xl lg:text-2xl',
+          tone === 'critical' && 'text-status-critical',
+          tone === 'good' && 'text-status-good',
+        )}
+      >
+        {value}
       </div>
 
-      {note ? <div className="text-muted-foreground mt-2 text-xs">{note}</div> : null}
+      {note ? <div className="text-muted-foreground mt-auto pt-2 text-xs">{note}</div> : null}
     </div>
   )
 }

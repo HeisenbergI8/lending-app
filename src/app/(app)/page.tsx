@@ -81,19 +81,24 @@ export default async function DashboardPage() {
         }
       />
 
-      <StatRow>
+      {/* Four tiles: two across, then four across on a laptop — three across
+          left the fourth alone on a row of its own. */}
+      <StatRow className="sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Floating"
           icon={PiggyBank}
           tint="mint"
           value={<Money amount={centavos(pots.floating)} variant="display" />}
-          note="idle, ready to lend"
+          // Zero is a state, not an empty field: say what it means.
+          note={pots.floating > 0 ? 'idle, ready to lend' : 'nothing idle to lend'}
         />
         <Link href="/loans?status=overdue" className="block">
           <StatTile
             label="Overdue"
             icon={AlertTriangle}
-            tone={overdue.borrowers > 0 ? 'critical' : undefined}
+            // Green at zero: nobody late is the good news this tile exists for.
+            tone={overdue.borrowers > 0 ? 'critical' : 'good'}
+            linked
             /* PEOPLE, not loans — the spec asks how many BORROWERS are
                overdue, and one person late on two loans is one person to
                chase. `overdue.borrowers` is a COUNT(DISTINCT borrowerId) done
@@ -124,6 +129,7 @@ export default async function DashboardPage() {
             label="Due this week"
             icon={CalendarClock}
             tint="violet"
+            linked
             value={<Money amount={due.total} variant="display" />}
             note={
               due.loans === 0
@@ -164,7 +170,13 @@ export default async function DashboardPage() {
           note={
             interest.charged === 0
               ? 'no loans on record yet'
-              : `to date · ${formatPesos(interest.collected)} back, ${formatPesos(interest.pending)} still out`
+              : (
+                  // One figure per line, so neither breaks across two.
+                  <>
+                    <span className="block">to date · {formatPesos(interest.collected)} back</span>
+                    <span className="block">{formatPesos(interest.pending)} still out</span>
+                  </>
+                )
           }
         />
       </StatRow>
