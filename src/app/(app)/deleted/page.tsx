@@ -180,7 +180,7 @@ export default async function RecentlyDeletedPage({ searchParams }: PageProps<'/
                 pendingLabel="Restoring…"
                 confirm={{
                   title: 'Restore this borrower?',
-                  body: 'They come back with their whole loan history, and leave Recently Deleted.',
+                  body: 'They come back, with any loans deleted together with them, and leave Recently Deleted.',
                   action: 'Restore borrower',
                 }}
               >

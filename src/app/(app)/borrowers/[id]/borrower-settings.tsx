@@ -98,7 +98,7 @@ export function BorrowerSettings({
           pendingLabel="Deleting…"
           confirm={{
             title: 'Delete this borrower?',
-            body: 'They move to Recently Deleted with their whole loan history, and can be restored for thirty days.',
+            body: 'They move to Recently Deleted and can be restored for thirty days. Their loans stay as they are.',
             action: 'Delete borrower',
           }}
         >
