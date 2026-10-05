@@ -165,7 +165,10 @@ export default async function RecentlyDeletedPage({ searchParams }: PageProps<'/
           <Row
             key={borrower.id}
             title={`${borrower.firstName} ${borrower.lastName}`}
-            detail="Their whole loan history came with them."
+            // Not "their whole loan history came with them": since 2026-10-05 the
+            // Admin chooses whether the unpaid loans go too. Restoring brings back
+            // exactly the loans deleted with them, if any (borrowers/actions.ts).
+            detail="Restoring brings back any loans deleted with them."
             footnote={<Countdown row={borrower} held={heldReason(borrower, 'loans of theirs')} />}
             action={
               <ActionForm

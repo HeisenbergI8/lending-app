@@ -99,6 +99,23 @@ export async function setBorrowerLabel(_prev: FormState, form: FormData): Promis
 /**
  * Delete. Their loans and their history come back intact for thirty days.
  *
+ * TWO WAYS, the Admin's choice (`loans`):
+ *
+ *   "keep"   — only the person goes. Their loans stay live: still on the loans
+ *              list, still counted in Overdue and Due this week, the lenders'
+ *              capital still out. For someone deleted by mistake, or whose debt
+ *              is still being chased.
+ *
+ *   "unpaid" — their UNPAID loans go to Recently Deleted with them, stamped
+ *              with the same moment. Those stop counting everywhere, exactly as
+ *              deleting each loan by hand would: the lenders' capital in them is
+ *              treated as back in Floating. PAID loans stay, because they hold
+ *              the interest the lenders already earned — deleting them would take
+ *              that money out of every lender's figures.
+ *
+ * Restoring the borrower brings back the loans deleted WITH them (same moment),
+ * and only those: a loan deleted on its own earlier stays where it is.
+ *
  * Ends on the borrowers list, the way deleting a loan ends on the loans list.
  * Staying put would leave the admin looking at a profile that is no longer in
  * any list — the delete appeared to do nothing, and the only way to see that
@@ -107,9 +124,22 @@ export async function setBorrowerLabel(_prev: FormState, form: FormData): Promis
 export async function deleteBorrower(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
-  const { count } = await db.borrower.updateMany({
-    where: { id: text(form, 'borrowerId'), userId: user.id },
-    data: { deletedAt: new Date() },
+  const borrowerId = text(form, 'borrowerId')
+  const withLoans = text(form, 'loans') === 'unpaid'
+  const now = new Date()
+
+  const count = await db.$transaction(async (tx) => {
+    const { count } = await tx.borrower.updateMany({
+      where: { id: borrowerId, userId: user.id, deletedAt: null },
+      data: { deletedAt: now },
+    })
+    if (count > 0 && withLoans) {
+      await tx.loan.updateMany({
+        where: { borrowerId, userId: user.id, status: 'ACTIVE', deletedAt: null },
+        data: { deletedAt: now },
+      })
+    }
+    return count
   })
   if (count === 0) return failed('That borrower no longer exists.')
 
@@ -128,16 +158,27 @@ export async function restoreBorrower(_prev: FormState, form: FormData): Promise
   // rows count — a second deleted namesake is on no list and blocks nothing.
   const restoring = await db.borrower.findFirst({
     where: { id: borrowerId, userId: user.id },
-    select: { firstName: true, lastName: true },
+    select: { firstName: true, lastName: true, deletedAt: true },
   })
   if (!restoring) return failed('That borrower no longer exists.')
 
   const clash = await borrowerRestoreBlocked(db, user.id, restoring, borrowerId)
   if (clash) return failed(clash)
 
-  const { count } = await db.borrower.updateMany({
-    where: { id: borrowerId, userId: user.id },
-    data: { deletedAt: null },
+  const count = await db.$transaction(async (tx) => {
+    const { count } = await tx.borrower.updateMany({
+      where: { id: borrowerId, userId: user.id },
+      data: { deletedAt: null },
+    })
+    // The loans that went WITH them carry the very same timestamp. A loan
+    // deleted separately, earlier or later, has its own and stays deleted.
+    if (count > 0 && restoring.deletedAt) {
+      await tx.loan.updateMany({
+        where: { borrowerId, userId: user.id, deletedAt: restoring.deletedAt },
+        data: { deletedAt: null },
+      })
+    }
+    return count
   })
   if (count === 0) return failed('That borrower no longer exists.')
 

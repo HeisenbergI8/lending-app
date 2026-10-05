@@ -67,12 +67,16 @@ export function BorrowerSettings({
   borrowerId,
   firstName,
   lastName,
+  unpaidLoans,
 }: {
   borrowerId: string
   firstName: string
   lastName: string
+  /** Their loans not yet repaid. Above zero, deleting asks what to do with them. */
+  unpaidLoans: number
 }) {
   const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // The buttons stay put while the dialog is open. Swapping them out for the
   // form was what put the form in the page header in the first place.
@@ -83,22 +87,71 @@ export function BorrowerSettings({
         Rename
       </Button>
 
-      <ActionForm
+      {unpaidLoans === 0 ? (
+        // Nothing unpaid, so there is no choice to make: the plain confirm.
+        <ActionForm
+          action={deleteBorrower}
+          sound="trash"
+          values={{ borrowerId }}
+          variant="destructive"
+          size="sm"
+          pendingLabel="Deleting…"
+          confirm={{
+            title: 'Delete this borrower?',
+            body: 'They move to Recently Deleted with their whole loan history, and can be restored for thirty days.',
+            action: 'Delete borrower',
+          }}
+        >
+          <Trash2 className="size-4" aria-hidden />
+          Delete
+        </ActionForm>
+      ) : (
+        <Button variant="destructive" size="sm" onClick={() => setDeleting(true)}>
+          <Trash2 className="size-4" aria-hidden />
+          Delete
+        </Button>
+      )}
+
+      {/* WITH UNPAID LOANS, A CHOICE: keep the loans running, or send them to
+          Recently Deleted too. Keeping them is preselected, because it changes
+          no figure; the other moves money and says so. */}
+      <FormDialog
         action={deleteBorrower}
         sound="trash"
-        values={{ borrowerId }}
-        variant="destructive"
-        size="sm"
+        open={deleting}
+        onOpenChange={setDeleting}
+        title="Delete this borrower?"
+        description="They move to Recently Deleted and can be restored for thirty days."
+        submitLabel="Delete"
+        submitVariant="destructive"
         pendingLabel="Deleting…"
-        confirm={{
-          title: 'Delete this borrower?',
-          body: 'They move to Recently Deleted with their whole loan history, and can be restored for thirty days.',
-          action: 'Delete borrower',
-        }}
       >
-        <Trash2 className="size-4" aria-hidden />
-        Delete
-      </ActionForm>
+        <input type="hidden" name="borrowerId" value={borrowerId} />
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">
+            {unpaidLoans === 1 ? 'They have 1 unpaid loan.' : `They have ${unpaidLoans} unpaid loans.`}
+          </legend>
+          <label className="has-checked:border-brand-line has-checked:bg-brand-bg flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm">
+            <input type="radio" name="loans" value="keep" defaultChecked className="mt-1" />
+            <span>
+              <span className="font-medium">Keep the loans</span>
+              <span className="text-muted-foreground block text-xs">
+                They stay on the loans list and in every total, and can still be collected.
+              </span>
+            </span>
+          </label>
+          <label className="has-checked:border-brand-line has-checked:bg-brand-bg flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm">
+            <input type="radio" name="loans" value="unpaid" className="mt-1" />
+            <span>
+              <span className="font-medium">Delete the unpaid loans too</span>
+              <span className="text-muted-foreground block text-xs">
+                They stop counting everywhere, and the lenders&rsquo; money in them counts as back in Floating.
+                Paid loans stay, so what lenders earned is untouched. Restoring the borrower brings these back.
+              </span>
+            </span>
+          </label>
+        </fieldset>
+      </FormDialog>
 
       <FormDialog
         action={renameBorrower}

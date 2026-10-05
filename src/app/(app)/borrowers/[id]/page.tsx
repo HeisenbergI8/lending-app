@@ -93,6 +93,7 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
             borrowerId={borrower.id}
             firstName={borrower.firstName}
             lastName={borrower.lastName}
+            unpaidLoans={borrower.loans.filter((loan) => loan.state !== 'paid').length}
           />
         </div>
       </div>

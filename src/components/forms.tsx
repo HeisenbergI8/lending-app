@@ -278,6 +278,8 @@ export function FormDialog({
   aside,
   open: controlledOpen,
   onOpenChange,
+  submitVariant,
+  pendingLabel = 'Saving…',
 }: {
   action: Action
   /** Required, like ActionForm's. A function when the sound depends on what was chosen. */
@@ -300,6 +302,9 @@ export function FormDialog({
   /** Omit to let the dialog own its own open state; pass it to drive it from outside. */
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  /** `destructive` for a dialog whose button deletes something. */
+  submitVariant?: React.ComponentProps<typeof Button>['variant']
+  pendingLabel?: string
 }) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
@@ -382,7 +387,7 @@ export function FormDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <SubmitButton pendingLabel="Saving…" className="w-full sm:w-auto">
+            <SubmitButton pendingLabel={pendingLabel} variant={submitVariant} className="w-full sm:w-auto">
               {submitLabel}
             </SubmitButton>
           </div>
