@@ -165,23 +165,26 @@ export default async function DashboardPage() {
             Measured 2026-09-25: no loan collects weekly yet, so "back" equals
             the interest on settled loans exactly as before. */}
         <StatTile
-          label="Interest to date"
+          // THE HEADLINE IS WHAT IS STILL OWED (2026-10-05, the Admin's call):
+          // interest.pending, interest on unpaid loans not yet in. The total
+          // charged moved down to the rows. The labels moved WITH the figures —
+          // "Interest to date" over the owed figure, or "Owed" beside the total,
+          // would each name a number that is not the one shown.
+          label="Interest owed"
           icon={TrendingUp}
           tint="amber"
-          value={<Money amount={interest.charged} variant="display" />}
+          value={<Money amount={interest.pending} variant="display" />}
           note={
             interest.charged === 0
               ? 'no loans on record yet'
               : (
-                  // Two labelled rows, words left and figures right, so the
-                  // eye runs down one column of numbers instead of a sentence.
+                  // Two labelled rows, words left and figures right. Back + the
+                  // figure above = Total, so the three can be checked by eye.
                   <dl className="grid grid-cols-[auto_1fr] gap-x-2">
                     <dt>Back</dt>
                     <dd className="text-right"><Figure amount={interest.collected} /></dd>
-                    {/* "Owed", not "Still out": two words wrapped at 320px. Interest on
-                        unpaid loans, not yet in. */}
-                    <dt>Owed</dt>
-                    <dd className="text-right"><Figure amount={interest.pending} /></dd>
+                    <dt>Total</dt>
+                    <dd className="text-right"><Figure amount={interest.charged} /></dd>
                   </dl>
                 )
           }
