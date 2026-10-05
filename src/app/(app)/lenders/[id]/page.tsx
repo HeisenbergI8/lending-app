@@ -13,7 +13,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { formatListDate } from '@/lib/dates.ts'
-import { describeTerm } from '@/lib/money/weeks.ts'
+import { addDays, calendarDate, describeTerm, parseCalendarDate, toDateInput } from '@/lib/money/weeks.ts'
+import { type Projection } from '@/lib/money/projection.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { cn } from '@/lib/utils'
 import {
@@ -26,7 +27,7 @@ import {
   sameRange,
 } from '@/lib/report-range.ts'
 import { requireUser } from '@/server/auth/guard.ts'
-import { type LenderDetail, getLender } from '@/server/lenders/queries.ts'
+import { type LenderDetail, getLender, projectedFloating } from '@/server/lenders/queries.ts'
 import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 
 import { LenderSettings } from './lender-settings.tsx'
@@ -336,6 +337,15 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
   if (!lender) notFound()
 
   const { position } = lender
+
+  /* AVAILABLE ON A DATE. `on` is a day the Admin picked; today or later only,
+     because a projection of the past is not a projection — what the pot held
+     then is history, and the money history below has it. */
+  const today = calendarDate(new Date())
+  const onRaw = one(query.on)
+  const on = parseCalendarDate(onRaw)
+  const projection =
+    on && on.getTime() >= today.getTime() ? await projectedFloating(user.id, lender, position.floating, on) : null
   const settledEarnings = centavos(lender.settled.reduce((total, row) => total + row.earnings, 0))
 
   /* WHAT THE "Out with" ROWS EARN, added up. `lender.fundings` is every funding
@@ -411,6 +421,16 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         value={<Money amount={position.floating} variant="display" />}
         note={position.floating < 0 ? 'more is out on loan than was ever put in' : 'idle, ready to lend'}
         tone={position.floating < 0 ? 'critical' : undefined}
+      />
+
+      <FloatingOnDate
+        lenderId={lender.id}
+        isSelf={lender.isSelf}
+        query={query}
+        today={today}
+        raw={onRaw}
+        on={projection ? on : null}
+        projection={projection}
       />
 
       <EarnedOverPeriod
@@ -1039,5 +1059,163 @@ function MoneyHistoryList({
 
       <Pager page={at} total={events.length} noun="moves" href={href} />
     </>
+  )
+}
+
+const onDay = new Intl.DateTimeFormat('en-PH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * "How much will this pot have on <day>?" — a date box under Floating, and the
+ * answer with what makes it up.
+ *
+ * WHAT THE FIGURE IS: projectedFloating (server/lenders/queries.ts) over
+ * lib/money/projection.ts. Today's Floating plus every payment scheduled to
+ * reach this pot from today through the chosen day, if borrowers pay on time:
+ * capital and this pot's interest, and on the Admin pot the Admin cut on other
+ * lenders' loans. Money already late is NOT counted and is said so underneath.
+ * No new loans, deposits or withdrawals are imagined.
+ *
+ * A GET form like the period bar above it: the day is in the URL, every other
+ * key on the page (period, page numbers) rides along as a hidden input.
+ */
+function FloatingOnDate({
+  lenderId,
+  isSelf,
+  query,
+  today,
+  raw,
+  on,
+  projection,
+}: {
+  lenderId: string
+  isSelf: boolean
+  query: Record<string, string | string[] | undefined>
+  today: Date
+  raw: string
+  on: Date | null
+  projection: Projection | null
+}) {
+  const keep = Object.entries(query).flatMap(([key, value]) =>
+    key === 'on' || value === undefined ? [] : [[key, Array.isArray(value) ? (value[0] ?? '') : value] as const],
+  )
+  const presetHref = (days: number) => {
+    const params = new URLSearchParams(keep.map(([k, v]) => [k, v]))
+    params.set('on', toDateInput(addDays(today, days)))
+    return `/lenders/${lenderId}?${params.toString()}#available-on`
+  }
+  const presets = [
+    { days: 7, label: 'In 1 week' },
+    { days: 14, label: '2 weeks' },
+    { days: 30, label: '30 days' },
+  ]
+
+  return (
+    <section id="available-on" className="bg-card ring-border/70 shadow-rest scroll-mt-4 space-y-3 rounded-2xl p-4 ring-1">
+      <div>
+        <h2 className="text-base font-semibold tracking-tight">Available on a date</h2>
+        <p className="text-muted-foreground text-xs">What Floating will be on a day you pick, if borrowers pay on time.</p>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {presets.map((preset) => {
+          const active = on !== null && toDateInput(addDays(today, preset.days)) === toDateInput(on)
+          return (
+            <Link
+              key={preset.days}
+              href={presetHref(preset.days)}
+              aria-current={active ? 'true' : undefined}
+              className={cn(
+                'inline-flex min-h-9 items-center rounded-full px-3 text-[0.8rem] font-medium transition-colors',
+                'focus-visible:ring-ring/50 outline-none focus-visible:ring-3',
+                active
+                  ? 'bg-foreground text-background'
+                  : 'bg-background text-muted-foreground ring-border/70 hover:text-foreground ring-1 hover:bg-muted',
+              )}
+            >
+              {preset.label}
+            </Link>
+          )
+        })}
+      </div>
+
+      <form method="get" action={`/lenders/${lenderId}#available-on`} className="flex items-end gap-2">
+        {keep.map(([key, value]) => (
+          <input key={key} type="hidden" name={key} value={value} />
+        ))}
+        <div className="min-w-0 flex-1 space-y-1 sm:max-w-48">
+          <Label htmlFor="available-on-date" className="text-muted-foreground text-xs">
+            Or pick a day
+          </Label>
+          <Input id="available-on-date" name="on" type="date" min={toDateInput(today)} defaultValue={raw} required />
+        </div>
+        <Button type="submit" variant="secondary">
+          Check
+        </Button>
+      </form>
+
+      {raw !== '' && !projection ? (
+        <p className="text-muted-foreground text-xs">Pick today or a later day. What the pot held before today is in the money history below.</p>
+      ) : null}
+
+      {projection && on ? (
+        <div className="bg-muted/40 space-y-3 rounded-xl p-3">
+          <div>
+            <div className="text-muted-foreground text-xs">On {onDay.format(on)}</div>
+            <Money amount={projection.projected} variant="display" className="text-2xl font-semibold tracking-tight" />
+          </div>
+
+          {/* The sum, line by line, so it can be checked by eye: the rows add
+              up to the figure above. */}
+          <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Floating today</dt>
+            <dd className="text-right"><Money amount={projection.floatingNow} variant="display" /></dd>
+            <dt className="text-muted-foreground">+ Capital coming back</dt>
+            <dd className="text-right"><Money amount={projection.capital} variant="display" /></dd>
+            <dt className="text-muted-foreground">+ Interest</dt>
+            <dd className="text-right"><Money amount={projection.interest} variant="display" /></dd>
+            {isSelf ? (
+              <>
+                <dt className="text-muted-foreground">+ Admin cuts from other lenders</dt>
+                <dd className="text-right"><Money amount={projection.adminCuts} variant="display" /></dd>
+              </>
+            ) : null}
+          </dl>
+
+          {projection.late > 0 ? (
+            <p className="text-status-warning text-xs">
+              Not counted: <Money amount={projection.late} variant="display" /> that is already late. It is added the day it is paid.
+            </p>
+          ) : null}
+
+          {projection.arrivals.length > 0 ? (
+            <details className="group">
+              <summary className="text-brand cursor-pointer text-xs font-medium">
+                {projection.arrivals.length === 1 ? 'From 1 payment' : `From ${projection.arrivals.length} payments`}
+              </summary>
+              <ul className="divide-border/70 mt-2 divide-y text-sm">
+                {projection.arrivals.map((arrival) => (
+                  <li key={`${arrival.loanId}-${arrival.on.getTime()}`} className="flex items-baseline justify-between gap-3 py-1.5">
+                    <span className="min-w-0">
+                      <span className="block truncate">{arrival.borrowerName}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {formatListDate(arrival.on)}
+                        {arrival.capital > 0 ? ' · capital + interest' : arrival.interest > 0 ? ' · interest' : ' · Admin cut'}
+                      </span>
+                    </span>
+                    <Money
+                      amount={centavos(arrival.capital + arrival.interest + arrival.adminCut)}
+                      variant="display"
+                      className="shrink-0"
+                    />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p className="text-muted-foreground text-xs">Nothing is due back to this pot by then.</p>
+          )}
+        </div>
+      ) : null}
+    </section>
   )
 }

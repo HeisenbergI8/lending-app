@@ -2,7 +2,8 @@ import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
 import { type ReportRange, defaultRange } from '../../lib/report-range.ts'
 import { accruedBetween } from '../../lib/money/accrual.ts'
-import { DAYS_PER_WEEK, storedCalendarDate } from '../../lib/money/weeks.ts'
+import { DAYS_PER_WEEK, calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
+import { type Projection, projectFloating } from '../../lib/money/projection.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
 import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
@@ -809,4 +810,73 @@ export async function getLender(
       lender.id,
     ),
   }
+}
+
+/**
+ * This pot's floating funds on `on`, if every borrower pays on time — the
+ * "Available on" check on a lender's page. The arithmetic and what it assumes
+ * are in lib/money/projection.ts; this fetches the rows.
+ *
+ * ROWS: every funding row of this lender on a loan that is unpaid (ACTIVE) and
+ * not deleted, and — for the Admin pot only — every row on such a loan that
+ * carries an Admin cut, whoever funded it, because the cut is the Admin's.
+ * Weeks count as paid only on a live payment (an undone one is archived).
+ *
+ * `floatingNow` is passed in, not recomputed: it is the page's own Floating
+ * figure, so the projection starts from exactly the number on the screen.
+ */
+export async function projectedFloating(
+  userId: string,
+  lender: { id: string; isSelf: boolean },
+  floatingNow: Centavos,
+  on: Date,
+): Promise<Projection> {
+  const unpaid = { deletedAt: null, status: 'ACTIVE' as const }
+  const funding = await db.loanFunding.findMany({
+    where: {
+      userId,
+      loan: unpaid,
+      OR: [{ lenderId: lender.id }, ...(lender.isSelf ? [{ adminCutCentavos: { gt: 0 } }] : [])],
+    },
+    select: {
+      lenderId: true,
+      principalCentavos: true,
+      earningsCentavos: true,
+      adminCutCentavos: true,
+      loan: {
+        select: {
+          id: true,
+          interestCollection: true,
+          startOn: true,
+          dueOn: true,
+          termDays: true,
+          borrower: { select: { firstName: true, lastName: true } },
+          payments: { where: { deletedAt: null, weekNumber: { not: null } }, select: { weekNumber: true } },
+        },
+      },
+    },
+  })
+
+  return projectFloating(
+    floatingNow,
+    funding.map((row) => {
+      const own = row.lenderId === lender.id
+      return {
+        loanId: row.loan.id,
+        borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
+        interestCollection: row.loan.interestCollection,
+        startOn: storedCalendarDate(row.loan.startOn),
+        dueOn: storedCalendarDate(row.loan.dueOn),
+        termDays: row.loan.termDays,
+        principal: centavos(own ? row.principalCentavos : 0),
+        earnings: centavos(own ? row.earningsCentavos : 0),
+        // Zero on the Admin's own rows by the schema, and never this pot's
+        // unless this pot is the Admin's.
+        adminCut: centavos(lender.isSelf ? row.adminCutCentavos : 0),
+        paidWeeks: new Set(row.loan.payments.flatMap((p) => (p.weekNumber === null ? [] : [p.weekNumber]))),
+      }
+    }),
+    calendarDate(new Date()),
+    on,
+  )
 }
