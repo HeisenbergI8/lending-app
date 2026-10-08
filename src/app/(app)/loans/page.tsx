@@ -7,6 +7,7 @@ import { formatListDate } from '@/lib/dates.ts'
 import { Money } from '@/components/money.tsx'
 import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Pager } from '@/components/pager.tsx'
 import { isFiltered, loanFilterHref, parseLoanFilter } from '@/lib/loan-filter.ts'
 import { parsePage } from '@/lib/pagination.ts'
@@ -194,9 +195,23 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
           <ul className="space-y-2">
             {rows.map((loan) => (
               <li key={loan.id}>
+                {/* A PAID LOAN STEPS BACK. Settled money needs no action, so its
+                    card sits flat on a muted surface, in grey: no shadow, words
+                    in the muted ink, and the avatar and green Paid badge drained
+                    of colour by a grayscale filter — which is what makes it hold
+                    in light and dark and under every accent, since it does not
+                    pick a colour of its own. Still a full-size, readable link: it
+                    is quieter, not hidden. Hover or keyboard focus brings the
+                    colour back so the card being pointed at is clear. */}
                 <Link
                   href={`/loans/${loan.id}`}
-                  className="bg-card group block p-3.5 rounded-2xl ring-1 ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line transition-[box-shadow,--tw-ring-color] duration-200"
+                  className={cn(
+                    'group block p-3.5 rounded-2xl ring-1 transition-[box-shadow,--tw-ring-color,filter,background-color] duration-200',
+                    loan.state === 'paid'
+                      ? // `**:` reaches the few figures that set their own darker ink.
+                      'bg-muted/40 ring-border/50 text-muted-foreground **:text-muted-foreground grayscale hover:bg-card hover:grayscale-0 hover:ring-brand-line focus-visible:grayscale-0'
+                      : 'bg-card ring-border/70 shadow-rest hover:shadow-hover hover:ring-brand-line',
+                  )}
                 >
                   <div className="flex items-center gap-3">
                     <Avatar name={loan.borrowerName} photo={photos.get(loan.borrowerId)} />
