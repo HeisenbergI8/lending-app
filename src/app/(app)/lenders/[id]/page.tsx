@@ -992,10 +992,20 @@ function MoneyHistoryList({
                     line exists to say. */}
                 <div className="text-sm font-medium break-words">{event.title}</div>
                 <div className="text-muted-foreground mt-0.5 text-xs">{formatListDate(event.on)}</div>
-                {event.detail ? (
+                {event.detail === null ? null : event.move ? (
+                  // THE ADMIN'S OWN NOTE, typed on a money in or out. Free text of
+                  // any length, so it wraps like text and stops at two lines; the
+                  // whole note is one tap away in the edit dialog this row opens.
+                  // It used to go through the nowrap branch below, and a long note
+                  // ran out of its column and under the amounts.
+                  <div className="text-muted-foreground line-clamp-2 text-xs break-words" title={event.detail}>
+                    {event.detail}
+                  </div>
+                ) : (
                   <div className="text-muted-foreground text-xs break-words">
                     {/* "₱30,000.00 capital + ₱12,000.00 interest" breaks at the
-                        "+", never inside a phrase. */}
+                        "+", never inside a phrase. Only for these breakdowns the
+                        app writes itself, which are short by construction. */}
                     {event.detail.split(' + ').map((part, index, parts) => (
                       <span key={index}>
                         {index > 0 ? ' ' : null}
@@ -1008,7 +1018,7 @@ function MoneyHistoryList({
                       </span>
                     ))}
                   </div>
-                ) : null}
+                )}
               </div>
               <div className="flex shrink-0 flex-col items-end">
                 <Money amount={event.amount} variant="display" className="text-sm font-semibold" muted={!incoming} />
