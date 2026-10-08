@@ -32,6 +32,7 @@ import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 
 import { LenderSettings } from './lender-settings.tsx'
 import { EditTransaction, TransactionForm } from './transaction-form.tsx'
+import { HoldNoteRow } from './hold-note.tsx'
 
 /** First value only. A query string can carry a key twice; a date box cannot. */
 const one = (value: string | string[] | undefined): string =>
@@ -995,7 +996,8 @@ function MoneyHistoryList({
                 {event.detail === null ? null : event.move ? (
                   // THE ADMIN'S OWN NOTE, typed on a money in or out. Free text of
                   // any length, so it wraps like text and stops at two lines; the
-                  // whole note is one tap away in the edit dialog this row opens.
+                  // whole note shows by holding the row (HoldNoteRow), or in the edit
+                  // dialog a tap opens.
                   // It used to go through the nowrap branch below, and a long note
                   // ran out of its column and under the amounts.
                   <div className="text-muted-foreground line-clamp-2 text-xs break-words" title={event.detail}>
@@ -1033,8 +1035,9 @@ function MoneyHistoryList({
             return (
               /* RELATIVE, because the edit trigger is a layer over the whole row
                  rather than a button at the end of it — see EditTransaction. */
-              <li
+              <HoldNoteRow
                 key={event.key}
+                note={entry.note}
                 className="hover:bg-muted/40 relative flex items-center gap-3 p-3 transition-colors duration-150"
               >
                 <EditTransaction
@@ -1049,7 +1052,7 @@ function MoneyHistoryList({
                 />
                 {body}
                 <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
-              </li>
+              </HoldNoteRow>
             )
           }
 
