@@ -28,6 +28,8 @@ import { createPendingLoan } from '@/server/pending/actions.ts'
 
 const WEEK_PRESETS = [1, 2, 3, 4]
 const CUSTOM = 'custom'
+/** Any number of weeks, typed, with no dates — see readTerm in server/pending/actions.ts. */
+const WEEKS = 'weeks'
 const MAX_SUGGESTIONS = 6
 
 type BorrowerName = { id: string; firstName: string; lastName: string }
@@ -212,6 +214,7 @@ export function AddPendingLoan({
                 {describeTerm(weeks * DAYS_PER_WEEK)}
               </option>
             ))}
+            <option value={WEEKS}>Other number of weeks</option>
             <option value={CUSTOM}>Custom dates</option>
           </SelectNative>
         </div>
@@ -237,6 +240,33 @@ export function AddPendingLoan({
           <p className="text-muted-foreground text-xs">Left blank, it is the usual 7%.</p>
         </div>
       </div>
+
+      {termChoice === WEEKS ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="weeks">Number of weeks</Label>
+            <div className="relative">
+              <Input
+                id="weeks"
+                name="weeks"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={52}
+                step={1}
+                placeholder="6"
+                className="pr-16"
+                required
+                autoFocus
+              />
+              <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm" aria-hidden>
+                weeks
+              </span>
+            </div>
+            <p className="text-muted-foreground text-xs">No dates needed yet. They are set when the loan is recorded.</p>
+          </div>
+        </div>
+      ) : null}
 
       {termChoice === CUSTOM ? (
         <div className="grid gap-3 sm:grid-cols-2">

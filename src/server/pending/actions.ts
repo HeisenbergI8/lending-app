@@ -37,6 +37,14 @@ function refresh(): void {
 /** The lengths the dropdown offers, in weeks. Longer than four is Custom dates. */
 const WEEK_PRESETS = [1, 2, 3, 4]
 const CUSTOM = 'custom'
+/**
+ * "Other number of weeks": a length longer than the presets, typed as a count,
+ * for a request that has no dates yet — Custom dates would make the Admin
+ * invent a start day nobody agreed. Stored like a preset, as a length with no
+ * start. The cap stops a slipped finger (40 typed as 400), not a real loan.
+ */
+const WEEKS = 'weeks'
+const MAX_WEEKS = 52
 
 type Term = { termDays: number; startOn: Date | null }
 
@@ -54,6 +62,14 @@ type Term = { termDays: number; startOn: Date | null }
  */
 function readTerm(form: FormData): Result<Term, string> {
   const choice = text(form, 'termChoice')
+
+  if (choice === WEEKS) {
+    const raw = text(form, 'weeks')
+    const weeks = Number(raw)
+    if (!/^\d+$/.test(raw) || weeks < 1) return err('Type how many weeks, as a whole number.')
+    if (weeks > MAX_WEEKS) return err(`That is more than ${MAX_WEEKS} weeks. Check the number.`)
+    return ok({ termDays: weeks * DAYS_PER_WEEK, startOn: null })
+  }
 
   if (choice !== CUSTOM) {
     const weeks = Number(choice)
