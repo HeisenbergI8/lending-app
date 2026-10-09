@@ -10,7 +10,7 @@ import {
 } from '../../lib/money/weeks.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
-import { type FormState, NO_ERROR, amount, date, failed, personName, text } from '../forms.ts'
+import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
 import { DEFAULT_BORROWER_RATE_BPS, parseRate } from '../loans/terms.ts'
 
 /**
@@ -92,8 +92,15 @@ function readTerm(form: FormData): Result<Term, string> {
 export async function createPendingLoan(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
-  const name = personName(form)
-  if (!name.ok) return failed(name.error)
+  // A borrower from the Borrowers list, never a typed name: the form offers
+  // only those, and this is the check that holds when the form is bypassed.
+  // Deleted borrowers are not on the list, so they are refused here too. The
+  // name is copied onto the request, which is what the list and conversion read.
+  const borrower = await db.borrower.findFirst({
+    where: { id: text(form, 'borrowerId'), userId: user.id, deletedAt: null },
+    select: { firstName: true, lastName: true },
+  })
+  if (!borrower) return failed('Choose a borrower from the list.')
 
   const capital = amount(form, 'capital')
   if (!capital.ok) return failed(capital.error)
@@ -112,7 +119,8 @@ export async function createPendingLoan(_prev: FormState, form: FormData): Promi
   await db.pendingLoan.create({
     data: {
       userId: user.id,
-      ...name.value,
+      firstName: borrower.firstName,
+      lastName: borrower.lastName,
       capitalCentavos: capital.value,
       borrowerRateBps: rate.value,
       termDays: term.value.termDays,

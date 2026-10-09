@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { Avatar } from '@/components/avatar.tsx'
+import Link from 'next/link'
 
 import { FormDialog } from '@/components/forms.tsx'
 import { Input } from '@/components/ui/input'
@@ -30,72 +30,18 @@ const WEEK_PRESETS = [1, 2, 3, 4]
 const CUSTOM = 'custom'
 /** Any number of weeks, typed, with no dates — see readTerm in server/pending/actions.ts. */
 const WEEKS = 'weeks'
-const MAX_SUGGESTIONS = 6
-
 type BorrowerName = { id: string; firstName: string; lastName: string }
 
 /**
- * Borrowers whose name has a word starting with what was typed. "ma" finds
- * Maria Santos and Jose Manalo. Typing both names ("maria s") narrows to the
- * people whose full name starts that way.
+ * WHO IS ASKING is picked from the Borrowers list, never typed (2026-10-09, the
+ * Admin's call). A typed name could be a stranger, a misspelling or a second
+ * "Angel Dela Cruz", and converting the request to a loan matches by name. The
+ * request still stores the name it was given — the server copies it from the
+ * borrower chosen — so the requests list and conversion work as before.
+ * Someone new is added on the Borrowers screen first.
  */
-function suggestionsFor(query: string, borrowers: BorrowerName[]): BorrowerName[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return []
-  return borrowers
-    .filter((b) => {
-      const full = `${b.firstName} ${b.lastName}`.toLowerCase()
-      return full.startsWith(q) || full.split(/\s+/).some((word) => word.startsWith(q))
-    })
-    .slice(0, MAX_SUGGESTIONS)
-}
-
-/**
- * A request stores a typed name, not a link to a Borrower, so picking someone
- * here only fills in the two name boxes. Converting the request later matches
- * the name back to that borrower.
- */
-export function AddPendingLoan({
-  borrowers,
-  photos = {},
-}: {
-  borrowers: BorrowerName[]
-  /** Borrower id to photo link, so a borrower with a photo shows it in the suggestions. */
-  photos?: Record<string, string>
-}) {
+export function AddPendingLoan({ borrowers }: { borrowers: BorrowerName[] }) {
   const [termChoice, setTermChoice] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [listOpen, setListOpen] = useState(false)
-  const [active, setActive] = useState(0)
-
-  const suggestions = suggestionsFor(firstName, borrowers)
-  const showList = listOpen && suggestions.length > 0
-
-  function pick(borrower: BorrowerName) {
-    setFirstName(borrower.firstName)
-    setLastName(borrower.lastName)
-    setListOpen(false)
-  }
-
-  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (!showList) return
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      setActive((i) => (i + 1) % suggestions.length)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setActive((i) => (i - 1 + suggestions.length) % suggestions.length)
-    } else if (event.key === 'Enter') {
-      // Enter picks the highlighted name instead of submitting the form.
-      event.preventDefault()
-      pick(suggestions[active])
-    } else if (event.key === 'Escape') {
-      // Close the list, not the whole dialog (FormDialog leaves Escape alone
-      // while this field says its list is open).
-      setListOpen(false)
-    }
-  }
 
   return (
     <FormDialog
@@ -106,73 +52,39 @@ export function AddPendingLoan({
       description="Someone who wants to borrow. Nothing is lent until a lender is found for it."
       submitLabel="Add request"
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="relative space-y-2">
-          <Label htmlFor="firstName">First name</Label>
-          <Input
-            id="firstName"
-            name="firstName"
-            required
-            autoComplete="off"
-            autoFocus
-            role="combobox"
-            aria-expanded={showList}
-            aria-controls="borrower-suggestions"
-            aria-autocomplete="list"
-            aria-activedescendant={showList ? `borrower-suggestion-${active}` : undefined}
-            value={firstName}
-            onChange={(event) => {
-              setFirstName(event.target.value)
-              setListOpen(true)
-              setActive(0)
-            }}
-            onFocus={() => setListOpen(true)}
-            onBlur={() => setListOpen(false)}
-            onKeyDown={onKeyDown}
-          />
-          {showList ? (
-            <ul
-              id="borrower-suggestions"
-              role="listbox"
-              aria-label="Existing borrowers"
-              className="bg-popover text-popover-foreground absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-lg p-1 shadow-md ring-1 ring-border sm:right-auto sm:min-w-[calc(200%+0.75rem)]"
-            >
-              {suggestions.map((borrower, index) => (
-                <li
-                  key={borrower.id}
-                  id={`borrower-suggestion-${index}`}
-                  role="option"
-                  aria-selected={index === active}
-                  // mousedown, not click, so the pick lands before the input's blur closes the list.
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    pick(borrower)
-                  }}
-                  onMouseEnter={() => setActive(index)}
-                  className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-2 text-sm pointer-fine:min-h-8 ${
-                    index === active ? 'bg-accent text-accent-foreground' : ''
-                  }`}
-                >
-                  <Avatar name={`${borrower.firstName} ${borrower.lastName}`} photo={photos[borrower.id]} />
-                  <span className="truncate">
-                    {borrower.firstName} {borrower.lastName}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="lastName">Last name</Label>
-          <Input
-            id="lastName"
-            name="lastName"
-            required
-            autoComplete="off"
-            value={lastName}
-            onChange={(event) => setLastName(event.target.value)}
-          />
-        </div>
+      <div className="space-y-2">
+        <Label htmlFor="borrowerId">Borrower</Label>
+        <SelectNative id="borrowerId" name="borrowerId" defaultValue="" required autoFocus>
+          {/* Nothing pre-picked and required, so a request cannot be filed
+              under whoever happened to be first in the list. */}
+          <option value="" disabled>
+            Choose a borrower…
+          </option>
+          {borrowers.map((borrower) => (
+            <option key={borrower.id} value={borrower.id}>
+              {borrower.firstName} {borrower.lastName}
+            </option>
+          ))}
+        </SelectNative>
+        <p className="text-muted-foreground text-xs">
+          {borrowers.length === 0 ? (
+            <>
+              No borrowers yet.{' '}
+              <Link href="/borrowers" className="text-brand font-medium">
+                Add one in Borrowers
+              </Link>{' '}
+              first.
+            </>
+          ) : (
+            <>
+              Someone new?{' '}
+              <Link href="/borrowers" className="text-brand font-medium">
+                Add them in Borrowers
+              </Link>{' '}
+              first.
+            </>
+          )}
+        </p>
       </div>
 
       <div className="space-y-2">
