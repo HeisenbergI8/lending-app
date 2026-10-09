@@ -4,6 +4,7 @@ import { type TrackRecord, trackRecord } from '../../lib/track-record.ts'
 import { PAGE_SIZE, type PageWindow } from '../../lib/pagination.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
 import { db } from '../db.ts'
+import { type ExtensionFlags, extensionFlags } from '../loans/extensions.ts'
 import { sumReleased } from '../payments/collected.ts'
 import { settledOn, settlingPayment } from '../payments/settled.ts'
 
@@ -139,9 +140,11 @@ function stillOwed(loans: SummaryRow['loans']): Centavos {
   return centavos(totals - collected)
 }
 
-function toSummary(borrower: SummaryRow): BorrowerSummary {
+function toSummary(borrower: SummaryRow, flags: ExtensionFlags): BorrowerSummary {
   const loans = borrower.loans.map((loan) => ({
     status: loan.status,
+    extended: flags.extended.has(loan.id),
+    closedByExtension: flags.closed.has(loan.id),
     // The next owed date, not the capital date — see BorrowerLoanRecord.
     dueOn: loan.nextDueOn,
     paidOn: settledOn(loan.payments),
@@ -202,7 +205,7 @@ export async function listBorrowers(
   userId: string,
   window: PageWindow = { page: 1, skip: 0, take: PAGE_SIZE },
 ): Promise<BorrowerList> {
-  const [borrowers, totals] = await Promise.all([
+  const [borrowers, totals, flags] = await Promise.all([
     db.borrower.findMany({
       where: { userId, deletedAt: null },
       // `id` breaks ties — see the note in loans/queries.ts. Two people can
@@ -213,9 +216,10 @@ export async function listBorrowers(
       select: SUMMARY_ROW,
     }),
     borrowerCounts(userId),
+    extensionFlags(userId),
   ])
 
-  return { rows: borrowers.map(toSummary), totals }
+  return { rows: borrowers.map((row) => toSummary(row, flags)), totals }
 }
 
 /**
@@ -247,7 +251,7 @@ export async function topBorrowers(userId: string, limit: number): Promise<Borro
 
   const ranked = owed.map((group) => group.borrowerId)
 
-  const [owing, rest] = await Promise.all([
+  const [owing, rest, flags] = await Promise.all([
     ranked.length > 0
       ? db.borrower.findMany({ where: { userId, deletedAt: null, id: { in: ranked } }, select: SUMMARY_ROW })
       : [],
@@ -259,13 +263,14 @@ export async function topBorrowers(userId: string, limit: number): Promise<Borro
           select: SUMMARY_ROW,
         })
       : [],
+    extensionFlags(userId),
   ])
 
   // `in` does not preserve the order it was given, so the ranking is reapplied.
   const byId = new Map(owing.map((borrower) => [borrower.id, borrower]))
   const inRank = ranked.map((id) => byId.get(id)).filter((row) => row !== undefined)
 
-  return [...inRank, ...rest].map(toSummary)
+  return [...inRank, ...rest].map((row) => toSummary(row, flags))
 }
 
 /**
@@ -340,6 +345,7 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     },
   })
   if (!borrower) return null
+  const flags = await extensionFlags(userId)
 
   // The settling payment, live only. An undone payment is soft-deleted rather
   // than destroyed, so it is still attached to its loan; and on a weekly loan
@@ -377,6 +383,8 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     record: trackRecord(
       borrower.loans.map((loan) => ({
         status: loan.status,
+        extended: flags.extended.has(loan.id),
+        closedByExtension: flags.closed.has(loan.id),
         // The next owed date, not the capital date — see BorrowerLoanRecord.
         dueOn: loan.nextDueOn,
         paidOn: livePayment(loan)?.paidOn ?? null,

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
+  CalendarPlus,
   CheckCircle2,
   FileText,
   HandCoins,
@@ -22,10 +23,12 @@ import { ProofPreview } from '@/components/proof-preview.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { formatPesos } from '@/lib/money/centavos.ts'
-import { describeTerm } from '@/lib/money/weeks.ts'
+import { describeTerm, storedCalendarDate } from '@/lib/money/weeks.ts'
 import { describeBytes } from '@/lib/proof.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteLoan, deleteLoanNote } from '@/server/loans/actions.ts'
+import { undoExtension } from '@/server/loans/extend-actions.ts'
+import { type LoanExtensions, extensionsForLoan } from '@/server/loans/extensions.ts'
 import { type LoanDetail, getLoan } from '@/server/loans/queries.ts'
 import { deleteProof, undoPayment } from '@/server/payments/actions.ts'
 import { paymentForLoan } from '@/server/payments/queries.ts'
@@ -34,6 +37,7 @@ import { AdvanceForm } from './advance-form.tsx'
 import { NoteForm } from './note-form.tsx'
 import { AddProofForm, MarkPaidPanel } from './payment-panel.tsx'
 import { ConvertToWeekly } from './convert-to-weekly.tsx'
+import { ExtendLoan } from './extend-loan.tsx'
 import { WeeklySchedule } from './weekly-schedule.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -93,7 +97,13 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
   if (!loan) notFound()
 
   const paid = loan.state === 'paid'
-  const payment = paid ? await paymentForLoan(user.id, id) : null
+  const [payment, extensions] = await Promise.all([
+    paid ? paymentForLoan(user.id, id) : Promise.resolve(null),
+    extensionsForLoan(user.id, id),
+  ])
+  // Closed by an extension where the borrower paid the interest and the capital
+  // carried on as a new loan. Its "payment" is that interest, not a repayment.
+  const rolledOver = extensions.rows.find((row) => row.continuedLoanId !== null) ?? null
 
   return (
     <div className="space-y-6">
@@ -130,6 +140,19 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
                 agreed and handed over, and changing one without the other would
                 leave the two disagreeing with nothing to say which is right. */}
             {paid ? null : (
+              <ExtendLoan
+                loanId={loan.id}
+                ready={extensions.ready}
+                capital={loan.capital}
+                interest={loan.interest}
+                termDays={loan.termDays}
+                dueOn={storedCalendarDate(loan.capitalDueOn)}
+                basis={loan.interestBasis}
+                collection={loan.interestCollection}
+                borrowerRateBps={loan.borrowerRateBps}
+              />
+            )}
+            {paid ? null : (
               <Button asChild variant="ghost" size="sm">
                 <Link href={`/loans/${loan.id}/edit`}>
                   <Pencil className="size-4" aria-hidden />
@@ -157,18 +180,32 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
         </div>
       </div>
 
-      <StatTile
-        hero
-        icon={paid ? CheckCircle2 : HandCoins}
-        label={paid ? 'Repaid' : 'They repay'}
-        value={<Money amount={loan.total} variant="display" />}
-        note={
-          paid && loan.paidOn
-            ? `${formatPesos(loan.capital)} capital · paid ${dateFormat.format(loan.paidOn)}`
-            : `${formatPesos(loan.capital)} capital · ${describeTerm(loan.termDays)} · ${chargeNote(loan)}`
-        }
-        tone={loan.state === 'overdue' ? 'critical' : undefined}
-      />
+      {rolledOver ? (
+        // Not "Repaid": only the interest changed hands. The capital is still
+        // out, on the loan this one continued as.
+        <StatTile
+          hero
+          icon={CalendarPlus}
+          label="Interest paid, extended"
+          value={<Money amount={rolledOver.interestPaid} variant="display" />}
+          note={`paid ${dateFormat.format(rolledOver.extendedOn)} · the ${formatPesos(loan.capital)} capital carried on as a new loan`}
+        />
+      ) : (
+        <StatTile
+          hero
+          icon={paid ? CheckCircle2 : HandCoins}
+          label={paid ? 'Repaid' : 'They repay'}
+          value={<Money amount={loan.total} variant="display" />}
+          note={
+            paid && loan.paidOn
+              ? `${formatPesos(loan.capital)} capital · paid ${dateFormat.format(loan.paidOn)}`
+              : `${formatPesos(loan.capital)} capital · ${describeTerm(loan.termDays)} · ${chargeNote(loan)}`
+          }
+          tone={loan.state === 'overdue' ? 'critical' : undefined}
+        />
+      )}
+
+      <ExtensionsSection extensions={extensions} />
 
       {/* THE INTEREST, BROKEN IN TWO. One "Interest ₱8,400" tile answers what the
           borrower pays and nothing about who keeps it, and the admin's own share
@@ -220,7 +257,7 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
       ) : null}
 
       {paid ? (
-        <PaymentSection loanId={loan.id} payment={payment} missingProof={loan.missingProof} />
+        <PaymentSection loanId={loan.id} payment={payment} missingProof={loan.missingProof} rolledOver={rolledOver !== null} />
       ) : (
         <MarkPaidPanel
           loanId={loan.id}
@@ -470,10 +507,18 @@ function PaymentSection({
   loanId,
   payment,
   missingProof,
+  rolledOver,
 }: {
   loanId: string
   payment: Awaited<ReturnType<typeof paymentForLoan>>
   missingProof: boolean
+  /**
+   * Closed by an extension with the interest paid. The payment is that interest,
+   * not a repayment, and undoing it alone would put the loan back to running
+   * beside the loan its capital carried on as — the same capital out twice. So
+   * it says what it is, and points at the extension's own Undo instead.
+   */
+  rolledOver: boolean
 }) {
   return (
     <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
@@ -481,9 +526,14 @@ function PaymentSection({
         <div>
           <h2 className="text-base font-semibold tracking-tight">Payment</h2>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            {payment ? `Paid in full on ${dateFormat.format(payment.paidOn)}.` : 'Recorded as paid.'}
+            {rolledOver
+              ? `The interest, paid ${payment ? dateFormat.format(payment.paidOn) : ''} when the loan was extended. To take it back, undo the extension above.`
+              : payment
+                ? `Paid in full on ${dateFormat.format(payment.paidOn)}.`
+                : 'Recorded as paid.'}
           </p>
         </div>
+        {rolledOver ? null : (
         <ActionForm
           action={undoPayment}
           sound="restore"
@@ -499,6 +549,7 @@ function PaymentSection({
         >
           Undo payment
         </ActionForm>
+        )}
       </div>
 
       {missingProof ? (
@@ -562,6 +613,93 @@ function PaymentSection({
       ) : null}
 
       <AddProofForm loanId={loanId} />
+    </section>
+  )
+}
+
+/**
+ * The loan's extension history, and where it continued from or to.
+ *
+ * Rendered only when there is something to say. Each line is what was agreed,
+ * read off the LoanExtension row: the day, the weeks added, the old and new due
+ * dates, the interest added, and — when the borrower paid the interest that day —
+ * that payment and a link to the loan the capital carried on as. The latest one
+ * can be undone, for an extension entered by mistake.
+ */
+function ExtensionsSection({ extensions }: { extensions: LoanExtensions }) {
+  if (extensions.rows.length === 0 && !extensions.continuedFrom) return null
+  const latest = extensions.rows.at(-1)
+
+  return (
+    <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+      <div className="flex items-center gap-2.5">
+        <IconChip icon={CalendarPlus} tint="amber" />
+        <h2 className="text-base font-semibold tracking-tight">
+          {extensions.rows.length === 0
+            ? 'Continued loan'
+            : extensions.rows.length === 1
+              ? 'Extended once'
+              : `Extended ${extensions.rows.length} times`}
+        </h2>
+      </div>
+
+      {extensions.continuedFrom ? (
+        <p className="text-muted-foreground text-sm">
+          Carries on a loan extended {dateFormat.format(extensions.continuedFrom.on)}, after its interest was paid.{' '}
+          <Link href={`/loans/${extensions.continuedFrom.loanId}`} className="text-brand font-medium">
+            See the earlier loan
+          </Link>
+        </p>
+      ) : null}
+
+      {extensions.rows.length > 0 ? (
+        <ul className="divide-border/70 divide-y text-sm">
+          {extensions.rows.map((row) => (
+            <li key={row.id} className="flex items-start justify-between gap-3 py-2">
+              <div className="min-w-0">
+                <div className="font-medium">
+                  +{describeTerm(row.addedDays)} · {dateFormat.format(row.extendedOn)}
+                </div>
+                <div className="text-muted-foreground text-xs">
+                  Was due {dateFormat.format(row.fromDueOn)}, now {dateFormat.format(row.toDueOn)} ·{' '}
+                  <Money amount={row.addedInterest} variant="display" /> more interest
+                </div>
+                <div className="text-muted-foreground text-xs">
+                  {row.continuedLoanId ? (
+                    <>
+                      <Money amount={row.interestPaid} variant="display" /> interest paid that day ·{' '}
+                      <Link href={`/loans/${row.continuedLoanId}`} className="text-brand font-medium">
+                        continued as a new loan
+                      </Link>
+                    </>
+                  ) : (
+                    'Nothing paid then; it is all due at the end.'
+                  )}
+                </div>
+              </div>
+              {row.id === latest?.id ? (
+                <ActionForm
+                  action={undoExtension}
+                  sound="trash"
+                  values={{ extensionId: row.id }}
+                  variant="ghost"
+                  size="sm"
+                  pendingLabel="Undoing…"
+                  confirm={{
+                    title: 'Undo this extension?',
+                    body: row.continuedLoanId
+                      ? 'The new loan is removed, and this loan goes back to running with its interest unpaid.'
+                      : 'The loan goes back to its old due date and interest.',
+                    action: 'Undo extension',
+                  }}
+                >
+                  Undo
+                </ActionForm>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   )
 }

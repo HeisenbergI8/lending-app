@@ -13,6 +13,7 @@ import { db } from '../db.ts'
 import { type FormState, NO_ERROR, date, failed, text } from '../forms.ts'
 import { StorageUnavailable } from '../storage/proof-bucket.ts'
 import { SETTLING, paidWeekNumbers } from './settled.ts'
+import { closedByExtension } from '../loans/extensions.ts'
 import { type Upload, discardUploads, filesFrom, proofRows, uploadAll } from './uploads.ts'
 
 /**
@@ -268,6 +269,13 @@ export async function undoPayment(_prev: FormState, form: FormData): Promise<For
     },
   })
   if (!loan) return failed('That loan no longer exists.')
+
+  // A loan closed by an extension (interest paid, capital carried on as a new
+  // loan) is not undone here: running it again beside its continuation would
+  // put the same capital out twice. The extension's Undo reverses both at once.
+  if (await closedByExtension(user.id, loanId)) {
+    return failed('This payment is the interest paid when the loan was extended. Undo the extension instead.')
+  }
 
   // Back to whatever is owed next now that the settling payment is gone. On a
   // weekly loan that is the final week; on any other it is the loan's due date.

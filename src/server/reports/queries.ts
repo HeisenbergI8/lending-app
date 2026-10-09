@@ -6,6 +6,7 @@ import { type LenderPosition } from '../../lib/money/floating.ts'
 import { adminTakeOnLoan } from '../../lib/money/split.ts'
 import { daysBetween, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
+import { extensionFlags } from '../loans/extensions.ts'
 import { adminShareOf, weeksCollectedIn } from '../payments/collected.ts'
 import { adminTakeIn, cashIn, lenderTakeIn, paymentsReceivedIn } from '../payments/received.ts'
 import { SETTLING, settledOn, settlingPayment } from '../payments/settled.ts'
@@ -745,6 +746,7 @@ export async function borrowerReport(
         where: { deletedAt: null },
         orderBy: { startOn: 'asc' },
         select: {
+          id: true,
           capitalCentavos: true,
           interestCentavos: true,
           totalCentavos: true,
@@ -817,9 +819,12 @@ export async function borrowerReport(
   // The record and what is owed are counted across EVERY loan, not only the ones
   // in the range: a track record that changed with the dates on a report would
   // not be a track record.
+  const flags = await extensionFlags(userId)
   const record = trackRecord(
     borrower.loans.map((loan) => ({
       status: loan.status,
+      extended: flags.extended.has(loan.id),
+      closedByExtension: flags.closed.has(loan.id),
       // The next owed date, not the capital date — see BorrowerLoanRecord.
       dueOn: loan.nextDueOn,
       paidOn: livePayment(loan)?.paidOn ?? null,

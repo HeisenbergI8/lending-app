@@ -14,6 +14,7 @@ import { parsePage } from '@/lib/pagination.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { dueThisWeek, listLoans } from '@/server/loans/queries.ts'
+import { extensionFlags, showsExtended } from '@/server/loans/extensions.ts'
 
 import { LoanSearch } from './search-form.tsx'
 
@@ -35,7 +36,7 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
   const params = await searchParams
   const filter = parseLoanFilter(params)
   const paging = parsePage(params.page)
-  const [{ rows, totals }, photos, due] = await Promise.all([
+  const [{ rows, totals }, photos, due, extension] = await Promise.all([
     listLoans(user.id, filter, paging),
     borrowerPhotoUrls(user.id),
     // Only under the This week chip, where the first tile is what is due in
@@ -43,6 +44,7 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
     // Not when a name or dates narrow it further: dueThisWeek is the whole
     // account's figure, and beside fewer rows it would describe loans not shown.
     filter.status === 'week' && filter.query === '' && !filter.from && !filter.to ? dueThisWeek(user.id) : null,
+    extensionFlags(user.id),
   ])
 
   const searching = isFiltered(filter)
@@ -216,7 +218,17 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                   <div className="flex items-center gap-3">
                     <Avatar name={loan.borrowerName} photo={photos.get(loan.borrowerId)} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{loan.borrowerName}</div>
+                      {/* EXTENDED: the borrower was given more time on this loan, or it
+                          carries on one that was. A plain word, amber like the
+                          extension history on the loan page — not a status colour. */}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate text-sm font-medium">{loan.borrowerName}</span>
+                        {showsExtended(extension, loan.id) ? (
+                          <span className="bg-chip-amber/10 text-chip-amber shrink-0 rounded-full px-1.5 py-0.5 text-[0.65rem] font-semibold tracking-wide uppercase">
+                          Extended
+                        </span>
+                        ) : null}
+                      </div>
                       <div className="text-muted-foreground mt-0.5 text-xs">
                         {/* "Week due" is not decoration. Without it a ₱4,200
                             week reads exactly like a ₱144,000 capital repayment

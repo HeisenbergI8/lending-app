@@ -27,6 +27,14 @@ export type BorrowerLoanRecord = {
   dueOn: Date
   /** When the repayment actually arrived. Null on an active loan. */
   paidOn: Date | null
+  /** The borrower was given more time on this loan at least once (LoanExtension). */
+  extended?: boolean
+  /**
+   * Closed by an extension where the interest was paid and the capital carried on
+   * as a new loan. Not a repayment, so it is neither "paid on time" nor "paid
+   * late", and the loan it continued as is the one counted — one debt, one loan.
+   */
+  closedByExtension?: boolean
 }
 
 export type TrackRecord = {
@@ -37,6 +45,8 @@ export type TrackRecord = {
   active: number
   /** Active and past its due date. A fact about today, not a stored state. */
   overdue: number
+  /** Loans the borrower was given more time on. Counted beside the rest, not instead of them. */
+  extended: number
 }
 
 /** Midnight, so a comparison is between calendar days rather than instants. */
@@ -57,9 +67,11 @@ export function trackRecord(
   loans: BorrowerLoanRecord[],
   now: Date = new Date(),
 ): TrackRecord {
-  const record: TrackRecord = { total: 0, paid: 0, paidOnTime: 0, paidLate: 0, active: 0, overdue: 0 }
+  const record: TrackRecord = { total: 0, paid: 0, paidOnTime: 0, paidLate: 0, active: 0, overdue: 0, extended: 0 }
 
   for (const loan of loans) {
+    if (loan.extended) record.extended += 1
+    if (loan.closedByExtension) continue
     record.total += 1
 
     if (loan.status === 'PAID') {
@@ -95,5 +107,6 @@ export function describeTrackRecord(record: TrackRecord): string {
   if (record.total === 0) return 'No loans yet'
   const loans = record.total === 1 ? '1 loan' : `${record.total} loans`
   const counted = `${loans} · ${record.paidOnTime} paid on time · ${record.paidLate} paid late`
-  return record.overdue > 0 ? `${counted} · ${record.overdue} overdue now` : counted
+  const withExtended = record.extended > 0 ? `${counted} · ${record.extended} extended` : counted
+  return record.overdue > 0 ? `${withExtended} · ${record.overdue} overdue now` : withExtended
 }

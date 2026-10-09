@@ -125,6 +125,23 @@ describe('several loans at once', () => {
       ],
       TODAY,
     )
-    assert.deepEqual(record, { total: 3, paid: 1, paidOnTime: 0, paidLate: 1, active: 2, overdue: 1 })
+    assert.deepEqual(record, { total: 3, paid: 1, paidOnTime: 0, paidLate: 1, active: 2, overdue: 1, extended: 0 })
   })
+})
+
+test('extended loans are counted beside the rest; a loan closed by an extension is not a repayment', () => {
+  const due = new Date(2026, 9, 1)
+  const record = trackRecord(
+    [
+      // closed when the interest was paid; the capital carried on as the next one
+      { status: 'PAID', dueOn: due, paidOn: due, extended: true, closedByExtension: true },
+      { status: 'ACTIVE', dueOn: new Date(2026, 9, 15), paidOn: null },
+      { status: 'PAID', dueOn: due, paidOn: due, extended: true },
+    ],
+    new Date(2026, 9, 5),
+  )
+  assert.equal(record.total, 2)
+  assert.equal(record.paidOnTime, 1)
+  assert.equal(record.extended, 2)
+  assert.ok(describeTrackRecord(record).includes('2 extended'))
 })

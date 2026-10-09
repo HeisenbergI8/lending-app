@@ -13,6 +13,7 @@ import { StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { requireUser } from '@/server/auth/guard.ts'
 import { borrowerFullPhotoUrl, borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { getBorrower } from '@/server/borrowers/queries.ts'
+import { extensionFlags, showsExtended } from '@/server/loans/extensions.ts'
 
 import { PhotoPicker } from './photo-picker.tsx'
 import { BorrowerSettings, LabelPicker } from './borrower-settings.tsx'
@@ -38,10 +39,11 @@ export async function generateMetadata({ params }: PageProps<'/borrowers/[id]'>)
 export default async function BorrowerPage({ params, searchParams }: PageProps<'/borrowers/[id]'>) {
   const user = await requireUser()
   const id = (await params).id
-  const [borrower, photos, full] = await Promise.all([
+  const [borrower, photos, full, extension] = await Promise.all([
     getBorrower(user.id, id),
     borrowerPhotoUrls(user.id),
     borrowerFullPhotoUrl(user.id, id),
+    extensionFlags(user.id),
   ])
   if (!borrower) notFound()
 
@@ -85,7 +87,7 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
               <p className="text-muted-foreground text-sm">
                 {record.total === 0
                   ? 'No loans yet.'
-                  : `${record.total === 1 ? '1 loan' : `${record.total} loans`} · ${record.paidOnTime} paid on time · ${record.paidLate} late`}
+                  : `${record.total === 1 ? '1 loan' : `${record.total} loans`} · ${record.paidOnTime} paid on time · ${record.paidLate} late${record.extended > 0 ? ` · ${record.extended} extended` : ''}`}
               </p>
             </div>
           </div>
@@ -151,7 +153,14 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
                       {loan.paidOn ? ` · paid ${formatListDate(loan.paidOn)}` : ''}
                     </p>
                   </div>
-                  <LoanStatusBadge state={loan.state} />
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <LoanStatusBadge state={loan.state} />
+                    {showsExtended(extension, loan.id) ? (
+                      <span className="bg-chip-amber/10 text-chip-amber rounded-full px-1.5 py-0.5 text-[0.65rem] font-semibold tracking-wide uppercase">
+                        Extended
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
                 <dl className="mt-3 grid grid-cols-2 gap-3">

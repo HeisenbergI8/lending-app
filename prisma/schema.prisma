@@ -68,6 +68,7 @@ model User {
   proofFiles         ProofFile[]
   loanNotes          LoanNote[]
   pendingLoans       PendingLoan[]
+  loanExtensions     LoanExtension[]
 }
 
 /// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
@@ -337,6 +338,10 @@ model Loan {
   payments Payment[]
   notes    LoanNote[]
   advances LenderTransaction[]
+  /// Each time this loan's due date was pushed back. See LoanExtension.
+  extensions    LoanExtension[] @relation("Extended")
+  /// Set on a loan that carries on another after its interest was paid. See LoanExtension.
+  continuedFrom LoanExtension[] @relation("Continuation")
 
   @@index([userId, status, deletedAt])
   @@index([borrowerId])
@@ -510,4 +515,57 @@ model LoginAttempt {
   @@index([identifier, createdAt])
   @@index([ipHash, createdAt])
   @@index([createdAt])
+}
+
+/// One extension of a loan: the borrower asked for more time, and the Admin agreed.
+///
+/// A RECORD OF WHAT WAS AGREED, written once and never recalculated. The loan's
+/// own figures (dueOn, termDays, interest, the funding split) are what the money
+/// arithmetic reads; this row is the history beside them, so a later reader can
+/// see that the loan was extended, when, from which due date to which, and what
+/// it added. Without it an extension is an edit, and an edit leaves no trace.
+///
+/// TWO WAYS, chosen each time:
+///
+///   Nothing paid now (continuedLoanId null) — the SAME loan runs longer: its due
+///     date moves, and the interest for the extra weeks is added to what is owed
+///     at the end. interestPaidCentavos is 0.
+///
+///   Interest paid now (continuedLoanId set) — the borrower hands over the
+///     interest due so far. The loan is closed as paid with a payment of exactly
+///     that interest, and the same capital carries on as a NEW loan from the old
+///     due date, on the same funders and rates, for the extra weeks. Floating is
+///     right without any partial-payment concept: the capital comes back and goes
+///     straight out again, and only the interest is realised.
+///
+/// Undo deletes the row (and, for the second kind, the continuation) outright:
+/// an extension entered by mistake is not history worth keeping for thirty days.
+model LoanExtension {
+  id                    String   @id @default(cuid())
+  userId                String
+  /// The loan that was extended — for the second kind, the one that was closed.
+  loanId                String
+  /// The day it was agreed.
+  extendedOn            DateTime @db.Date
+  fromDueOn             DateTime @db.Date
+  toDueOn               DateTime @db.Date
+  addedDays             Int
+  /// Interest the extension added: to this loan, or charged on the continuation.
+  addedInterestCentavos Int
+  /// Of addedInterestCentavos, what the non-Admin lenders keep. Read back only
+  /// to undo a FIXED-amount extension, where it cannot be recomputed from a rate.
+  addedLenderInterestCentavos Int @default(0)
+  /// Interest handed over on the day. 0 when nothing was paid now.
+  interestPaidCentavos  Int      @default(0)
+  /// The new loan the capital carried on as, when the interest was paid now.
+  continuedLoanId       String?
+  createdAt             DateTime @default(now())
+
+  user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan          Loan  @relation("Extended", fields: [loanId], references: [id], onDelete: Cascade)
+  continuedLoan Loan? @relation("Continuation", fields: [continuedLoanId], references: [id], onDelete: SetNull)
+
+  @@index([loanId])
+  @@index([continuedLoanId])
+  @@index([userId])
 }
