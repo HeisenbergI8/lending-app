@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
+import { CircleAlert } from "lucide-react"
 import { cn } from "cn"
 
 const alertVariants = cva(
@@ -8,8 +9,10 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
+        // An error reads as one calm, tinted card with its own icon — not a
+        // white box of red text. The icon is added by Alert itself.
         destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
+          "animate-in fade-in slide-in-from-top-1 rounded-xl border-destructive/20 bg-destructive/[0.06] px-3.5 py-3 text-destructive shadow-rest dark:bg-destructive/10 *:data-[slot=alert-description]:text-foreground/80 *:data-[slot=alert-description]:text-pretty *:[svg]:text-current",
       },
     },
     defaultVariants: {
@@ -21,6 +24,7 @@ const alertVariants = cva(
 function Alert({
   className,
   variant,
+  children,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
   return (
@@ -29,7 +33,10 @@ function Alert({
       role="alert"
       className={cn(alertVariants({ variant }), className)}
       {...props}
-    />
+    >
+      {variant === "destructive" ? <CircleAlert aria-hidden /> : null}
+      {children}
+    </div>
   )
 }
 

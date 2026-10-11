@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { LoaderCircle, Paperclip, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CircleAlert, FileText, ImagePlus, LoaderCircle, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
+  MAX_PROOF_BYTES,
   MAX_PROOF_FILES,
   PROOF_ACCEPT_ATTRIBUTE,
   checkProofFile,
@@ -72,13 +73,20 @@ export function ProofInput({
   label: string
   hint?: string
   className?: string
-  /** The browser refuses to submit with nothing chosen. The server checks again. */
+  /**
+   * Nothing chosen stops the submit and flags THIS box, in place, rather than
+   * the browser's bubble or an error at the foot of the form. The server
+   * checks again either way.
+   */
   required?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLLabelElement>(null)
   const [chosen, setChosen] = useState<File[]>([])
   const [problem, setProblem] = useState<string | null>(null)
+  const [missing, setMissing] = useState(false)
   const [working, setWorking] = useState(false)
+  const [dragging, setDragging] = useState(false)
 
   // A form reset (after a successful attach) empties the input, so the list of
   // picked files must empty with it. Checked a tick later: a form that cancels
@@ -102,32 +110,36 @@ export function ProofInput({
     inputRef.current.files = transfer.files
   }
 
-  const onChange = async () => {
-    const picked = Array.from(inputRef.current?.files ?? [])
+  /**
+   * New picks are ADDED to what is already chosen, up to the limit. Picking
+   * again used to replace the first choice, which is how a second screenshot
+   * quietly lost the first.
+   */
+  const take = async (picked: File[]) => {
     if (picked.length === 0) {
-      setChosen([])
-      setProblem(null)
+      applyToInput(chosen)
       return
     }
 
     setWorking(true)
-    const processed = await Promise.all(picked.slice(0, MAX_PROOF_FILES).map(shrink))
+    const processed = await Promise.all(picked.map(shrink))
     setWorking(false)
 
     const rejected = processed
       .map((file) => checkProofFile({ name: file.name, type: file.type, size: file.size }))
       .find((result) => !result.ok)
-
     if (rejected && !rejected.ok) {
       setProblem(rejected.error)
-      setChosen([])
-      applyToInput([])
+      applyToInput(chosen)
       return
     }
 
-    setProblem(null)
-    setChosen(processed)
-    applyToInput(processed)
+    const next = [...chosen, ...processed]
+    setProblem(next.length > MAX_PROOF_FILES ? `Only the first ${MAX_PROOF_FILES} files are kept.` : null)
+    const kept = next.slice(0, MAX_PROOF_FILES)
+    setMissing(false)
+    setChosen(kept)
+    applyToInput(kept)
   }
 
   const removeAt = (index: number) => {
@@ -136,43 +148,98 @@ export function ProofInput({
     applyToInput(kept)
   }
 
+  const full = chosen.length >= MAX_PROOF_FILES
+
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('space-y-2.5', className)}>
       <Label htmlFor={name}>{label}</Label>
 
-      <input
-        ref={inputRef}
-        id={name}
-        name={name}
-        type="file"
-        multiple
-        accept={PROOF_ACCEPT_ATTRIBUTE}
-        required={required}
-        onChange={onChange}
-        className="file:bg-muted file:text-foreground hover:file:bg-muted/70 block min-h-11 w-full cursor-pointer text-sm file:mr-3 file:h-9 file:cursor-pointer file:rounded-lg file:border-0 file:px-3 file:text-sm file:font-medium pointer-fine:min-h-0 pointer-fine:file:h-auto pointer-fine:file:py-1.5"
-      />
+      <label
+        ref={boxRef}
+        htmlFor={name}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDragging(false)
+          void take(Array.from(event.dataTransfer.files))
+        }}
+        data-missing={missing || undefined}
+        className={cn(
+          'group/drop border-border bg-muted/30 hover:border-brand-line hover:bg-brand-bg relative flex cursor-pointer items-center gap-3.5 rounded-xl border border-dashed p-3.5 transition-[background-color,border-color,box-shadow] duration-200',
+          'has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:ring-3',
+          dragging && 'border-brand-line bg-brand-bg',
+          missing && 'border-destructive/50 bg-destructive/[0.04] hover:border-destructive/60 hover:bg-destructive/[0.06]',
+          full && 'pointer-events-none opacity-60',
+        )}
+      >
+        <input
+          ref={inputRef}
+          id={name}
+          name={name}
+          type="file"
+          multiple
+          accept={PROOF_ACCEPT_ATTRIBUTE}
+          required={required}
+          disabled={full}
+          onChange={() => void take(Array.from(inputRef.current?.files ?? []))}
+          onInvalid={(event) => {
+            // Our own message, on this box, in place of the browser's bubble.
+            event.preventDefault()
+            setMissing(true)
+            boxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }}
+          className="sr-only"
+        />
+        <span
+          className={cn(
+            'bg-card text-brand ring-border/70 flex size-11 shrink-0 items-center justify-center rounded-xl shadow-rest ring-1 transition-transform duration-200 group-hover/drop:-translate-y-0.5',
+            missing && 'text-destructive ring-destructive/25',
+          )}
+        >
+          {working ? <LoaderCircle className="size-5 animate-spin" aria-hidden /> : <ImagePlus className="size-5" aria-hidden />}
+        </span>
+        <span className="min-w-0 text-sm">
+          <span className="block font-medium">
+            {working ? 'Preparing…' : full ? `${MAX_PROOF_FILES} files is the limit` : chosen.length > 0 ? 'Add another' : 'Tap to add a screenshot'}
+          </span>
+          <span className="text-muted-foreground block text-xs">PNG, JPG, HEIC or PDF · up to {describeBytes(MAX_PROOF_BYTES)} each</span>
+        </span>
+      </label>
 
-      {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
-      {working ? (
-        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-          Preparing files…
+      {missing ? (
+        <p className="text-destructive animate-in fade-in slide-in-from-top-1 flex items-center gap-1.5 text-xs font-medium" role="alert">
+          <CircleAlert className="size-3.5 shrink-0" aria-hidden />
+          Add a screenshot to continue.
         </p>
       ) : null}
-      {problem ? <p className="text-status-critical text-xs font-medium">{problem}</p> : null}
+      {problem ? (
+        <p className="text-destructive flex items-center gap-1.5 text-xs font-medium" role="alert">
+          <CircleAlert className="size-3.5 shrink-0" aria-hidden />
+          {problem}
+        </p>
+      ) : null}
+      {hint && !missing ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
 
       {chosen.length > 0 ? (
-        <ul className="space-y-1">
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {chosen.map((file, index) => (
-            <li key={`${file.name}-${index}`} className="bg-muted/50 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs">
-              <Paperclip className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{file.name}</span>
-              <span className="text-muted-foreground shrink-0">{describeBytes(file.size)}</span>
+            <li
+              key={`${file.name}-${file.size}-${index}`}
+              className="bg-muted ring-border/70 animate-in fade-in zoom-in-95 relative aspect-square overflow-hidden rounded-xl ring-1"
+            >
+              <Thumb file={file} />
+              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pt-5 pb-1.5 text-[11px] font-medium text-white">
+                {describeBytes(file.size)}
+              </span>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="size-9 p-0 pointer-fine:h-6 pointer-fine:w-auto pointer-fine:px-1"
+                className="absolute top-1.5 right-1.5 size-7 rounded-full bg-black/55 p-0 text-white backdrop-blur hover:bg-black/70 hover:text-white"
                 onClick={() => removeAt(index)}
               >
                 <X className="size-3.5" aria-hidden />
@@ -184,4 +251,22 @@ export function ProofInput({
       ) : null}
     </div>
   )
+}
+
+/** A picked file, shown: the picture itself, or a document icon for a PDF. */
+function Thumb({ file }: { file: File }) {
+  const url = useMemo(() => (file.type.startsWith('image/') ? URL.createObjectURL(file) : null), [file])
+  useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url])
+
+  if (!url) {
+    return (
+      <span className="text-muted-foreground flex size-full flex-col items-center justify-center gap-1 px-2 text-center text-[11px]">
+        <FileText className="size-5" aria-hidden />
+        <span className="w-full truncate">{file.name}</span>
+      </span>
+    )
+  }
+  // A blob URL, so a plain img: there is nothing for Next's optimizer to fetch.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt={file.name} className="size-full object-cover" />
 }
