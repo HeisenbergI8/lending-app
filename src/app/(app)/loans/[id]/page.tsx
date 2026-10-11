@@ -30,8 +30,10 @@ import { deleteLoan, deleteLoanNote } from '@/server/loans/actions.ts'
 import { undoExtension } from '@/server/loans/extend-actions.ts'
 import { type LoanExtensions, extensionsForLoan } from '@/server/loans/extensions.ts'
 import { type LoanDetail, getLoan } from '@/server/loans/queries.ts'
+import { deleteLoanProof } from '@/server/loans/proof-actions.ts'
+import { type LoanProofs, proofsForLoan } from '@/server/loans/proofs.ts'
 import { deleteProof, undoPayment } from '@/server/payments/actions.ts'
-import { paymentForLoan } from '@/server/payments/queries.ts'
+import { type ProofFileView, paymentForLoan } from '@/server/payments/queries.ts'
 
 import { AdvanceForm } from './advance-form.tsx'
 import { NoteForm } from './note-form.tsx'
@@ -97,9 +99,10 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
   if (!loan) notFound()
 
   const paid = loan.state === 'paid'
-  const [payment, extensions] = await Promise.all([
+  const [payment, extensions, sentProofs] = await Promise.all([
     paid ? paymentForLoan(user.id, id) : Promise.resolve(null),
     extensionsForLoan(user.id, id),
+    proofsForLoan(user.id, id),
   ])
   // Closed by an extension where the borrower paid the interest and the capital
   // carried on as a new loan. Its "payment" is that interest, not a repayment.
@@ -265,6 +268,8 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
           weekly={loan.interestCollection === 'WEEKLY'}
         />
       )}
+
+      <SentSection loanId={loan.id} proofs={sentProofs} continuation={extensions.continuedFrom !== null} />
 
       {/* DRAWING EARLY ON WHAT THIS LOAN WILL RETURN. Rendered only when there
           is something to say: a loan that gives the Admin pot nothing, and has
@@ -559,61 +564,124 @@ function PaymentSection({
         </p>
       ) : null}
 
-      {payment && payment.files.length > 0 ? (
-        <ul className="space-y-2">
-          {payment.files.map((file, index) => (
-            <li key={file.id} className="flex items-center gap-3 rounded-lg border p-2.5">
-              {file.url && !file.isPdf ? (
-                <ProofPreview
-                  url={file.url}
-                  label={`Screenshot ${index + 1}`}
-                  meta={describeBytes(file.sizeBytes)}
-                />
-              ) : (
-                <>
-                  <span className="bg-muted text-muted-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
-                    {file.isPdf ? <FileText className="size-4" aria-hidden /> : <ImageIcon className="size-4" aria-hidden />}
-                  </span>
-
-                  <div className="min-w-0 flex-1 text-sm">
-                    {file.url ? (
-                      // Signed, and good for a few minutes only — the bucket is
-                      // private, so there is no lasting address to leak.
-                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
-                        Document {index + 1}
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground font-medium">
-                        {file.isPdf ? 'Document' : 'Screenshot'} {index + 1} · link unavailable
-                      </span>
-                    )}
-                    <div className="text-muted-foreground text-xs">{describeBytes(file.sizeBytes)}</div>
-                  </div>
-                </>
-              )}
-
-              <ActionForm
-                action={deleteProof}
-                sound="trash"
-                values={{ proofFileId: file.id }}
-                variant="ghost"
-                size="sm"
-                pendingLabel="Removing…"
-                confirm={{
-                  title: 'Remove this file?',
-                  body: 'It stops showing on the payment. It is not listed on Recently Deleted, so put it back by uploading it again.',
-                  action: 'Remove file',
-                }}
-              >
-                Remove
-              </ActionForm>
-            </li>
-          ))}
-        </ul>
+      {payment ? (
+        <ProofList
+          files={payment.files}
+          remove={deleteProof}
+          field="proofFileId"
+          removeBody="It stops showing on the payment. It is not listed on Recently Deleted, so put it back by uploading it again."
+        />
       ) : null}
 
       <AddProofForm loanId={loanId} />
     </section>
+  )
+}
+
+/**
+ * The screenshots of the loan money being SENT to the borrower.
+ *
+ * Required on every loan saved since 2026-10-11, so a loan missing one is either
+ * older than that — flagged, with the form to add it — or a continuation made by
+ * an extension, where no money was sent and the section stays away entirely.
+ * The last screenshot cannot be removed; the server refuses it and says why.
+ */
+function SentSection({ loanId, proofs, continuation }: { loanId: string; proofs: LoanProofs; continuation: boolean }) {
+  if (!proofs.ready || (continuation && proofs.files.length === 0)) return null
+
+  return (
+    <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+      <div>
+        <h2 className="text-base font-semibold tracking-tight">Money sent</h2>
+        <p className="text-muted-foreground mt-0.5 text-xs">The screenshot of the transfer to the borrower.</p>
+      </div>
+
+      {proofs.files.length === 0 ? (
+        <p className="text-status-warning inline-flex items-center gap-1.5 text-sm font-medium">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          No screenshot yet
+        </p>
+      ) : null}
+
+      <ProofList
+        files={proofs.files}
+        remove={proofs.files.length > 1 ? deleteLoanProof : undefined}
+        field="loanProofId"
+        removeBody="It stops showing on the loan. A loan keeps at least one screenshot, so add the right one first."
+      />
+
+      <AddProofForm loanId={loanId} sent />
+    </section>
+  )
+}
+
+/** Proof files with a preview and a Remove button each — shared by payments and the money sent. */
+function ProofList({
+  files,
+  remove,
+  field,
+  removeBody,
+}: {
+  files: ProofFileView[]
+  /** Omitted when the file cannot be removed — the only screenshot of the money sent. */
+  remove?: React.ComponentProps<typeof ActionForm>['action']
+  field: string
+  removeBody: string
+}) {
+  if (files.length === 0) return null
+  return (
+    <ul className="space-y-2">
+      {files.map((file, index) => (
+        <li key={file.id} className="flex items-center gap-3 rounded-lg border p-2.5">
+          {file.url && !file.isPdf ? (
+            <ProofPreview
+              url={file.url}
+              label={`Screenshot ${index + 1}`}
+              meta={describeBytes(file.sizeBytes)}
+            />
+          ) : (
+            <>
+              <span className="bg-muted text-muted-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
+                {file.isPdf ? <FileText className="size-4" aria-hidden /> : <ImageIcon className="size-4" aria-hidden />}
+              </span>
+
+              <div className="min-w-0 flex-1 text-sm">
+                {file.url ? (
+                  // Signed, and good for a few minutes only — the bucket is
+                  // private, so there is no lasting address to leak.
+                  <a href={file.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+                    Document {index + 1}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground font-medium">
+                    {file.isPdf ? 'Document' : 'Screenshot'} {index + 1} · link unavailable
+                  </span>
+                )}
+                <div className="text-muted-foreground text-xs">{describeBytes(file.sizeBytes)}</div>
+              </div>
+            </>
+          )}
+
+          {remove ? (
+            <ActionForm
+              action={remove}
+              sound="trash"
+              values={{ [field]: file.id }}
+              variant="ghost"
+              size="sm"
+              pendingLabel="Removing…"
+              confirm={{
+                title: 'Remove this file?',
+                body: removeBody,
+                action: 'Remove file',
+              }}
+            >
+              Remove
+            </ActionForm>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   )
 }
 

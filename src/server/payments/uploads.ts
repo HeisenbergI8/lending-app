@@ -17,17 +17,20 @@ export type Upload = { fileId: string; path: string; mimeType: string; sizeBytes
 /**
  * Put the files in the bucket BEFORE anything is written to the database.
  *
+ * `folder` is the payment's id for payment proof, and `loanProofFolder(loanId)`
+ * for the screenshot of a loan being sent.
+ *
  * The order matters. Files first means a failure leaves nothing recorded and the
  * admin simply tries again; rows first would leave a payment claiming proof that
  * is not there. Anything already uploaded when a later file fails is removed, so
  * a retry does not silently leave orphans behind in a bucket nobody looks at.
  */
-export async function uploadAll(userId: string, paymentId: string, files: File[]): Promise<Upload[]> {
+export async function uploadAll(userId: string, folder: string, files: File[]): Promise<Upload[]> {
   const done: Upload[] = []
   try {
     for (const file of files) {
       const fileId = randomUUID()
-      const path = proofStoragePath(userId, paymentId, fileId, file.type)
+      const path = proofStoragePath(userId, folder, fileId, file.type)
       await putProof(path, await file.arrayBuffer(), file.type)
       done.push({ fileId, path, mimeType: file.type, sizeBytes: file.size })
     }
@@ -36,6 +39,11 @@ export async function uploadAll(userId: string, paymentId: string, files: File[]
     await Promise.all(done.map((upload) => removeProof(upload.path).catch(() => undefined)))
     throw error
   }
+}
+
+/** Where a loan's own screenshots go: beside its payments' folders, never inside one. */
+export function loanProofFolder(loanId: string): string {
+  return `loan-${loanId}`
 }
 
 /** Undo the uploads when the rows they belong to could not be written. */

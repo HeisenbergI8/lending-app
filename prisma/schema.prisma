@@ -66,6 +66,7 @@ model User {
   fundings           LoanFunding[]
   payments           Payment[]
   proofFiles         ProofFile[]
+  loanProofs         LoanProof[]
   loanNotes          LoanNote[]
   pendingLoans       PendingLoan[]
   loanExtensions     LoanExtension[]
@@ -338,6 +339,8 @@ model Loan {
   payments Payment[]
   notes    LoanNote[]
   advances LenderTransaction[]
+  /// Screenshots of the money being SENT to the borrower. See LoanProof.
+  proofs   LoanProof[]
   /// Each time this loan's due date was pushed back. See LoanExtension.
   extensions    LoanExtension[] @relation("Extended")
   /// Set on a loan that carries on another after its interest was paid. See LoanExtension.
@@ -567,5 +570,33 @@ model LoanExtension {
 
   @@index([loanId])
   @@index([continuedLoanId])
+  @@index([userId])
+}
+
+/// A screenshot of the loan money being SENT to the borrower — the transfer
+/// Sophy makes. Kept apart from ProofFile, which backs money coming BACK.
+///
+/// REQUIRED ON A NEW LOAN: createLoan refuses to save without at least one, and
+/// the last one cannot be removed. Loans recorded before this table existed,
+/// and continuation loans made by an extension (no money was sent), have none;
+/// the first are flagged on the loan page, the second are not.
+///
+/// The file lives in the same private bucket as payment proof, under
+/// `<userId>/loan-<loanId>/`. Removing one only sets deletedAt; the purge takes
+/// the file and the row together after thirty days.
+model LoanProof {
+  id          String    @id @default(cuid())
+  userId      String
+  loanId      String
+  storagePath String
+  mimeType    String
+  sizeBytes   Int
+  deletedAt   DateTime? @map("archivedAt")
+  uploadedAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId])
   @@index([userId])
 }

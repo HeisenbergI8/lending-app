@@ -1,4 +1,5 @@
 import { db } from '../db.ts'
+import { isMissingTable } from '../loans/extensions.ts'
 import { removeBorrowerPhoto } from '../storage/borrower-photos.ts'
 import { removeProof, storageConfigured } from '../storage/proof-bucket.ts'
 import { purgeCutoff } from './window.ts'
@@ -37,6 +38,7 @@ import { purgeCutoff } from './window.ts'
 /** What one run did. Returned to the cron so a failure is visible in the logs. */
 export type PurgeReport = {
   proofFiles: number
+  loanProofs: number
   payments: number
   transactions: number
   loans: number
@@ -54,6 +56,7 @@ type StoredFile = { id: string; storagePath: string }
 
 const EMPTY: PurgeReport = {
   proofFiles: 0,
+  loanProofs: 0,
   payments: 0,
   transactions: 0,
   loans: 0,
@@ -93,6 +96,14 @@ export async function purgeExpired(options: { userId?: string; now?: Date } = {}
     report.proofFiles = count
   }
 
+  // 1b. Loan screenshots removed on their own, the loan still live.
+  const looseLoanProofs = await loanProofsWhere(expired)
+  const clearedLoanProofs = await clearFromBucket(looseLoanProofs, bucketReady, report)
+  if (clearedLoanProofs.length > 0) {
+    const { count } = await db.loanProof.deleteMany({ where: { id: { in: clearedLoanProofs } } })
+    report.loanProofs = count
+  }
+
   // 2. Undone payments. Their proof rows go with them by cascade, so their files
   //    have to leave the bucket first — all of them, not just deleted ones.
   const payments = await db.payment.findMany({
@@ -121,10 +132,15 @@ export async function purgeExpired(options: { userId?: string; now?: Date } = {}
     where: expired,
     select: { id: true, payments: { select: { proofFiles: { select: { id: true, storagePath: true } } } } },
   })
+  // The screenshots of each loan being sent cascade out with it too.
+  const sentProofs = await loanProofsWhere({ loanId: { in: loans.map((loan) => loan.id) } })
   const clearableLoans = await clearOwners(
     loans.map((loan) => ({
       id: loan.id,
-      proofFiles: loan.payments.flatMap((payment) => payment.proofFiles),
+      proofFiles: [
+        ...loan.payments.flatMap((payment) => payment.proofFiles),
+        ...sentProofs.filter((proof) => proof.loanId === loan.id),
+      ],
     })),
     bucketReady,
     report,
@@ -170,6 +186,21 @@ export async function purgeExpired(options: { userId?: string; now?: Date } = {}
   }
 
   return report
+}
+
+/**
+ * LoanProof rows, every one — deleted or not. Empty until the LoanProof table
+ * exists, so the purge keeps running on a database that has not had it added.
+ */
+async function loanProofsWhere(
+  where: { userId?: string; deletedAt?: { lt: Date }; loanId?: { in: string[] } },
+): Promise<(StoredFile & { loanId: string })[]> {
+  try {
+    return await db.loanProof.findMany({ where, select: { id: true, storagePath: true, loanId: true } })
+  } catch (error) {
+    if (isMissingTable(error)) return []
+    throw error
+  }
 }
 
 /**

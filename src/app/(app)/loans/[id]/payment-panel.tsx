@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type FormState, NO_ERROR } from '@/lib/form-state.ts'
 import { withSound } from '@/lib/sound.ts'
+import { addLoanProof } from '@/server/loans/proof-actions.ts'
 import { addProof, markPaid } from '@/server/payments/actions.ts'
 
 /**
@@ -124,8 +125,17 @@ export function MarkPaidPanel({
  * the payment that settled the loan, which is what every caller meant back when
  * a loan had only one — and which does not exist yet on a running weekly loan.
  */
-export function AddProofForm({ loanId, paymentId }: { loanId: string; paymentId?: string }) {
-  const { formRef, state, formAction } = useClearOnSuccess(addProof)
+export function AddProofForm({
+  loanId,
+  paymentId,
+  sent = false,
+}: {
+  loanId: string
+  paymentId?: string
+  /** Attach to the loan itself — the screenshot of the money being sent — rather than a payment. */
+  sent?: boolean
+}) {
+  const { formRef, state, formAction } = useClearOnSuccess(sent ? addLoanProof : addProof)
 
   return (
     <form ref={formRef} action={formAction} className="space-y-3">

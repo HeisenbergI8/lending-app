@@ -1,14 +1,19 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
+
 import { revalidatePath } from 'next/cache'
 
 import { centavos } from '../../lib/money/centavos.ts'
+import { checkProofFiles } from '../../lib/proof.ts'
 import { DAYS_PER_WEEK, calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { nextUnpaidWeek } from '../../lib/money/weekly.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, failed, text } from '../forms.ts'
 import { SETTLING } from '../payments/settled.ts'
+import { type Upload, discardUploads, filesFrom, proofRows, uploadAll } from '../payments/uploads.ts'
+import { StorageUnavailable } from '../storage/proof-bucket.ts'
 import { type ExtendableLoan, type ExtensionPlan, planExtension } from './extension-terms.ts'
 import { isMissingTable } from './extensions.ts'
 import { loanTerms } from './terms.ts'
@@ -130,6 +135,25 @@ export async function extendLoan(_prev: FormState, form: FormData): Promise<Form
   const p = plan.value
   const today = calendarDate(new Date())
 
+  // INTEREST PAID NOW IS MONEY RECEIVED, so its screenshot is required (owner,
+  // 2026-10-11), attached to the settling payment like any repayment's proof.
+  // Nothing paid now moves no money and needs none. Files first, as everywhere.
+  const settling = loan.payments.find((row) => row.weekNumber === null)
+  const settlingId = settling?.id ?? randomUUID()
+  let uploads: Upload[] = []
+  if (p.mode === 'now') {
+    const files = filesFrom(form, 'proof')
+    if (files.length === 0) return failed('Attach the screenshot of the interest being paid.')
+    const checked = checkProofFiles(files.map((file) => ({ name: file.name, type: file.type, size: file.size })))
+    if (!checked.ok) return failed(checked.error)
+    try {
+      uploads = await uploadAll(user.id, settlingId, files)
+    } catch (error) {
+      if (error instanceof StorageUnavailable) return failed(`Nothing was changed. ${error.message}`)
+      throw error
+    }
+  }
+
   try {
     await db.$transaction(async (tx) => {
       if (p.mode === 'later') {
@@ -163,17 +187,17 @@ export async function extendLoan(_prev: FormState, form: FormData): Promise<Form
       // borrower handed over — the capital did not change hands, it carries on.
       // A settling row left by an earlier undo is reused, because the database
       // allows only one per loan (see markPaid).
-      const existing = loan.payments.find((row) => row.weekNumber === null)
-      if (existing) {
+      if (settling) {
         await tx.payment.update({
-          where: { id: existing.id },
+          where: { id: settling.id },
           data: { paidOn: today, amountCentavos: p.interestPaid, deletedAt: null },
         })
       } else {
         await tx.payment.create({
-          data: { userId: user.id, loanId, weekNumber: null, paidOn: today, amountCentavos: p.interestPaid },
+          data: { id: settlingId, userId: user.id, loanId, weekNumber: null, paidOn: today, amountCentavos: p.interestPaid },
         })
       }
+      await tx.proofFile.createMany({ data: proofRows(user.id, settlingId, uploads) })
       await tx.loan.update({ where: { id: loanId }, data: { status: 'PAID', nextDueOn: p.fromDueOn } })
 
       const t = p.continuation.terms
@@ -210,6 +234,7 @@ export async function extendLoan(_prev: FormState, form: FormData): Promise<Form
       })
     })
   } catch (error) {
+    await discardUploads(uploads)
     if (isMissingTable(error)) return failed(NOT_READY)
     throw error
   }

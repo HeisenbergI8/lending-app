@@ -1,5 +1,7 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
+
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
@@ -14,6 +16,11 @@ import { db } from '../db.ts'
 import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
 import { borrowerNameTaken, lenderNameTaken } from '../people.ts'
 import { floatingByLender } from '../lenders/queries.ts'
+import { checkProofFiles } from '../../lib/proof.ts'
+import { type Upload, discardUploads, filesFrom, loanProofFolder, uploadAll } from '../payments/uploads.ts'
+import { StorageUnavailable } from '../storage/proof-bucket.ts'
+import { isMissingTable } from './extensions.ts'
+import { LOAN_PROOF_NOT_READY, loanProofRows } from './proofs.ts'
 import {
   DEFAULT_ADMIN_CUT_BPS,
   DEFAULT_BORROWER_RATE_BPS,
@@ -296,6 +303,11 @@ async function overdrawn(userId: string, funders: FunderRow[]): Promise<string |
  * of the request it came from either both happen or neither does — a loan saved
  * while the request survived would show the same person queued for money they
  * have already been lent.
+ *
+ * THE SCREENSHOT OF THE MONEY BEING SENT IS REQUIRED (owner, 2026-10-11): no
+ * loan is saved without one. It goes into the bucket after every check passes
+ * and before the transaction, the same files-first order payments use, and is
+ * taken back out if the transaction fails.
  */
 export async function createLoan(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
@@ -308,6 +320,22 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
   // Floating can never be taken below zero by a new loan.
   const refused = await overdrawn(user.id, input.funders)
   if (refused) return failed(refused)
+
+  const files = filesFrom(form, 'proof')
+  if (files.length === 0) return failed('Attach the screenshot of the money being sent. A loan cannot be saved without it.')
+  const checked = checkProofFiles(files.map((file) => ({ name: file.name, type: file.type, size: file.size })))
+  if (!checked.ok) return failed(checked.error)
+
+  // Chosen here rather than by the database, because the files are stored
+  // under the loan's id before the loan row exists.
+  const newLoanId = randomUUID()
+  let uploads: Upload[] = []
+  try {
+    uploads = await uploadAll(user.id, loanProofFolder(newLoanId), files)
+  } catch (error) {
+    if (error instanceof StorageUnavailable) return failed(`Nothing was saved. ${error.message}`)
+    throw error
+  }
 
   let loanId: string
   try {
@@ -330,6 +358,7 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
 
       const loan = await tx.loan.create({
         data: {
+          id: newLoanId,
           userId: user.id,
           borrowerId: borrowerId.value,
           capitalCentavos: input.capital,
@@ -368,10 +397,14 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
         await tx.pendingLoan.deleteMany({ where: { id: pendingId, userId: user.id } })
       }
 
+      await tx.loanProof.createMany({ data: loanProofRows(user.id, loan.id, uploads) })
+
       return loan.id
     })
   } catch (error) {
+    await discardUploads(uploads)
     if (error instanceof LoanRefused) return failed(error.message)
+    if (isMissingTable(error)) return failed(LOAN_PROOF_NOT_READY)
     throw error
   }
 

@@ -5,6 +5,7 @@ import { CircleCheck, Plus, TriangleAlert, X } from 'lucide-react'
 
 import { SubmitButton } from '@/components/forms.tsx'
 import { Money } from '@/components/money.tsx'
+import { ProofInput } from '@/components/proof-input.tsx'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -729,6 +730,16 @@ export function LoanForm({
           Add another funder
         </Button>
       </section>
+
+      {/* NEW LOANS ONLY. An edit changes the figures, not the transfer that was
+          made; its screenshots are managed on the loan page. */}
+      {initial.loanId ? null : (
+        <ProofInput
+          label="Screenshot of the money sent"
+          hint="Required. The transfer to the borrower. Add more than one if it went in parts."
+          required
+        />
+      )}
 
       {state.error ? (
         <Alert variant="destructive" role="alert">

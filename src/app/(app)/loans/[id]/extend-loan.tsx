@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { CalendarPlus } from 'lucide-react'
 
 import { FormDialog } from '@/components/forms.tsx'
+import { ProofInput } from '@/components/proof-input.tsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -174,6 +175,9 @@ export function ExtendLoan({
                 </span>
               </span>
             </label>
+            {paidNow ? (
+              <ProofInput label="Screenshot of the interest paid" hint="Required when they pay now." required />
+            ) : null}
           </fieldset>
         ) : (
           <p className="text-muted-foreground text-xs">

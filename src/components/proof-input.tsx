@@ -66,11 +66,14 @@ export function ProofInput({
   label,
   hint,
   className,
+  required = false,
 }: {
   name?: string
   label: string
   hint?: string
   className?: string
+  /** The browser refuses to submit with nothing chosen. The server checks again. */
+  required?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [chosen, setChosen] = useState<File[]>([])
@@ -130,6 +133,7 @@ export function ProofInput({
         type="file"
         multiple
         accept={PROOF_ACCEPT_ATTRIBUTE}
+        required={required}
         onChange={onChange}
         className="file:bg-muted file:text-foreground hover:file:bg-muted/70 block min-h-11 w-full cursor-pointer text-sm file:mr-3 file:h-9 file:cursor-pointer file:rounded-lg file:border-0 file:px-3 file:text-sm file:font-medium pointer-fine:min-h-0 pointer-fine:file:h-auto pointer-fine:file:py-1.5"
       />
