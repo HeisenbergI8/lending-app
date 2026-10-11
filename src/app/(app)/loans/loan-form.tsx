@@ -734,11 +734,14 @@ export function LoanForm({
       {/* NEW LOANS ONLY. An edit changes the figures, not the transfer that was
           made; its screenshots are managed on the loan page. */}
       {initial.loanId ? null : (
-        <ProofInput
-          label="Screenshot of the money sent"
-          hint="Required. The transfer to the borrower. Add more than one if it went in parts."
-          required
-        />
+        <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
+          <h2 className="text-base font-semibold tracking-tight">Money sent</h2>
+          <ProofInput
+            label="Screenshot of the transfer"
+            hint="Required. Add more than one if it went in parts."
+            required
+          />
+        </section>
       )}
 
       {state.error ? (

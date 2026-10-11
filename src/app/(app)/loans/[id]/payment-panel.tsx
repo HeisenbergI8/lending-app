@@ -142,7 +142,7 @@ export function AddProofForm({
       <input type="hidden" name="loanId" value={loanId} />
       {paymentId ? <input type="hidden" name="paymentId" value={paymentId} /> : null}
 
-      <ProofInput label="Add proof" hint="Images are shrunk before they are stored." />
+      <ProofInput label={sent ? 'Add a screenshot' : 'Add proof'} hint="Images are shrunk before they are stored." />
 
       {state.error ? (
         <Alert variant="destructive" role="alert">

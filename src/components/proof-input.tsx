@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LoaderCircle, Paperclip, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -79,6 +79,20 @@ export function ProofInput({
   const [chosen, setChosen] = useState<File[]>([])
   const [problem, setProblem] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
+
+  // A form reset (after a successful attach) empties the input, so the list of
+  // picked files must empty with it. Checked a tick later: a form that cancels
+  // its reset to keep what was typed (the loan form) keeps the list too.
+  useEffect(() => {
+    const form = inputRef.current?.form
+    if (!form) return
+    const onReset = (event: Event) =>
+      setTimeout(() => {
+        if (!event.defaultPrevented) setChosen([])
+      })
+    form.addEventListener('reset', onReset)
+    return () => form.removeEventListener('reset', onReset)
+  }, [])
 
   /** Put a list of files back on the input, since that is what the form submits. */
   const applyToInput = (files: File[]) => {
