@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronRight, HandCoins, Scissors, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronRight, HandCoins, History, Scissors, TrendingUp, Wallet } from 'lucide-react'
 
 import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
@@ -16,7 +16,7 @@ import { formatListDate } from '@/lib/dates.ts'
 import { addDays, calendarDate, describeTerm, parseCalendarDate, toDateInput } from '@/lib/money/weeks.ts'
 import { type Projection } from '@/lib/money/projection.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
-import { HISTORY_FILTERS, type HistoryFilterKey, filterHistory, parseHistoryFilter } from '@/lib/money/starting-capital.ts'
+import { HISTORY_FILTERS, type HistoryFilterKey, filterHistory, parseHistoryFilter } from '@/lib/money/history-filter.ts'
 import { cn } from '@/lib/utils'
 import {
   type ReportRange,
@@ -32,8 +32,8 @@ import { type LenderDetail, getLender, projectedFloating } from '@/server/lender
 import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 
 import { LenderSettings } from './lender-settings.tsx'
-import { CapitalForm, EditTransaction, TransactionForm } from './transaction-form.tsx'
-import { OpeningCapitalRow } from './capital-history.tsx'
+import { EditTransaction, TransactionForm } from './transaction-form.tsx'
+import { ChangeCapitalForm } from './capital-history.tsx'
 import { HoldNoteRow } from './hold-note.tsx'
 
 /** First value only. A query string can carry a key twice; a date box cannot. */
@@ -511,17 +511,15 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           its full value, because this ledger has no way to write one off. It is
           an expectation, not cash, which is why Floating stays the hero above. */}
       <StatRow className="sm:grid-cols-2 xl:grid-cols-4">
-        {/* THE OPENING FIGURE THE ADMIN TYPED (Lender.startingCapitalCentavos)
-            PLUS EVERY TOP-UP MINUS EVERY REDUCTION since 2026-10-12 — see the
-            Starting capital section below. The opening figure itself is typed,
-            and no query can prove it. The
+        {/* THE FIGURE THE ADMIN TYPED (Lender.startingCapitalCentavos), each
+            save kept as a version — see the Starting capital section below.
+            It is typed, and no query can prove it. The
             deposit rows on this account were entered loan by loan after the fact,
             so deposits minus withdrawals is the size of the lending and not the
             size of the stake. That is exactly why this is typed instead.
 
-            THE OPENING FIGURE IS IN NO OTHER FIGURE ON THIS PAGE: `lenderPosition`
-            does not read the column. A top-up or reduction, though, IS also a
-            deposit or withdrawal, so it moves Floating like any other.
+            IT IS IN NO OTHER FIGURE ON THIS PAGE: `lenderPosition` does not
+            read the column, so saving a new version never moves Floating.
 
             WHY IT SITS NEXT TO "Pot total": the difference between the two is
             what the lending has made this person, which is the question the
@@ -810,7 +808,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           is one line here, newest first, with the balance it left — deposits
           and withdrawals (still tapped to edit), loans going out, repayments
           and weekly interest coming back, and on the Admin pot the cut. */}
-      <CapitalSection lender={lender} today={todayForInput()} />
+      <CapitalSection lender={lender} />
 
       <section id="money-history" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -1058,7 +1056,6 @@ function MoneyHistoryList({
                     occurredOn: entry.occurredOn,
                     note: entry.note,
                     advance: entry.against !== null,
-                    capital: entry.capital,
                   }}
                 />
                 {body}
@@ -1143,15 +1140,10 @@ function HistoryFilter({
 }
 
 /**
- * Starting capital, with how it got there: every top-up and reduction, newest
- * first, and last the figure from before the history started.
- *
- * Each top-up or reduction is also money in or out, so it shows in the Money
- * history too, and is edited the same way: tap the row.
+ * Starting capital, with every version of it the Admin has saved, newest first.
+ * The newest is the figure in force. Saving a new one moves no money.
  */
-function CapitalSection({ lender, today }: { lender: LenderDetail; today: string }) {
-  const moves = lender.transactions.filter((entry) => entry.capital)
-
+function CapitalSection({ lender }: { lender: LenderDetail }) {
   return (
     <section id="starting-capital" className="scroll-mt-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1159,58 +1151,43 @@ function CapitalSection({ lender, today }: { lender: LenderDetail; today: string
           <h2 className="text-base font-semibold tracking-tight">Starting capital</h2>
           <p className="text-muted-foreground text-xs">
             Now{' '}
-            {lender.startingCapital === 0 ? 'not set' : <Money amount={lender.startingCapital} variant="display" />}. Top-ups
-            and reductions also count as money in or out.
+            {lender.startingCapital === 0 ? 'not set' : <Money amount={lender.startingCapital} variant="display" />}.
+            Changing it moves no money.
           </p>
         </div>
-        <CapitalForm lenderId={lender.id} today={today} />
+        <ChangeCapitalForm lenderId={lender.id} current={lender.startingCapital} />
       </div>
 
-      <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
-        {moves.map((entry) => {
-          const topUp = entry.type === 'DEPOSIT'
-          const Icon = topUp ? ArrowDownLeft : ArrowUpRight
-          return (
-            <HoldNoteRow
-              key={entry.id}
-              note={entry.note}
-              className="hover:bg-muted/40 relative flex items-center gap-3 p-3 transition-colors duration-150"
-            >
-              <EditTransaction
-                entry={{
-                  id: entry.id,
-                  type: entry.type,
-                  amount: entry.amount,
-                  occurredOn: entry.occurredOn,
-                  note: entry.note,
-                  advance: false,
-                  capital: true,
-                }}
-              />
+      {lender.capitalVersions.length === 0 ? null : (
+        <ul className="bg-card divide-border/70 shadow-rest ring-border/70 divide-y overflow-hidden rounded-2xl ring-1">
+          {lender.capitalVersions.map((version, index) => (
+            <HoldNoteRow key={version.id} note={version.note} className="flex items-center gap-3 p-3">
               <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-full">
-                <Icon className="size-4" aria-hidden />
+                <History className="size-4" aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{topUp ? 'Top-up' : 'Reduction'}</div>
-                <div className="text-muted-foreground mt-0.5 text-xs">{formatListDate(entry.occurredOn)}</div>
-                {entry.note ? (
-                  <div className="text-muted-foreground line-clamp-2 text-xs break-words" title={entry.note}>
-                    {entry.note}
+                <div className="text-sm font-medium">{index === 0 ? 'Current' : 'Earlier'}</div>
+                <div className="text-muted-foreground mt-0.5 text-xs">Saved {formatListDate(version.savedAt)}</div>
+                {version.note ? (
+                  <div className="text-muted-foreground line-clamp-2 text-xs break-words" title={version.note}>
+                    {version.note}
                   </div>
                 ) : null}
               </div>
-              <Money
-                amount={centavos(topUp ? entry.amount : -entry.amount)}
-                variant="display"
-                className="text-sm font-semibold"
-                muted={!topUp}
-              />
-              <ChevronRight className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              {version.amount === 0 ? (
+                <span className="text-muted-foreground text-sm">Not set</span>
+              ) : (
+                <Money
+                  amount={version.amount}
+                  variant="display"
+                  className="text-sm font-semibold"
+                  muted={index !== 0}
+                />
+              )}
             </HoldNoteRow>
-          )
-        })}
-        <OpeningCapitalRow lenderId={lender.id} opening={lender.openingCapital} />
-      </ul>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

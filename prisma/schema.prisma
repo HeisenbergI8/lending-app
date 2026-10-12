@@ -70,6 +70,7 @@ model User {
   loanNotes          LoanNote[]
   pendingLoans       PendingLoan[]
   loanExtensions     LoanExtension[]
+  capitalVersions    StartingCapitalVersion[]
 }
 
 /// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
@@ -121,11 +122,11 @@ model Lender {
   /// from every report figure — see src/lib/money/floating.ts, which does not
   /// read it.
   ///
-  /// SINCE 2026-10-12 THIS IS THE OPENING FIGURE, "before the history started".
-  /// The starting capital shown on screen is this plus every live top-up minus
-  /// every live reduction (LenderTransaction.isCapital) — startingCapital() in
-  /// src/lib/money/starting-capital.ts. Each top-up is also a deposit, so
-  /// unlike this opening figure it DOES land in floating funds.
+  /// SINCE 2026-10-12 (second change) IT HAS A HISTORY OF VERSIONS, but stays a
+  /// typed figure. Every save of it also writes a StartingCapitalVersion row
+  /// with the amount and a note. It moves no money: top-ups and reductions as
+  /// deposits and withdrawals were tried the same day and dropped, because a
+  /// correction to the stake kept landing in floating funds.
   ///
   /// Zero means the Admin has not said yet, and reads as "not set" on screen
   /// rather than as ₱0.00. The total is never negative; the actions refuse it.
@@ -134,11 +135,30 @@ model Lender {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
-  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions LenderTransaction[]
-  fundings     LoanFunding[]
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions    LenderTransaction[]
+  fundings        LoanFunding[]
+  capitalVersions StartingCapitalVersion[]
 
   @@index([userId, deletedAt])
+}
+
+/// One saved value of Lender.startingCapitalCentavos, with the Admin's note on
+/// why it changed. Written on every save, never edited: the newest row is the
+/// figure the lender carries now. A record of what was typed, not money — no
+/// figure anywhere is summed from these rows.
+model StartingCapitalVersion {
+  id             String   @id @default(cuid())
+  userId         String
+  lenderId       String
+  amountCentavos Int
+  note           String?
+  createdAt      DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lender Lender @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+
+  @@index([lenderId, createdAt])
 }
 
 /// Someone who borrows. Name only.
@@ -230,11 +250,6 @@ model LenderTransaction {
   /// "what this loan still owes the pot minus what has already been drawn on
   /// it", and that subtraction needs rows it can add up, not prose.
   loanId         String?
-  /// A STARTING CAPITAL top-up (DEPOSIT) or reduction (WITHDRAWAL): fresh money
-  /// from outside the lending, or stake handed back (owner, 2026-10-12). It is
-  /// an ordinary deposit or withdrawal for floating funds, and ALSO moves the
-  /// lender's starting capital — see Lender.startingCapitalCentavos.
-  isCapital      Boolean               @default(false)
   deletedAt      DateTime?             @map("archivedAt")
   createdAt      DateTime              @default(now())
 
@@ -344,18 +359,18 @@ model Loan {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  borrower Borrower            @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
-  fundings LoanFunding[]
-  payments Payment[]
-  notes    LoanNote[]
-  advances LenderTransaction[]
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  borrower      Borrower            @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
+  fundings      LoanFunding[]
+  payments      Payment[]
+  notes         LoanNote[]
+  advances      LenderTransaction[]
   /// Screenshots of the money being SENT to the borrower. See LoanProof.
-  proofs   LoanProof[]
+  proofs        LoanProof[]
   /// Each time this loan's due date was pushed back. See LoanExtension.
-  extensions    LoanExtension[] @relation("Extended")
+  extensions    LoanExtension[]     @relation("Extended")
   /// Set on a loan that carries on another after its interest was paid. See LoanExtension.
-  continuedFrom LoanExtension[] @relation("Continuation")
+  continuedFrom LoanExtension[]     @relation("Continuation")
 
   @@index([userId, status, deletedAt])
   @@index([borrowerId])
@@ -555,25 +570,25 @@ model LoginAttempt {
 /// Undo deletes the row (and, for the second kind, the continuation) outright:
 /// an extension entered by mistake is not history worth keeping for thirty days.
 model LoanExtension {
-  id                    String   @id @default(cuid())
-  userId                String
+  id                          String   @id @default(cuid())
+  userId                      String
   /// The loan that was extended — for the second kind, the one that was closed.
-  loanId                String
+  loanId                      String
   /// The day it was agreed.
-  extendedOn            DateTime @db.Date
-  fromDueOn             DateTime @db.Date
-  toDueOn               DateTime @db.Date
-  addedDays             Int
+  extendedOn                  DateTime @db.Date
+  fromDueOn                   DateTime @db.Date
+  toDueOn                     DateTime @db.Date
+  addedDays                   Int
   /// Interest the extension added: to this loan, or charged on the continuation.
-  addedInterestCentavos Int
+  addedInterestCentavos       Int
   /// Of addedInterestCentavos, what the non-Admin lenders keep. Read back only
   /// to undo a FIXED-amount extension, where it cannot be recomputed from a rate.
-  addedLenderInterestCentavos Int @default(0)
+  addedLenderInterestCentavos Int      @default(0)
   /// Interest handed over on the day. 0 when nothing was paid now.
-  interestPaidCentavos  Int      @default(0)
+  interestPaidCentavos        Int      @default(0)
   /// The new loan the capital carried on as, when the interest was paid now.
-  continuedLoanId       String?
-  createdAt             DateTime @default(now())
+  continuedLoanId             String?
+  createdAt                   DateTime @default(now())
 
   user          User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   loan          Loan  @relation("Extended", fields: [loanId], references: [id], onDelete: Cascade)
