@@ -59,8 +59,6 @@ export type HistoryMove = {
   note: string | null
   /** Set when a withdrawal was an advance against a loan. */
   against: { loanId: string; borrowerName: string } | null
-  /** A starting capital top-up or reduction. */
-  capital?: boolean
 }
 
 export type MoneyEvent = {
@@ -115,11 +113,7 @@ export function moneyHistory(
       key: `move-${move.id}`,
       on: move.occurredOn,
       kind: deposit ? 'deposit' : 'withdrawal',
-      title: move.capital
-        ? deposit
-          ? 'Starting capital top-up'
-          : 'Starting capital reduction'
-        : deposit
+      title: deposit
         ? 'Money in'
         : move.against
           ? `Advance on ${move.against.borrowerName}’s loan`

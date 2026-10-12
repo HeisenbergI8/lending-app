@@ -32,7 +32,6 @@ function TransactionFields({
   occurredOn,
   note,
   advance,
-  capital = false,
 }: {
   type: 'DEPOSIT' | 'WITHDRAWAL'
   amount?: Centavos
@@ -47,18 +46,11 @@ function TransactionFields({
    * on these rows as well, because a hidden control is a suggestion.
    */
   advance?: boolean
-  /** A starting capital top-up or reduction: the same two directions, named for what they do. */
-  capital?: boolean
 }) {
-  const options = capital
-    ? [
-        { value: 'DEPOSIT', label: 'Top-up', hint: 'fresh money they added' },
-        { value: 'WITHDRAWAL', label: 'Reduction', hint: 'stake they took back' },
-      ]
-    : [
-        { value: 'DEPOSIT', label: 'Money in', hint: 'they added cash' },
-        { value: 'WITHDRAWAL', label: 'Money out', hint: 'they took cash back' },
-      ]
+  const options = [
+    { value: 'DEPOSIT', label: 'Money in', hint: 'they added cash' },
+    { value: 'WITHDRAWAL', label: 'Money out', hint: 'they took cash back' },
+  ]
 
   return (
     <>
@@ -111,7 +103,7 @@ function TransactionFields({
           id="note"
           name="note"
           autoComplete="off"
-          placeholder={capital ? 'Fresh money from GCash' : 'Initial capital'}
+          placeholder="Initial capital"
           defaultValue={note ?? undefined}
         />
       </div>
@@ -147,29 +139,6 @@ export function TransactionForm({ lenderId, today }: { lenderId: string; today: 
 }
 
 /**
- * A starting capital top-up or reduction — "Sophy added ₱20,000 of her own".
- *
- * The same entry as Money in or out, marked `capital`: it moves floating funds
- * like any deposit or withdrawal, and also moves the starting capital.
- */
-export function CapitalForm({ lenderId, today }: { lenderId: string; today: string }) {
-  return (
-    <FormDialog
-      action={recordTransaction}
-      sound={(form) => (form.get('type') === 'WITHDRAWAL' ? 'cashOut' : 'cashIn')}
-      openLabel="Add top-up or reduction"
-      title="Starting capital"
-      description="Fresh money this person put in, or part of their stake they took back. It also counts as money in or out, so Floating moves with it."
-      submitLabel="Save"
-    >
-      <input type="hidden" name="lenderId" value={lenderId} />
-      <input type="hidden" name="capital" value="yes" />
-      <TransactionFields type="DEPOSIT" occurredOn={today} capital />
-    </FormDialog>
-  )
-}
-
-/**
  * Correcting a movement already recorded.
  *
  * THE WHOLE ROW IS THE BUTTON. A pencil and a bin on every row turned a list of
@@ -198,7 +167,6 @@ export function EditTransaction({
     occurredOn: Date
     note: string | null
     advance: boolean
-    capital?: boolean
   }
 }) {
   const [open, setOpen] = useState(false)
@@ -226,9 +194,7 @@ export function EditTransaction({
         description={
           entry.advance
             ? 'Money drawn against a loan. It stays money out, and it stays on that loan.'
-            : entry.capital
-              ? 'A starting capital top-up or reduction. It moves both starting capital and Floating.'
-              : 'Cash the lender handed over, or took back. Not a loan.'
+            : 'Cash the lender handed over, or took back. Not a loan.'
         }
         submitLabel="Save changes"
         aside={
@@ -263,7 +229,6 @@ export function EditTransaction({
           occurredOn={toDateInput(storedCalendarDate(entry.occurredOn))}
           note={entry.note}
           advance={entry.advance}
-          capital={entry.capital}
         />
 
         {/* `entry.amount` is the stored amountCentavos of this row, the same

@@ -99,11 +99,11 @@ export default async function LendersPage() {
                     larger one was entered. Label left and figure right has no
                     such ceiling. */}
                 <dl className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-1 sm:grid-cols-2 sm:gap-2 lg:grid-cols-5">
-                  {/* `startingCapital` is the opening figure the Admin typed
-                      (Lender.startingCapitalCentavos) plus every top-up minus
-                      every reduction — lib/money/starting-capital.ts. It is the
-                      money this person put in from outside the lending, and it
-                      moves ONLY when the Admin records a top-up or reduction.
+                  {/* `startingCapital` is the figure the Admin typed
+                      (Lender.startingCapitalCentavos), each save kept as a
+                      version on the profile. It is the money this person put
+                      in from outside the lending, and it moves ONLY when the
+                      Admin types a new one.
 
                       There is therefore NO QUERY THAT CAN PROVE IT, and that is
                       the honest position rather than a gap: the deposit rows on

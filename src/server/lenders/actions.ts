@@ -5,7 +5,6 @@ import { redirect } from 'next/navigation'
 
 import { centavos, formatPesos } from '../../lib/money/centavos.ts'
 import { adminStakeInLoan } from '../../lib/money/split.ts'
-import { type CapitalMove, capitalRefusal, startingCapital } from '../../lib/money/starting-capital.ts'
 import { DAYS_PER_WEEK } from '../../lib/money/weeks.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { requireUser } from '../auth/guard.ts'
@@ -36,36 +35,6 @@ import { lenderNameTaken, lenderRestoreBlocked } from '../people.ts'
  */
 function refresh(): void {
   revalidatePath('/', 'layout')
-}
-
-/**
- * Would this change take the lender's starting capital below zero? The
- * sentence to show, or null.
- *
- * Reads the opening figure and every live top-up and reduction, leaves out the
- * row being changed (`excluding`), puts in its replacement (`adding`), and
- * swaps the opening figure when that is what is being edited.
- */
-async function capitalCheck(
-  userId: string,
-  lenderId: string,
-  change: { excluding?: string; adding?: CapitalMove; opening?: number },
-): Promise<string | null> {
-  const lender = await db.lender.findFirst({
-    where: { id: lenderId, userId },
-    select: {
-      startingCapitalCentavos: true,
-      transactions: {
-        where: { deletedAt: null, isCapital: true, ...(change.excluding ? { id: { not: change.excluding } } : {}) },
-        select: { type: true, amountCentavos: true },
-      },
-    },
-  })
-  if (!lender) return 'That lender no longer exists.'
-
-  const moves: CapitalMove[] = lender.transactions.map((row) => ({ type: row.type, amount: row.amountCentavos, capital: true }))
-  if (change.adding) moves.push(change.adding)
-  return capitalRefusal(startingCapital(change.opening ?? lender.startingCapitalCentavos, moves))
 }
 
 export async function createLender(_prev: FormState, form: FormData): Promise<FormState> {
@@ -104,11 +73,12 @@ export async function renameLender(_prev: FormState, form: FormData): Promise<Fo
 }
 
 /**
- * Set the OPENING starting capital — the line "before the history started".
+ * Set the starting capital, and keep the old figure as a version.
  *
- * Since 2026-10-12 the starting capital on screen is this plus every top-up
- * minus every reduction (recordTransaction with `capital`). This is still how
- * the figure from before that history is corrected.
+ * Every save writes a StartingCapitalVersion row with the new amount and the
+ * Admin's note, so the history of the figure is the list of what was typed and
+ * why. The newest version always equals Lender.startingCapitalCentavos: both
+ * are written in one transaction.
  *
  * THE ONE WRITE IN THIS FILE THAT RECORDS A FIGURE RATHER THAN AN EVENT, and it
  * is a figure the Admin knows and the app cannot: the money that came from
@@ -139,14 +109,20 @@ export async function setStartingCapital(_prev: FormState, form: FormData): Prom
     value = parsed.value
   }
 
-  const refused = await capitalCheck(user.id, id, { opening: value })
-  if (refused) return failed(refused)
+  const note = text(form, 'note')
 
-  const { count } = await db.lender.updateMany({
-    where: { id, userId: user.id },
-    data: { startingCapitalCentavos: value },
+  const saved = await db.$transaction(async (tx) => {
+    const { count } = await tx.lender.updateMany({
+      where: { id, userId: user.id },
+      data: { startingCapitalCentavos: value },
+    })
+    if (count === 0) return false
+    await tx.startingCapitalVersion.create({
+      data: { userId: user.id, lenderId: id, amountCentavos: value, note: note || null },
+    })
+    return true
   })
-  if (count === 0) return failed('That lender no longer exists.')
+  if (!saved) return failed('That lender no longer exists.')
 
   refresh()
   return NO_ERROR
@@ -210,10 +186,6 @@ export async function restoreLender(_prev: FormState, form: FormData): Promise<F
  * negative. The app records what happened; it does not decide that it cannot
  * have. Blocking here would leave the admin unable to enter a real transaction,
  * and the negative figure on the profile says more than a refusal would.
- *
- * `capital=yes` makes it a STARTING CAPITAL top-up (money in) or reduction
- * (money out) as well. Only the starting capital is guarded: it cannot go
- * below zero.
  */
 export async function recordTransaction(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
@@ -233,12 +205,6 @@ export async function recordTransaction(_prev: FormState, form: FormData): Promi
   const lender = await db.lender.findFirst({ where: { id: lenderId, userId: user.id } })
   if (!lender) return failed('That lender no longer exists.')
 
-  const isCapital = text(form, 'capital') === 'yes'
-  if (isCapital) {
-    const refused = await capitalCheck(user.id, lenderId, { adding: { type, amount: value.value, capital: true } })
-    if (refused) return failed(refused)
-  }
-
   await db.lenderTransaction.create({
     data: {
       userId: user.id,
@@ -247,7 +213,6 @@ export async function recordTransaction(_prev: FormState, form: FormData): Promi
       amountCentavos: value.value,
       occurredOn: occurredOn.value,
       note: note || null,
-      isCapital,
     },
   })
 
@@ -458,20 +423,12 @@ export async function updateTransaction(_prev: FormState, form: FormData): Promi
   // Deleted is restored from there, not edited back into life from a stale tab.
   const existing = await db.lenderTransaction.findFirst({
     where: { id, userId: user.id, deletedAt: null },
-    select: { id: true, loanId: true, lenderId: true, isCapital: true },
+    select: { id: true, loanId: true },
   })
   if (!existing) return failed('That entry no longer exists.')
 
   const type = existing.loanId ? 'WITHDRAWAL' : text(form, 'type')
   if (type !== 'DEPOSIT' && type !== 'WITHDRAWAL') return failed('Choose money in or money out.')
-
-  if (existing.isCapital) {
-    const refused = await capitalCheck(user.id, existing.lenderId, {
-      excluding: existing.id,
-      adding: { type, amount: value.value, capital: true },
-    })
-    if (refused) return failed(refused)
-  }
 
   if (existing.loanId) {
     const refusal = await advanceRefusal(user.id, existing.loanId, value.value, existing.id)
@@ -497,16 +454,6 @@ export async function updateTransaction(_prev: FormState, form: FormData): Promi
 export async function deleteTransaction(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
 
-  // Taking away a top-up lowers starting capital, which must not go below zero.
-  const row = await db.lenderTransaction.findFirst({
-    where: { id: text(form, 'transactionId'), userId: user.id, deletedAt: null },
-    select: { id: true, lenderId: true, isCapital: true },
-  })
-  if (row?.isCapital) {
-    const refused = await capitalCheck(user.id, row.lenderId, { excluding: row.id })
-    if (refused) return failed(refused)
-  }
-
   const { count } = await db.lenderTransaction.updateMany({
     where: { id: text(form, 'transactionId'), userId: user.id },
     data: { deletedAt: new Date() },
@@ -519,18 +466,6 @@ export async function deleteTransaction(_prev: FormState, form: FormData): Promi
 
 export async function restoreTransaction(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await requireUser()
-
-  // Bringing back a reduction lowers starting capital, which must not go below zero.
-  const row = await db.lenderTransaction.findFirst({
-    where: { id: text(form, 'transactionId'), userId: user.id, deletedAt: { not: null } },
-    select: { lenderId: true, isCapital: true, type: true, amountCentavos: true },
-  })
-  if (row?.isCapital) {
-    const refused = await capitalCheck(user.id, row.lenderId, {
-      adding: { type: row.type, amount: row.amountCentavos, capital: true },
-    })
-    if (refused) return failed(refused)
-  }
 
   const { count } = await db.lenderTransaction.updateMany({
     where: { id: text(form, 'transactionId'), userId: user.id },
