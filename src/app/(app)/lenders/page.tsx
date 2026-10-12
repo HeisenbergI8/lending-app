@@ -21,8 +21,8 @@ export const metadata = { title: 'Lenders' }
  *
  * Five figures per lender: Starting capital, Floating, Out on loan, Earned,
  * Withdrawn. Four of the five are derived on this read. STARTING CAPITAL IS THE
- * EXCEPTION and the only stored figure on the screen — the Admin types it,
- * because it is a fact about money that changed hands before the app existed.
+ * EXCEPTION: an opening figure the Admin typed, plus the top-ups and reductions
+ * recorded since (2026-10-12).
  */
 export default async function LendersPage() {
   const user = await requireUser()
@@ -99,11 +99,11 @@ export default async function LendersPage() {
                     larger one was entered. Label left and figure right has no
                     such ceiling. */}
                 <dl className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-1 sm:grid-cols-2 sm:gap-2 lg:grid-cols-5">
-                  {/* `startingCapital` is read STRAIGHT OFF Lender.startingCapitalCentavos.
-                      It is not a sum, not a balance and not derived from anything:
-                      the Admin typed it, and it is the money this person put in
-                      from outside the lending before any interest compounded on
-                      top. It moves ONLY when the Admin raises it.
+                  {/* `startingCapital` is the opening figure the Admin typed
+                      (Lender.startingCapitalCentavos) plus every top-up minus
+                      every reduction — lib/money/starting-capital.ts. It is the
+                      money this person put in from outside the lending, and it
+                      moves ONLY when the Admin records a top-up or reduction.
 
                       There is therefore NO QUERY THAT CAN PROVE IT, and that is
                       the honest position rather than a gap: the deposit rows on

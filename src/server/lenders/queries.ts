@@ -8,6 +8,7 @@ import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
 import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
 import { type MoneyEvent, moneyHistory } from '../../lib/money/money-history.ts'
+import { startingCapital } from '../../lib/money/starting-capital.ts'
 import { db } from '../db.ts'
 import { SETTLING, liveWeeklyPayments, settledOn } from '../payments/settled.ts'
 
@@ -30,15 +31,17 @@ export type LenderSummary = {
   /** The admin's own pot. Its money earns the full borrower rate. */
   isSelf: boolean
   /**
-   * What this person put in to START, typed by the Admin and read straight off
-   * the column. THE ONE FIGURE ON A LENDER THAT IS NOT DERIVED.
+   * What this person put in to START: the opening figure the Admin typed, plus
+   * every starting capital top-up, minus every reduction — startingCapital() in
+   * lib/money/starting-capital.ts.
    *
-   * It is deliberately not part of `position`: everything in there is computed
-   * from the transactions and loans on every read, and mixing a typed number in
-   * among them would invite the next reader to treat it as one of those. Zero
-   * means the Admin has not said yet — see the schema comment.
+   * It is deliberately not part of `position`: the opening figure is typed, not
+   * derived, and it is in no floating figure. Zero means the Admin has not said
+   * yet — see the schema comment.
    */
   startingCapital: Centavos
+  /** The opening figure alone, "before the history started" — the typed column. */
+  openingCapital: Centavos
   position: LenderPosition
 }
 
@@ -67,6 +70,8 @@ export type LenderTransactionRow = {
    * deposit or withdrawal, which is most of them.
    */
   against: { loanId: string; borrowerName: string } | null
+  /** A starting capital top-up (deposit) or reduction (withdrawal). */
+  capital: boolean
 }
 
 /**
@@ -529,12 +534,16 @@ function splitCuts(rows: AdminCutRow[]): { running: AdminCutRow[]; settled: Admi
 
 /** Everyone whose money is in play, the admin's own pot first. */
 export async function listLenders(userId: string): Promise<LenderSummary[]> {
-  const [lenders, byLender] = await Promise.all([
+  const [lenders, byLender, capitalMoves] = await Promise.all([
     db.lender.findMany({
       where: { userId, deletedAt: null },
       orderBy: [{ isSelf: 'desc' }, { firstName: 'asc' }, { lastName: 'asc' }],
     }),
     ledgers(userId),
+    db.lenderTransaction.findMany({
+      where: { userId, deletedAt: null, isCapital: true },
+      select: { lenderId: true, type: true, amountCentavos: true },
+    }),
   ])
 
   return lenders.map((lender) => ({
@@ -542,7 +551,13 @@ export async function listLenders(userId: string): Promise<LenderSummary[]> {
     firstName: lender.firstName,
     lastName: lender.lastName,
     isSelf: lender.isSelf,
-    startingCapital: centavos(lender.startingCapitalCentavos),
+    startingCapital: startingCapital(
+      lender.startingCapitalCentavos,
+      capitalMoves
+        .filter((move) => move.lenderId === lender.id)
+        .map((move) => ({ type: move.type, amount: move.amountCentavos, capital: true })),
+    ),
+    openingCapital: centavos(lender.startingCapitalCentavos),
     position: lenderPosition(byLender.get(lender.id) ?? EMPTY_LEDGER),
   }))
 }
@@ -700,7 +715,11 @@ export async function getLender(
     firstName: lender.firstName,
     lastName: lender.lastName,
     isSelf: lender.isSelf,
-    startingCapital: centavos(lender.startingCapitalCentavos),
+    startingCapital: startingCapital(
+      lender.startingCapitalCentavos,
+      transactions.map((row) => ({ type: row.type, amount: row.amountCentavos, capital: row.isCapital })),
+    ),
+    openingCapital: centavos(lender.startingCapitalCentavos),
     position: lenderPosition(byLender.get(lender.id) ?? EMPTY_LEDGER),
     rates: [
       ...new Set(fundings.map((row) => row.lenderRateBps).filter((bps) => bps !== null)),
@@ -720,6 +739,7 @@ export async function getLender(
             borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
           }
         : null,
+      capital: row.isCapital,
     })),
     adminCuts: splitCuts(
       cutRows.map((row) => ({
@@ -786,6 +806,7 @@ export async function getLender(
         against: row.loan
           ? { loanId: row.loan.id, borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}` }
           : null,
+        capital: row.isCapital,
       })),
     ),
     history: buildHistory(

@@ -337,7 +337,7 @@ export function FormDialog({
     async (previous: FormState, form: FormData): Promise<FormState> => {
       const result = await withSound(action, sound)(previous, form)
       if (result?.error === null) {
-        formRef.current?.reset()
+        // No reset needed: closing unmounts the form, so it opens fresh next time.
         setOpen(false)
         // Same reason as ActionForm: the new lender belongs in the list behind
         // this dialog straight away, not after the next navigation.
@@ -373,7 +373,12 @@ export function FormDialog({
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
 
-        <form ref={formRef} action={formAction} className="mt-4 space-y-3">
+        {/* React resets a form after EVERY submit, refused or not. A refusal
+            would then silently put each field back to its default — a
+            reduction flipping back to a top-up while the amount was retyped.
+            So the reset is cancelled here: on success the dialog closes and
+            its form is thrown away anyway. */}
+        <form ref={formRef} action={formAction} onReset={(event) => event.preventDefault()} className="mt-4 space-y-3">
           {children}
 
           {state.error ? (

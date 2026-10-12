@@ -121,8 +121,14 @@ model Lender {
   /// from every report figure — see src/lib/money/floating.ts, which does not
   /// read it.
   ///
+  /// SINCE 2026-10-12 THIS IS THE OPENING FIGURE, "before the history started".
+  /// The starting capital shown on screen is this plus every live top-up minus
+  /// every live reduction (LenderTransaction.isCapital) — startingCapital() in
+  /// src/lib/money/starting-capital.ts. Each top-up is also a deposit, so
+  /// unlike this opening figure it DOES land in floating funds.
+  ///
   /// Zero means the Admin has not said yet, and reads as "not set" on screen
-  /// rather than as ₱0.00. Never negative; the action refuses it.
+  /// rather than as ₱0.00. The total is never negative; the actions refuse it.
   startingCapitalCentavos Int       @default(0)
   deletedAt               DateTime? @map("archivedAt")
   createdAt               DateTime  @default(now())
@@ -224,6 +230,11 @@ model LenderTransaction {
   /// "what this loan still owes the pot minus what has already been drawn on
   /// it", and that subtraction needs rows it can add up, not prose.
   loanId         String?
+  /// A STARTING CAPITAL top-up (DEPOSIT) or reduction (WITHDRAWAL): fresh money
+  /// from outside the lending, or stake handed back (owner, 2026-10-12). It is
+  /// an ordinary deposit or withdrawal for floating funds, and ALSO moves the
+  /// lender's starting capital — see Lender.startingCapitalCentavos.
+  isCapital      Boolean               @default(false)
   deletedAt      DateTime?             @map("archivedAt")
   createdAt      DateTime              @default(now())
 
