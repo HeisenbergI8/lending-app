@@ -68,6 +68,7 @@ export function ProofInput({
   hint,
   className,
   required = false,
+  onCountChange,
 }: {
   name?: string
   label: string
@@ -79,10 +80,13 @@ export function ProofInput({
    * checks again either way.
    */
   required?: boolean
+  /** Told how many files are chosen, so a form can keep its button off until there is one. */
+  onCountChange?: (count: number) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const boxRef = useRef<HTMLLabelElement>(null)
   const [chosen, setChosen] = useState<File[]>([])
+  useEffect(() => onCountChange?.(chosen.length), [chosen, onCountChange])
   const [problem, setProblem] = useState<string | null>(null)
   const [missing, setMissing] = useState(false)
   const [working, setWorking] = useState(false)

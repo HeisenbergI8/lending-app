@@ -66,18 +66,21 @@ export function SubmitButton({
   variant,
   size,
   className,
+  disabled = false,
 }: {
   children: React.ReactNode
   pendingLabel?: string
   variant?: React.ComponentProps<typeof Button>['variant']
   size?: React.ComponentProps<typeof Button>['size']
   className?: string
+  /** Off until the form has what it needs, on top of being off while it saves. */
+  disabled?: boolean
 }) {
   // useFormStatus reads the enclosing form, so this needs no prop threading and
   // cannot get out of step with the form it belongs to.
   const { pending } = useFormStatus()
   return (
-    <Button type="submit" variant={variant} size={size} disabled={pending} className={className}>
+    <Button type="submit" variant={variant} size={size} disabled={pending || disabled} className={className}>
       {pending ? <Pending label={pendingLabel ?? children} /> : children}
     </Button>
   )

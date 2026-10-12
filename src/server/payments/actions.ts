@@ -29,10 +29,9 @@ import { type Upload, discardUploads, filesFrom, proofRows, uploadAll } from './
  * markWeekPaid in week-actions.ts, and the final week is never collected on its
  * own. FEATURES.md section 5.
  *
- * PROOF IS OPTIONAL BUT FLAGGED. Marking a loan paid with nothing attached is
- * allowed and shows a warning until a file arrives. Requiring the file would
- * mean a real repayment going unrecorded because a screenshot was still on
- * someone else's phone.
+ * PROOF IS REQUIRED to mark a loan paid (owner, 2026-10-12, replacing the
+ * earlier optional-but-flagged rule). A loan marked paid before then may have
+ * none, and still shows the warning until a file is added.
  */
 
 function refresh(): void {
@@ -80,6 +79,7 @@ export async function markPaid(_prev: FormState, form: FormData): Promise<FormSt
   if (!paidOn.ok) return failed(`Date paid: ${paidOn.error.toLowerCase()}`)
 
   const files = filesFrom(form, 'proof')
+  if (files.length === 0) return failed('Attach the screenshot of the payment. A loan cannot be marked paid without it.')
   const checked = checkProofFiles(files.map((file) => ({ name: file.name, type: file.type, size: file.size })))
   if (!checked.ok) return failed(checked.error)
 

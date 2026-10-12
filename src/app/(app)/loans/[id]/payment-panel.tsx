@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useRef } from 'react'
+import { useActionState, useRef, useState } from 'react'
 import { CheckCircle2 } from 'lucide-react'
 
 import { SubmitButton } from '@/components/forms.tsx'
@@ -21,9 +21,8 @@ import { addProof, markPaid } from '@/server/payments/actions.ts'
  * editable number would invite a partial payment the rest of the app has no way
  * to represent.
  *
- * The files are optional and the button says so, because a repayment that
- * happened must be recordable the moment it happens, not whenever the screenshot
- * turns up. The loan carries a "no proof" warning until one does.
+ * THE SCREENSHOT IS REQUIRED (owner, 2026-10-12): the button stays off until
+ * one is attached, and markPaid refuses without one anyway.
  */
 
 /**
@@ -76,6 +75,7 @@ export function MarkPaidPanel({
   // Nothing needs clearing afterwards: on success the whole section is replaced
   // by the payment that was just recorded.
   const [state, formAction] = useActionState(markPaidWithSound, NO_ERROR)
+  const [files, setFiles] = useState(0)
 
   return (
     <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
@@ -98,7 +98,9 @@ export function MarkPaidPanel({
 
         <ProofInput
           label="Proof of payment"
-          hint="Optional. The screenshot, the chat, or both. They can be added later."
+          hint="Required. The screenshot, the chat, or both."
+          required
+          onCountChange={setFiles}
         />
 
         {state.error ? (
@@ -107,7 +109,7 @@ export function MarkPaidPanel({
           </Alert>
         ) : null}
 
-        <SubmitButton pendingLabel="Recording…" className="w-full sm:w-auto">
+        <SubmitButton pendingLabel="Recording…" className="w-full sm:w-auto" disabled={files === 0}>
           <CheckCircle2 className="size-4" aria-hidden />
           Mark as paid
         </SubmitButton>

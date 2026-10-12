@@ -7,11 +7,9 @@ import { type Result, ok, err } from './money/result.ts'
  * server can refuse the same file if it arrives anyway. A form is a convenience;
  * the server action is a public endpoint, and only its answer is binding.
  *
- * Proof is OPTIONAL BUT FLAGGED. A payment can be recorded with nothing
- * attached — the screenshot is often still on someone else's phone — and the
- * loan carries a "no proof" warning until one arrives. Blocking the payment
- * instead would mean a repayment going unrecorded because a file was missing,
- * which is the worse of the two failures by a wide margin.
+ * Proof is REQUIRED to mark a loan paid and to save a new loan (owner,
+ * 2026-10-11/12). A weekly instalment can still be ticked off without one and
+ * is flagged "No proof" until a file arrives.
  */
 
 /** A phone screenshot, a photo of a receipt, or the chat confirming it as a PDF. */
