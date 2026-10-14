@@ -527,7 +527,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         ]}
       />
 
-      {/* WHERE THE CUT COMES FROM. The two tiles above carry money that belongs
+      {/* WHERE THE CUT COMES FROM. Cut coming above, and Earned, carry money that belongs
           to none of the loans listed further down this page, because the cut is
           charged on capital that is not this pot's. This is that money, one row
           per funding row it was taken on, and each list sums to exactly the

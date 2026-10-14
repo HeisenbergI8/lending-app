@@ -97,7 +97,6 @@ export type AdminCutRow = {
   state: LoanState
 }
 
-/** One month of a lender's pot: what was working, and what was sitting idle. */
 export type LenderDetail = LenderSummary & {
   /**
    * The weekly rates this lender's money actually runs at, lowest first.
