@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronRight, HandCoins, History, Scissors, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronDown, ChevronRight, HandCoins, History, Scissors, TrendingUp, Wallet } from 'lucide-react'
 
 import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
@@ -611,6 +612,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             page={paging.cutsPaid}
             photos={photos}
             href={href('cutsPaid', 'cuts-repaid')}
+            retractable
           />
         </section>
       ) : null}
@@ -728,16 +730,21 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
       {/* WHO HAS ALREADY PAID THIS POT BACK. "Out with" above is the money at
           risk; this is the track record beside it, and the two answer different
           questions. Kept forever, the same as on a borrower's own profile. */}
-      <section id="paid-back" className="scroll-mt-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-base font-semibold tracking-tight">Paid back</h2>
-          {lender.settled.length > 0 ? (
-            <p className="text-muted-foreground text-xs">
-              {lender.settled.length === 1 ? '1 loan settled' : `${lender.settled.length} loans settled`} ·{' '}
-              <Money amount={settledEarnings} variant="display" /> earned
-            </p>
-          ) : null}
-        </div>
+      <Retractable
+        id="paid-back"
+        open={paging.paid > 1}
+        header={
+          <>
+            <h2 className="text-base font-semibold tracking-tight">Paid back</h2>
+            {lender.settled.length > 0 ? (
+              <p className="text-muted-foreground text-xs">
+                {lender.settled.length === 1 ? '1 loan settled' : `${lender.settled.length} loans settled`} ·{' '}
+                <Money amount={settledEarnings} variant="display" /> earned
+              </p>
+            ) : null}
+          </>
+        }
+      >
 
         {lender.settled.length === 0 ? (
           <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-6 text-center text-sm">
@@ -791,7 +798,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           noun="loans"
           href={href('paid', 'paid-back')}
         />
-      </section>
+      </Retractable>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -860,8 +867,11 @@ function CutList({
   page: at,
   href,
   photos,
+  retractable = false,
 }: {
   photos: Map<string, string>
+  /** Folded shut until tapped, and open again while paging through it. */
+  retractable?: boolean
   id: string
   title: string
   rows: LenderDetail['adminCuts']['running']
@@ -887,17 +897,20 @@ function CutList({
   const rowsTotal = rows.reduce((sum, row) => sum + row.cut, 0)
   const collected = rowsTotal - total
 
-  return (
-    <div id={id} className="scroll-mt-4 space-y-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium">{title}</h3>
-        {rows.length > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            <Money amount={total} variant="display" /> across{' '}
-            {rows.length === 1 ? '1 loan' : `${rows.length} shares`}
-          </p>
-        ) : null}
-      </div>
+  const header = (
+    <>
+      <h3 className="text-sm font-medium">{title}</h3>
+      {rows.length > 0 ? (
+        <p className="text-muted-foreground text-xs">
+          <Money amount={total} variant="display" /> across{' '}
+          {rows.length === 1 ? '1 loan' : `${rows.length} shares`}
+        </p>
+      ) : null}
+    </>
+  )
+
+  const body = (
+    <>
 
       {rows.length > 0 && collected > 0 ? (
         <p className="text-muted-foreground text-xs">
@@ -941,7 +954,54 @@ function CutList({
       )}
 
       <Pager page={at} total={rows.length} noun="shares" href={href} />
+    </>
+  )
+
+  return retractable ? (
+    <Retractable id={id} open={at > 1} header={header} gap="space-y-2">
+      {body}
+    </Retractable>
+  ) : (
+    <div id={id} className="scroll-mt-4 space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">{header}</div>
+      {body}
     </div>
+  )
+}
+
+/**
+ * A list that folds shut behind its heading — a long track record stays one
+ * tap away instead of pushing everything under it down the page.
+ *
+ * A plain <details>, so it works without JavaScript and needs no client
+ * component. `open` keeps it unfolded while the reader pages through it: the
+ * pager reloads the page, and a list that snapped shut on every "Next" would
+ * hide the very rows just asked for.
+ */
+function Retractable({
+  id,
+  open,
+  header,
+  gap = 'space-y-3',
+  children,
+}: {
+  id: string
+  open: boolean
+  header: ReactNode
+  gap?: string
+  children: ReactNode
+}) {
+  return (
+    <details id={id} open={open} className={`group scroll-mt-4 ${gap}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+        <ChevronDown
+          className="text-muted-foreground size-4 shrink-0 -rotate-90 transition-transform duration-150 group-open:rotate-0"
+          aria-hidden
+        />
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-3">{header}</div>
+      </summary>
+      {children}
+    </details>
   )
 }
 
