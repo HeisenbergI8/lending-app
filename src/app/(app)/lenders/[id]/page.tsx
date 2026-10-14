@@ -1,18 +1,17 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronDown, ChevronRight, HandCoins, History, Scissors, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronDown, ChevronRight, HandCoins, History, Scissors, Wallet } from 'lucide-react'
 
-import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Avatar } from '@/components/avatar.tsx'
 import { Money } from '@/components/money.tsx'
 import { Pager } from '@/components/pager.tsx'
-import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
+import { IconChip, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { type Centavos, centavos } from '@/lib/money/centavos.ts'
 import { formatListDate } from '@/lib/dates.ts'
 import { addDays, calendarDate, describeTerm, parseCalendarDate, toDateInput } from '@/lib/money/weeks.ts'
 import { type Projection } from '@/lib/money/projection.ts'
@@ -36,6 +35,7 @@ import { LenderSettings } from './lender-settings.tsx'
 import { EditTransaction, TransactionForm } from './transaction-form.tsx'
 import { ChangeCapitalForm } from './capital-history.tsx'
 import { HoldNoteRow } from './hold-note.tsx'
+import { WhereTheMoneyIs } from './where-the-money-is.tsx'
 
 /** First value only. A query string can carry a key twice; a date box cannot. */
 const one = (value: string | string[] | undefined): string =>
@@ -352,24 +352,6 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
     on && on.getTime() >= today.getTime() ? await projectedFloating(user.id, lender, position.floating, on) : null
   const settledEarnings = centavos(lender.settled.reduce((total, row) => total + row.earnings, 0))
 
-  /* WHAT THE "Out with" ROWS EARN, added up. `lender.fundings` is every funding
-     row of this pot on a loan not yet repaid, and this is the "earns" figure
-     printed on each of those rows totalled — SUM("earningsCentavos") over the
-     same rows, checked against the database on 2026-09-25.
-
-     INTEREST, NOT CAPITAL, because the capital is already the "Out on loan"
-     tile a few inches above and a corner repeating it says nothing new. What
-     the page could not say before is what all that lending is due to make.
-
-     NOT THE SAME AS THE "Interest to collect" TILE on the Admin pot, and
-     deliberately so: that figure also carries the 2% cut charged on other
-     lenders' capital, which belongs to none of the rows below. On every other
-     lender the two are equal. The breakdown section above itemises the
-     difference on the one pot that has any.
-
-     Paged lists, whole-list sums: this counts every row, not the ten on screen. */
-  const outEarnings = centavos(lender.fundings.reduce((total, row) => total + row.earnings, 0))
-
   /* FIVE LISTS, FIVE PAGE NUMBERS. Every list on this page is capped at ten rows,
      each with its own key in the query string, so paging the money history does
      not send the loan lists back to the top.
@@ -388,6 +370,32 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
     history: parsePage(query.history).page,
   }
   const historyFilter = parseHistoryFilter(one(query.show))
+
+  /* THE PART OF "Where the money is" THAT IS SELECTED, and what it does to the
+     "Out with" list: 'loan' keeps the loans that are not overdue, 'late' keeps
+     the overdue ones, anything else shows them all. Its own key, `part`, because
+     `show` already belongs to the money history filter. */
+  const part = one(query.part) || null
+  const isLate = (row: { state: string }) => row.state === 'overdue'
+  const shownFundings =
+    part === 'late' ? lender.fundings.filter(isLate) : part === 'loan' ? lender.fundings.filter((row) => !isLate(row)) : lender.fundings
+  const overdueCapital = centavos(lender.fundings.filter(isLate).reduce((total, row) => total + row.principal, 0))
+  /* WHAT THE "Out with" ROWS ON SCREEN EARN, added up: the "earns" figure on
+     each row, over every row the filter keeps (not just the ten on this page).
+     This pot's own share only — the Admin cut belongs to none of these rows,
+     which is why it can differ from Interest coming + Cut coming above. */
+  const shownEarnings = centavos(shownFundings.reduce((total, row) => total + row.earnings, 0))
+  /** This page with a part selected (or none), the "Out with" list back on page 1. */
+  const partHref = (key: string | null, anchor = 'where') => {
+    const next = new URLSearchParams()
+    for (const [name, value] of Object.entries(query)) {
+      const first = one(value)
+      if (first && name !== 'part' && name !== 'out') next.set(name, first)
+    }
+    if (key) next.set('part', key)
+    const search = next.toString()
+    return `/lenders/${lender.id}${search ? `?${search}` : ''}#${anchor}`
+  }
 
   return (
     <div className="space-y-6">
@@ -445,130 +453,79 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         paging={paging}
       />
 
-      {/* `pending` is the interest on loans still running. The cut belongs to
-          NONE of the "Out with" or "Paid back" rows further down this page —
-          those list only loans this pot's own capital went into — so a tile
-          carrying a cut sat higher than the rows beneath it with nothing on the
-          page to account for the difference. On the admin pot the breakdown
-          section below itemises every peso of it; on every other lender both cut
-          figures are 0 and the section is not rendered at all. `adminCutEarned`
-          / `adminCutPending` are exactly the SUM("adminCutCentavos") slices of
-          the same two totals, split in lenderPosition.
+      {/* WHERE THE MONEY IS: Pot total, split into the parts it is made of.
+          Replaced the four tiles (Starting capital, Pot total, Out on loan,
+          Interest to collect) on 2026-10-14 at the owner's request. Starting
+          capital lives in its own section further down.
 
-          THIS TILE USED TO READ "Total interest" AND SHOW earned + pending. The
-          words were true of that sum, but the tile overlapped "Earned" beside it
-          — earned was a part of it, not a second amount — and the admin read the
-          two as figures to subtract. Changed 2026-09-25 to show `pending` alone
-          under "Interest to collect", so each tile names a separate pot of money
-          and nothing on the row is counted twice.
+          THE PARTS ADD UP TO POT TOTAL and nothing is counted twice:
+            Ready to lend     position.floating
+            Out on loan       position.outOnLoan minus the overdue part
+            Overdue           principal on this pot's running loans whose state is
+                              'overdue' — the same storedLoanState test the
+                              "Out with" badges use, so the slice and the red
+                              badges below always agree
+            Interest coming   position.pending minus the Admin cut in it: this
+                              pot's own interest on loans not yet paid
+            Cut coming        position.adminCutPending, the Admin pot only
+          Pot total is floating + outOnLoan + pending, the sum verified against
+          the database on 2026-09-23 (see the history of this file). `earned` is
+          already inside floating and is deliberately not a part.
 
-          "to collect" IS A PROMISE ABOUT WHICH LOANS. `pending` is the interest
-          on loans NOT yet marked paid, deleted loans excluded, scoped to this
-          user: this pot's own share, plus — on the admin pot only — the cut
-          charged on other funders' capital. On a weekly loan the weeks already
-          collected are OUT of it, because that money is in hand and sits in
-          `earned` instead. So nothing in this figure has been collected, which
-          is what the label says. Proven against the database on 2026-09-25 by
-          summing "earningsCentavos" over non-archived, non-PAID funding rows
-          plus the "adminCutCentavos" slices on other funders' rows: the query
-          and the tile agreed on all three live pots, admin pot included.
-
-          It is an expectation, not cash, and it is NEVER in Floating. A loan
-          already overdue is still counted here at its full value, because this
-          ledger has no way to write one off.
-
-          THERE IS NO LONGER AN "Earned" TILE ON THIS ROW. It showed
-          `position.earned` — every peso of profit ever received — and the
-          reconciliation record had it marked **Label lies** on the Admin pot,
-          where the figure silently carried the cut taken on other lenders'
-          capital. It was replaced on 2026-09-25 by the earned-over-a-period card
-          ABOVE this row, which answers the question the admin was actually
-          asking of it: what did this pot make in a given month. It is not on this
-          row because it is not a position figure and must not be added to these
-          three. `position.earned` is still on the lenders LIST, and the "Paid
-          back" heading further down still prints this pot's own settled earnings. */}
-      {/* POT TOTAL IS NOT THE OTHER TILES ADDED UP, and it must not be, because
-          `earned` is already inside `floating` — a repayment puts capital and
-          profit straight back — so adding all four figures counts it twice and
-          lands on an amount that is nobody's money.
-
-          The sum that is true is floating + out on loan + interest to collect,
-          which is `deposits - withdrawals + earned + pending` with the
-          principal cancelling out. Verified that way against the database on
-          2026-09-23: the two expressions agreed on all eight live lenders,
-          including the Admin pot, where `earned` and `pending` each carry the
-          2% cut on other funders' capital.
-
-          IT IS NOT THIS ROW ADDED UP. Since "Starting capital" joined the row it
-          is not any three of these four either — that tile is a figure the Admin
-          typed and is in none of these sums. What the two of them DO say when
-          read together is what the lending has made this person: Pot total minus
-          Starting capital. That subtraction is the reason the figure was asked
-          for, it is sound, and it is the only arithmetic across this row that is.
-
-          Read forwards, it is what Floating BECOMES once every running loan is
-          repaid and nothing further is put in or taken out. That is the bound
-          and the note says it: a loan already overdue is still counted here at
-          its full value, because this ledger has no way to write one off. It is
-          an expectation, not cash, which is why Floating stays the hero above. */}
-      <StatRow className="sm:grid-cols-2 xl:grid-cols-4">
-        {/* THE FIGURE THE ADMIN TYPED (Lender.startingCapitalCentavos), each
-            save kept as a version — see the Starting capital section below.
-            It is typed, and no query can prove it. The
-            deposit rows on this account were entered loan by loan after the fact,
-            so deposits minus withdrawals is the size of the lending and not the
-            size of the stake. That is exactly why this is typed instead.
-
-            IT IS IN NO OTHER FIGURE ON THIS PAGE: `lenderPosition` does not
-            read the column, so saving a new version never moves Floating.
-
-            WHY IT SITS NEXT TO "Pot total": the difference between the two is
-            what the lending has made this person, which is the question the
-            figure was asked for — the interest compounds as the money goes round,
-            and without a fixed starting point there is nothing to compare the pot
-            against. Both tiles carry notes, because that subtraction is only
-            sound if the reader knows one is a statement and the other a sum.
-
-            Zero renders "Not set" rather than ₱0.00: ₱0.00 claims they put in
-            nothing, and 0 only means nobody has said yet. */}
-        <StatTile
-          label="Starting capital"
-          value={
-            lender.startingCapital === 0 ? (
-              <span className="text-muted-foreground">Not set</span>
-            ) : (
-              <Money amount={lender.startingCapital} variant="display" />
-            )
-          }
-          note={
-            lender.startingCapital === 0
-              ? 'the Admin has not said what this pot started with'
-              : 'put in from outside the lending — history below'
-          }
-        />
-        <StatTile
-          label="Pot total"
-          value={
-            <Money
-              amount={centavos(position.floating + position.outOnLoan + position.pending)}
-              variant="display"
-            />
-          }
-          note="once every running loan is paid in full"
-        />
-        <StatTile label="Out on loan" value={<Money amount={position.outOnLoan} variant="display" />} />
-        <StatTile
-          label="Interest to collect"
-          value={<Money amount={position.pending} variant="display" muted={position.pending === 0} />}
-          note={
-            position.pending === 0
-              ? 'nothing is owed to this pot'
-              : position.adminCutPending > 0
-                ? `on loans still running, includes ${formatPesos(position.adminCutPending)} cut from other lenders' loans`
-                : 'on loans still running, not in the pot yet'
-          }
-        />
-      </StatRow>
+          Interest coming and Cut coming are expectations, not cash, and a loan
+          already overdue still counts at its full value: this ledger has no way
+          to write one off. */}
+      <WhereTheMoneyIs
+        potTotal={centavos(position.floating + position.outOnLoan + position.pending)}
+        selected={part}
+        clearHref={partHref(null)}
+        parts={[
+          {
+            key: 'ready',
+            label: 'Ready to lend',
+            amount: position.floating,
+            color: 'var(--status-good)',
+            href: partHref('ready'),
+            next: { label: 'Lend this money →', href: '/loans/new' },
+          },
+          {
+            key: 'loan',
+            label: 'Out on loan',
+            amount: centavos(position.outOnLoan - overdueCapital),
+            color: 'var(--series-1)',
+            href: partHref('loan'),
+            next: { label: 'See these loans ↓', href: partHref('loan', 'out-with') },
+          },
+          {
+            key: 'late',
+            label: 'Overdue',
+            amount: overdueCapital,
+            color: 'var(--status-critical)',
+            href: partHref('late'),
+            next: { label: 'See the overdue loans ↓', href: partHref('late', 'out-with') },
+          },
+          {
+            key: 'interest',
+            label: 'Interest coming',
+            amount: centavos(position.pending - position.adminCutPending),
+            color: 'var(--series-2)',
+            href: partHref('interest'),
+            next: { label: 'See what each loan earns ↓', href: partHref('interest', 'out-with') },
+          },
+          ...(lender.isSelf
+            ? [
+                {
+                  key: 'cut',
+                  label: 'Cut coming',
+                  amount: position.adminCutPending,
+                  color: 'var(--series-3)',
+                  href: partHref('cut'),
+                  next: { label: 'See where the cut comes from ↓', href: partHref('cut', 'cuts-running') },
+                },
+              ]
+            : []),
+        ]}
+      />
 
       {/* WHERE THE CUT COMES FROM. The two tiles above carry money that belongs
           to none of the loans listed further down this page, because the cut is
@@ -617,53 +574,38 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         </section>
       ) : null}
 
-      {/* WHAT THIS MONEY EARNED, MONTH BY MONTH. The figures above are all as of
-          today; this is the trend behind them, and it answers whether the
-          lending is growing.
-
-          Each column is `interestByMonth` in server/lenders/queries.ts: the
-          same spread-over-the-days figure as "Interest earned" above, one
-          calendar month at a time, the last month to today. Not cash: a loan
-          running across two months counts in both, whenever it was paid.
-
-          On the Admin pot the cut on other lenders' capital sits underneath its
-          own interest, so the two incomes can be told apart. Everyone else
-          has no cut, and the chart draws one thing with no key. */}
-      <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
-        <div className="flex items-start gap-3">
-          <IconChip icon={TrendingUp} tint="violet" />
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">Interest earned by month</h2>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              What this money earned each month over the last year, spread across the days each loan ran.
-            </p>
-          </div>
-        </div>
-
-        <StackedColumns
-          columns={lender.history.map((month) => ({ label: month.label, base: month.cut, top: month.own }))}
-          series={[lender.isSelf ? { label: 'Admin cut' } : null, { label: lender.isSelf ? 'Own interest' : 'Interest' }]}
-        />
-      </section>
-
       <section id="out-with" className="scroll-mt-4 space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-base font-semibold tracking-tight">Out with</h2>
-          {lender.fundings.length > 0 ? (
+          <h2 className="text-base font-semibold tracking-tight">
+            Out with
+            {part === 'late' ? <span className="text-status-critical"> · overdue only</span> : null}
+            {part === 'loan' ? <span className="text-muted-foreground font-normal"> · on time only</span> : null}
+          </h2>
+          {shownFundings.length > 0 ? (
             <p className="text-muted-foreground text-xs">
-              {lender.fundings.length === 1 ? '1 loan running' : `${lender.fundings.length} loans running`} ·{' '}
-              earns <Money amount={outEarnings} variant="display" />
+              {shownFundings.length === 1 ? '1 loan' : `${shownFundings.length} loans`} · earns{' '}
+              <Money amount={shownEarnings} variant="display" />
             </p>
           ) : null}
         </div>
 
-        {lender.fundings.length === 0 ? (
+        {part === 'late' || part === 'loan' ? (
+          <Link href={partHref(null, 'out-with')} scroll={false} className="text-brand -mt-1 inline-block text-xs font-medium">
+            Show all {lender.fundings.length === 1 ? '1 running loan' : `${lender.fundings.length} running loans`}
+          </Link>
+        ) : null}
+
+        {shownFundings.length === 0 ? (
           <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-6 text-center text-sm">
-            None of this money is out on loan right now.
+            {part === 'late'
+              ? 'No loan of this money is overdue.'
+              : part === 'loan'
+                ? 'Every running loan of this money is overdue.'
+                : 'None of this money is out on loan right now.'}
           </p>
         ) : (
           <ul className="space-y-2">
-            {pageOf(lender.fundings, paging.out).map((funding) => (
+            {pageOf(shownFundings, paging.out).map((funding) => (
               <li key={funding.loanId}>
                 <Link
                   href={`/borrowers/${funding.borrowerId}`}
@@ -708,7 +650,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
 
         <Pager
           page={paging.out}
-          total={lender.fundings.length}
+          total={shownFundings.length}
           noun="loans"
           href={href('out', 'out-with')}
         />

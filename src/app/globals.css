@@ -327,11 +327,13 @@ html.theme-changing::view-transition-new(root) {
 :root {
   --series-1: #4747c5;
   --series-2: #8d5700;
+  --series-3: #1b8a8f;
 }
 
 .dark {
   --series-1: #737ef1;
   --series-2: #c8800d;
+  --series-3: #3db8bd;
 }
 
 @theme inline {
