@@ -98,15 +98,6 @@ export type AdminCutRow = {
 }
 
 /** One month of a lender's pot: what was working, and what was sitting idle. */
-/** One month of interest earned, split by whose money earned it. */
-export type InterestMonth = {
-  label: string
-  /** Earned on this lender's own capital. */
-  own: Centavos
-  /** The Admin cut on other lenders' capital. Zero for everybody but the Admin pot. */
-  cut: Centavos
-}
-
 export type LenderDetail = LenderSummary & {
   /**
    * The weekly rates this lender's money actually runs at, lowest first.
@@ -132,8 +123,6 @@ export type LenderDetail = LenderSummary & {
   transactions: LenderTransactionRow[]
   /** Every saved value of the starting capital, newest first. The newest is `startingCapital`. */
   capitalVersions: CapitalVersion[]
-  /** The last twelve months of this pot, oldest first. */
-  history: InterestMonth[]
   /**
    * Every move of this pot's floating money, newest first, with the balance
    * after each — see lib/money/money-history.ts. The balance on the newest line
@@ -353,17 +342,6 @@ function interestAccruedIn(
   rows: AccrualRow[],
   range: ReportRange,
 ): Centavos {
-  const { own, cut } = accruedSplit(isSelf, lenderId, rows, range)
-  return centavos(own + cut)
-}
-
-/** interestAccruedIn, kept in its two halves: this lender's own earnings, and the Admin cut. */
-function accruedSplit(
-  isSelf: boolean,
-  lenderId: string,
-  rows: AccrualRow[],
-  range: ReportRange,
-): { own: Centavos; cut: Centavos } {
   let own = 0
   let cut = 0
   for (const row of rows) {
@@ -386,31 +364,7 @@ function accruedSplit(
     if (row.lenderId === lenderId) own += accrued(row.earningsCentavos)
     if (isSelf) cut += accrued(row.adminCutCentavos)
   }
-  return { own: centavos(own), cut: centavos(cut) }
-}
-
-const MONTH_LABEL = new Intl.DateTimeFormat('en-PH', { month: 'short' })
-
-/**
- * Interest earned in each of the last twelve months, oldest first — the chart
- * on a lender's page.
- *
- * THE SAME FIGURE AS "Interest earned" ABOVE IT, month by month: accruedSplit
- * over each calendar month, so pick "Last month" in that box and it matches the
- * second-last column exactly. Spread across the days each loan ran, not dated
- * by when the money arrived, so a repaid loan never moves an old month.
- *
- * The last column runs to TODAY. A month that has not finished would otherwise
- * include days that have not happened.
- */
-function interestByMonth(isSelf: boolean, lenderId: string, rows: AccrualRow[], today: Date = new Date()): InterestMonth[] {
-  const months: InterestMonth[] = []
-  for (let back = 11; back >= 0; back -= 1) {
-    const from = calendarDate(new Date(today.getFullYear(), today.getMonth() - back, 1))
-    const to = back === 0 ? calendarDate(today) : calendarDate(new Date(today.getFullYear(), today.getMonth() - back + 1, 0))
-    months.push({ label: MONTH_LABEL.format(from), ...accruedSplit(isSelf, lenderId, rows, { from, to }) })
-  }
-  return months
+  return centavos(own + cut)
 }
 
 /**
@@ -708,7 +662,6 @@ export async function getLender(
           : null,
       })),
     ),
-    history: interestByMonth(lender.isSelf, lender.id, historyRows),
   }
 }
 
