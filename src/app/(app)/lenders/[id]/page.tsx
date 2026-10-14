@@ -617,46 +617,33 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         </section>
       ) : null}
 
-      {/* THE POT OVER TIME, which is the one thing the figures above cannot say.
-          They are all as of today: they tell the admin where the money is, and
-          nothing at all about whether this pot has been growing or sitting
-          still.
+      {/* WHAT THIS MONEY EARNED, MONTH BY MONTH. The figures above are all as of
+          today; this is the trend behind them, and it answers whether the
+          lending is growing.
 
-          Each column is the pot as it stood at the end of that month, rebuilt
-          from the movements. The last one is as of TODAY rather than the end of
-          this month, so it is not a projection.
+          Each column is `interestByMonth` in server/lenders/queries.ts: the
+          same spread-over-the-days figure as "Interest earned" above, one
+          calendar month at a time, the last month to today. Not cash: a loan
+          running across two months counts in both, whenever it was paid.
 
-          IT COUNTS A LOAN FROM ITS START DATE. "Out on loan" above counts it
-          from the moment it was recorded, so a loan dated to start next week is
-          in the tile and not yet in the columns. That is the honest order for a
-          history, and because the two sit inches apart the difference is
-          printed underneath rather than left to be noticed. */}
+          On the Admin pot the cut on other lenders' capital sits underneath its
+          own interest, so the two incomes can be told apart. Everyone else
+          has no cut, and the chart draws one thing with no key. */}
       <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
         <div className="flex items-start gap-3">
           <IconChip icon={TrendingUp} tint="violet" />
           <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">The last twelve months</h2>
+            <h2 className="text-base font-semibold tracking-tight">Interest earned by month</h2>
             <p className="text-muted-foreground mt-0.5 text-sm">
-              What this pot was worth at each month end, and how much of it was working.
+              What this money earned each month over the last year, spread across the days each loan ran.
             </p>
           </div>
         </div>
 
         <StackedColumns
-          columns={lender.history.map((month) => ({
-            label: month.label,
-            base: month.outOnLoan,
-            top: month.floating,
-          }))}
-          series={[{ label: 'Out on loan' }, { label: 'Floating' }]}
+          columns={lender.history.map((month) => ({ label: month.label, base: month.cut, top: month.own }))}
+          series={[lender.isSelf ? { label: 'Admin cut' } : null, { label: lender.isSelf ? 'Own interest' : 'Interest' }]}
         />
-
-        {lender.notYetStarted > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            <Money amount={lender.notYetStarted} variant="display" /> is committed to a loan dated to
-            start later. It is counted in Out on loan above, and joins the columns on its start date.
-          </p>
-        ) : null}
       </section>
 
       <section id="out-with" className="scroll-mt-4 space-y-3">

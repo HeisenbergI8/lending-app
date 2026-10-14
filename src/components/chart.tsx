@@ -118,7 +118,11 @@ export function StackedColumns({
   className,
 }: {
   columns: Column[]
-  series: [Series, Series]
+  /**
+   * The base series may be null when only the top one is ever drawn — then
+   * there is one thing on the chart and no key to read.
+   */
+  series: [Series | null, Series]
   height?: string
   className?: string
 }) {
@@ -171,7 +175,9 @@ export function StackedColumns({
           // base alone rather than taller than the truth.
           const base = Math.min(Math.max(0, column.base), total)
           const top = Math.max(0, total - base)
-          const label = `${column.label} · ${series[0].label} ${formatPesos(column.base)} · ${series[1].label} ${formatPesos(column.top)}`
+          const label = series[0]
+            ? `${column.label} · ${series[0].label} ${formatPesos(column.base)} · ${series[1].label} ${formatPesos(column.top)}`
+            : `${column.label} · ${series[1].label} ${formatPesos(column.top)}`
 
           return (
             // The SLOT is flex-1 so it lines up with the label rows; the bar
@@ -202,17 +208,18 @@ export function StackedColumns({
         ))}
       </div>
 
-      <ChartLegend series={series} />
+      {series[0] ? <ChartLegend series={[series[0], series[1]]} /> : null}
 
       {/* The figures themselves, for anyone who cannot see the columns. */}
       <table className="sr-only">
         <caption>
-          {series[0].label} and {series[1].label}, by month
+          {series[0] ? `${series[0].label} and ` : ''}
+          {series[1].label}, by month
         </caption>
         <thead>
           <tr>
             <th>Month</th>
-            <th>{series[0].label}</th>
+            {series[0] ? <th>{series[0].label}</th> : null}
             <th>{series[1].label}</th>
           </tr>
         </thead>
@@ -220,7 +227,7 @@ export function StackedColumns({
           {columns.map((column) => (
             <tr key={column.label}>
               <th>{column.label}</th>
-              <td>{formatPesos(column.base)}</td>
+              {series[0] ? <td>{formatPesos(column.base)}</td> : null}
               <td>{formatPesos(column.top)}</td>
             </tr>
           ))}
