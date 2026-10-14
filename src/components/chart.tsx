@@ -1,4 +1,4 @@
-import { type Centavos, centavos, formatPesos } from '@/lib/money/centavos.ts'
+import { type Centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { cn } from '@/lib/utils'
 
 /**
@@ -25,6 +25,9 @@ export type Series = { label: string; note?: string }
 export type Column = { label: string; base: Centavos; top: Centavos }
 
 const SERIES_FILL = ['bg-series-1', 'bg-series-2'] as const
+
+/** "35.4K" — a column's figure in the room one month gets on a phone. */
+const SHORT = new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 })
 
 /**
  * The key. Present whenever two things are drawn, without exception.
@@ -104,9 +107,10 @@ export function SplitBar({
  * Months across the bottom, two stacked figures per month.
  *
  * Every column is drawn against the tallest one in the set, so the shape is the
- * comparison. Only the tallest is labelled with its figure: a number over every
- * column is noise, and the rest are in the table underneath, which is there for
- * screen readers and is the honest answer to "what exactly was March".
+ * comparison. Every column with something in it carries its figure on top,
+ * SHORTENED ("35.4K"): on a phone there is no hover, so a label is the only way
+ * to read a month, and twelve full peso amounts do not fit across one. The
+ * exact figures are in the bar's title and the table underneath.
  *
  * Columns are capped at 24px wide rather than filling their slot. A bar that
  * fills its share of the width turns the gaps into bars of their own.
@@ -137,34 +141,13 @@ export function StackedColumns({
     )
   }
 
-  const tallest = totals.indexOf(peak)
 
   return (
     <figure className={cn('space-y-2', className)}>
-      {/* THREE ROWS, not one. The value label lives in its own row above the
-          bars rather than inside a column with them: a bar's height is a
-          percentage of the plot area, so a label sharing that box would push the
-          tallest column — the 100% one, which is always the labelled one — out
-          of the top of the chart. Same flex rules and the same gap in every row,
-          so the three stay in step. */}
-      {/* The figure is wider than one month's slot on a phone, so it is not
-          boxed into that slot (it came out as "\u20b117\u2026"). It hangs off its column
-          toward whichever side has room: pinned to the slot's outer edge at
-          either end of the chart, centred over it in the middle. */}
-      <div className="text-muted-foreground relative h-4 text-[0.65rem] font-medium tabular-nums">
-        <span
-          className="absolute top-0 whitespace-nowrap"
-          style={
-            tallest >= columns.length - 2
-              ? { right: `${((columns.length - 1 - tallest) / columns.length) * 100}%` }
-              : tallest <= 1
-                ? { left: `${(tallest / columns.length) * 100}%` }
-                : { left: `${((tallest + 0.5) / columns.length) * 100}%`, transform: 'translateX(-50%)' }
-          }
-        >
-          {formatPesos(centavos(totals[tallest]))}
-        </span>
-      </div>
+      {/* Headroom for the tallest column's label, which sits just above the
+          plot area: a bar's height is a percentage of that area, so the 100%
+          column's label would otherwise be pushed out of the top. */}
+      <div className="h-3" aria-hidden />
 
       <div className={cn('flex items-end gap-1', height)}>
         {columns.map((column, index) => {
@@ -183,7 +166,16 @@ export function StackedColumns({
             // The SLOT is flex-1 so it lines up with the label rows; the bar
             // inside it is capped at 24px and centred. A bar that filled its
             // whole slot would turn the gaps between them into bars of their own.
-            <div key={column.label} className="flex h-full min-w-0 flex-1 flex-col justify-end" title={label}>
+            <div key={column.label} className="relative flex h-full min-w-0 flex-1 flex-col justify-end" title={label}>
+              {total > 0 ? (
+                <span
+                  className="text-muted-foreground absolute left-1/2 -translate-x-1/2 pb-0.5 text-[0.6rem] font-medium whitespace-nowrap tabular-nums"
+                  style={{ bottom: `${(total / peak) * 100}%` }}
+                  aria-hidden
+                >
+                  {SHORT.format(total < 100_000 ? Math.round(total / 100) : total / 100)}
+                </span>
+              ) : null}
               <div
                 className="mx-auto flex w-full max-w-6 flex-col justify-end gap-0.5"
                 style={{ height: `${(total / peak) * 100}%` }}
