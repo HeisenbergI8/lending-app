@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronRight, HandCoins, History, Scissors, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronDown, ChevronRight, HandCoins, History, Scissors, TrendingUp, Wallet } from 'lucide-react'
 
 import { StackedColumns } from '@/components/chart.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
@@ -611,50 +612,38 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             page={paging.cutsPaid}
             photos={photos}
             href={href('cutsPaid', 'cuts-repaid')}
+            retractable
           />
         </section>
       ) : null}
 
-      {/* THE POT OVER TIME, which is the one thing the figures above cannot say.
-          They are all as of today: they tell the admin where the money is, and
-          nothing at all about whether this pot has been growing or sitting
-          still.
+      {/* WHAT THIS MONEY EARNED, MONTH BY MONTH. The figures above are all as of
+          today; this is the trend behind them, and it answers whether the
+          lending is growing.
 
-          Each column is the pot as it stood at the end of that month, rebuilt
-          from the movements. The last one is as of TODAY rather than the end of
-          this month, so it is not a projection.
+          Each column is `interestByMonth` in server/lenders/queries.ts: the
+          same spread-over-the-days figure as "Interest earned" above, one
+          calendar month at a time, the last month to today. Not cash: a loan
+          running across two months counts in both, whenever it was paid.
 
-          IT COUNTS A LOAN FROM ITS START DATE. "Out on loan" above counts it
-          from the moment it was recorded, so a loan dated to start next week is
-          in the tile and not yet in the columns. That is the honest order for a
-          history, and because the two sit inches apart the difference is
-          printed underneath rather than left to be noticed. */}
+          On the Admin pot the cut on other lenders' capital sits underneath its
+          own interest, so the two incomes can be told apart. Everyone else
+          has no cut, and the chart draws one thing with no key. */}
       <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70 shadow-rest">
         <div className="flex items-start gap-3">
           <IconChip icon={TrendingUp} tint="violet" />
           <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">The last twelve months</h2>
+            <h2 className="text-base font-semibold tracking-tight">Interest earned by month</h2>
             <p className="text-muted-foreground mt-0.5 text-sm">
-              What this pot was worth at each month end, and how much of it was working.
+              What this money earned each month over the last year, spread across the days each loan ran.
             </p>
           </div>
         </div>
 
         <StackedColumns
-          columns={lender.history.map((month) => ({
-            label: month.label,
-            base: month.outOnLoan,
-            top: month.floating,
-          }))}
-          series={[{ label: 'Out on loan' }, { label: 'Floating' }]}
+          columns={lender.history.map((month) => ({ label: month.label, base: month.cut, top: month.own }))}
+          series={[lender.isSelf ? { label: 'Admin cut' } : null, { label: lender.isSelf ? 'Own interest' : 'Interest' }]}
         />
-
-        {lender.notYetStarted > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            <Money amount={lender.notYetStarted} variant="display" /> is committed to a loan dated to
-            start later. It is counted in Out on loan above, and joins the columns on its start date.
-          </p>
-        ) : null}
       </section>
 
       <section id="out-with" className="scroll-mt-4 space-y-3">
@@ -728,16 +717,21 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
       {/* WHO HAS ALREADY PAID THIS POT BACK. "Out with" above is the money at
           risk; this is the track record beside it, and the two answer different
           questions. Kept forever, the same as on a borrower's own profile. */}
-      <section id="paid-back" className="scroll-mt-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-base font-semibold tracking-tight">Paid back</h2>
-          {lender.settled.length > 0 ? (
-            <p className="text-muted-foreground text-xs">
-              {lender.settled.length === 1 ? '1 loan settled' : `${lender.settled.length} loans settled`} ·{' '}
-              <Money amount={settledEarnings} variant="display" /> earned
-            </p>
-          ) : null}
-        </div>
+      <Retractable
+        id="paid-back"
+        open={paging.paid > 1}
+        header={
+          <>
+            <h2 className="text-base font-semibold tracking-tight">Paid back</h2>
+            {lender.settled.length > 0 ? (
+              <p className="text-muted-foreground text-xs">
+                {lender.settled.length === 1 ? '1 loan settled' : `${lender.settled.length} loans settled`} ·{' '}
+                <Money amount={settledEarnings} variant="display" /> earned
+              </p>
+            ) : null}
+          </>
+        }
+      >
 
         {lender.settled.length === 0 ? (
           <p className="text-muted-foreground bg-card/60 border-border rounded-2xl border border-dashed p-6 text-center text-sm">
@@ -791,7 +785,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           noun="loans"
           href={href('paid', 'paid-back')}
         />
-      </section>
+      </Retractable>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -860,8 +854,11 @@ function CutList({
   page: at,
   href,
   photos,
+  retractable = false,
 }: {
   photos: Map<string, string>
+  /** Folded shut until tapped, and open again while paging through it. */
+  retractable?: boolean
   id: string
   title: string
   rows: LenderDetail['adminCuts']['running']
@@ -887,17 +884,20 @@ function CutList({
   const rowsTotal = rows.reduce((sum, row) => sum + row.cut, 0)
   const collected = rowsTotal - total
 
-  return (
-    <div id={id} className="scroll-mt-4 space-y-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium">{title}</h3>
-        {rows.length > 0 ? (
-          <p className="text-muted-foreground text-xs">
-            <Money amount={total} variant="display" /> across{' '}
-            {rows.length === 1 ? '1 loan' : `${rows.length} shares`}
-          </p>
-        ) : null}
-      </div>
+  const header = (
+    <>
+      <h3 className="text-sm font-medium">{title}</h3>
+      {rows.length > 0 ? (
+        <p className="text-muted-foreground text-xs">
+          <Money amount={total} variant="display" /> across{' '}
+          {rows.length === 1 ? '1 loan' : `${rows.length} shares`}
+        </p>
+      ) : null}
+    </>
+  )
+
+  const body = (
+    <>
 
       {rows.length > 0 && collected > 0 ? (
         <p className="text-muted-foreground text-xs">
@@ -941,7 +941,54 @@ function CutList({
       )}
 
       <Pager page={at} total={rows.length} noun="shares" href={href} />
+    </>
+  )
+
+  return retractable ? (
+    <Retractable id={id} open={at > 1} header={header} gap="space-y-2">
+      {body}
+    </Retractable>
+  ) : (
+    <div id={id} className="scroll-mt-4 space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">{header}</div>
+      {body}
     </div>
+  )
+}
+
+/**
+ * A list that folds shut behind its heading — a long track record stays one
+ * tap away instead of pushing everything under it down the page.
+ *
+ * A plain <details>, so it works without JavaScript and needs no client
+ * component. `open` keeps it unfolded while the reader pages through it: the
+ * pager reloads the page, and a list that snapped shut on every "Next" would
+ * hide the very rows just asked for.
+ */
+function Retractable({
+  id,
+  open,
+  header,
+  gap = 'space-y-3',
+  children,
+}: {
+  id: string
+  open: boolean
+  header: ReactNode
+  gap?: string
+  children: ReactNode
+}) {
+  return (
+    <details id={id} open={open} className={`group scroll-mt-4 ${gap}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+        <ChevronDown
+          className="text-muted-foreground size-4 shrink-0 -rotate-90 transition-transform duration-150 group-open:rotate-0"
+          aria-hidden
+        />
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-3">{header}</div>
+      </summary>
+      {children}
+    </details>
   )
 }
 

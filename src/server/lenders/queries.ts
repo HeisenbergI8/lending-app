@@ -98,10 +98,13 @@ export type AdminCutRow = {
 }
 
 /** One month of a lender's pot: what was working, and what was sitting idle. */
-export type LenderMonth = {
+/** One month of interest earned, split by whose money earned it. */
+export type InterestMonth = {
   label: string
-  outOnLoan: Centavos
-  floating: Centavos
+  /** Earned on this lender's own capital. */
+  own: Centavos
+  /** The Admin cut on other lenders' capital. Zero for everybody but the Admin pot. */
+  cut: Centavos
 }
 
 export type LenderDetail = LenderSummary & {
@@ -130,7 +133,7 @@ export type LenderDetail = LenderSummary & {
   /** Every saved value of the starting capital, newest first. The newest is `startingCapital`. */
   capitalVersions: CapitalVersion[]
   /** The last twelve months of this pot, oldest first. */
-  history: LenderMonth[]
+  history: InterestMonth[]
   /**
    * Every move of this pot's floating money, newest first, with the balance
    * after each — see lib/money/money-history.ts. The balance on the newest line
@@ -147,15 +150,6 @@ export type LenderDetail = LenderSummary & {
   rangeInterest: Centavos
   /** The stretch of time `rangeInterest` covers. This month so far, unless asked otherwise. */
   range: ReportRange
-  /**
-   * Principal of theirs on loans DATED TO START AFTER TODAY.
-   *
-   * `position.outOnLoan` counts a loan from the moment it is recorded; the
-   * chart counts it from its start date. This is the difference between the
-   * two, and it is surfaced rather than reconciled away — the screen has to be
-   * able to say why the last column is shorter than the tile above it.
-   */
-  notYetStarted: Centavos
   /**
    * The Admin's cut, itemised — EMPTY FOR EVERY LENDER BUT THE ADMIN POT.
    *
@@ -315,123 +309,6 @@ function releasedOnRow(
   )
 }
 
-const MONTH_LABEL = new Intl.DateTimeFormat('en-PH', { month: 'short' })
-
-/** The last day of the month `back` months before the one `today` falls in. */
-function monthEnd(today: Date, back: number): Date {
-  return new Date(today.getFullYear(), today.getMonth() - back + 1, 0, 23, 59, 59, 999)
-}
-
-/**
- * Twelve months of one pot: what was working each month, and what was idle.
- *
- * Each column is the pot AS IT STOOD at the end of that month, rebuilt from the
- * movements rather than read from anywhere. The same sum as lib/money/floating.ts,
- * with "so far" on every term:
- *
- *   pot at M   = deposits by M - withdrawals by M + earnings realised by M
- *   out at M   = principal in loans that had started by M and were not yet repaid
- *   floating   = the rest
- *
- * Floating CAN come out negative, and the chart is built to show that rather
- * than hide it: it means more was lent out than the pot ever held.
- *
- * REPAID means a live Payment row dated on or before the month end. A payment
- * that was undone is archived and its loan put back to ACTIVE, so reading the
- * payment rather than the status is the same answer, said in a way that also
- * works for a month that ended before the payment arrived.
- *
- * The admin's pot earns one thing nobody else does — their cut on other people's
- * principal — so for isSelf every funding row is counted for its cut, and only
- * their own rows for principal and earnings. That is the rule in `ledgers`, said
- * again over time.
- */
-type HistoryRow = {
-  lenderId: string
-  principalCentavos: number
-  earningsCentavos: number
-  adminCutCentavos: number
-  loan: {
-    startOn: Date
-    paidOn: Date | null
-    termDays: number
-    interestCollection: InterestCollection
-    /** The week numbers collected, with the day each was handed over. */
-    weeksPaid: { week: number; paidOn: Date }[]
-  }
-}
-
-/**
- * What a weekly loan's funding row had released by a given day.
- *
- * The weeks collected ON OR BEFORE that day, which is the same rule
- * releasedOnRow uses for today, applied to a month end. A week collected later
- * this year must not appear in March's column.
- */
-function releasedByDate(row: HistoryRow, end: Date): { earnings: number; adminCut: number } {
-  if (row.loan.interestCollection !== 'WEEKLY') return { earnings: 0, adminCut: 0 }
-
-  const byThen = new Set(row.loan.weeksPaid.filter((week) => week.paidOn <= end).map((week) => week.week))
-
-  return releasedOnFunding(
-    { earnings: centavos(row.earningsCentavos), adminCut: centavos(row.adminCutCentavos) },
-    row.loan.termDays / DAYS_PER_WEEK,
-    byThen,
-  )
-}
-
-function buildHistory(
-  isSelf: boolean,
-  rows: HistoryRow[],
-  moves: { type: 'DEPOSIT' | 'WITHDRAWAL'; amountCentavos: number; occurredOn: Date }[],
-  lenderId: string,
-  today: Date = new Date(),
-): LenderMonth[] {
-  const months: LenderMonth[] = []
-
-  for (let back = 11; back >= 0; back -= 1) {
-    // THE LAST COLUMN IS TODAY, not the end of this month. A month that has not
-    // happened yet would quietly include a loan dated later this month, and the
-    // column meant to agree with the figures above it would be higher than
-    // them for no visible reason.
-    const end = back === 0 ? today : monthEnd(today, back)
-    let pot = 0
-    let out = 0
-
-    for (const move of moves) {
-      if (move.occurredOn > end) continue
-      pot += move.type === 'DEPOSIT' ? move.amountCentavos : -move.amountCentavos
-    }
-
-    for (const row of rows) {
-      const mine = row.lenderId === lenderId
-      const started = row.loan.startOn <= end
-      const repaid = row.loan.paidOn !== null && row.loan.paidOn <= end
-
-      // Weeks collected BY the end of this month. A weekly loan drips into the
-      // pot month after month while its capital stays in `out` — which is the
-      // shape this chart exists to show.
-      const weeklyByThen = releasedByDate(row, end)
-
-      if (isSelf) pot += repaid ? row.adminCutCentavos : weeklyByThen.adminCut
-      if (!mine || !started) continue
-      if (repaid) pot += row.earningsCentavos
-      else {
-        pot += weeklyByThen.earnings
-        out += row.principalCentavos
-      }
-    }
-
-    months.push({
-      label: MONTH_LABEL.format(end),
-      outOnLoan: centavos(out),
-      floating: centavos(pot - out),
-    })
-  }
-
-  return months
-}
-
 /** One funding row, as much of it as the accrual needs. */
 type AccrualRow = {
   lenderId: string
@@ -476,29 +353,64 @@ function interestAccruedIn(
   rows: AccrualRow[],
   range: ReportRange,
 ): Centavos {
-  return centavos(
-    rows.reduce((total, row) => {
-      /* THE START DATE IS NORMALISED ON THE WAY IN, and it has to be here rather
-         than inside accruedBetween. `row.loan.startOn` is a Postgres `date`, so
-         the driver hands it back as midnight UTC, and reading its calendar day
-         with the local parts gives the day BEFORE under any negative UTC offset.
-         Unfixed, this figure changed by a hundred pesos on the same rows purely
-         because the server's TZ was America/New_York rather than UTC.
+  const { own, cut } = accruedSplit(isSelf, lenderId, rows, range)
+  return centavos(own + cut)
+}
 
-         accruedBetween cannot do it: `range.from` and `range.to` are local
-         MIDDAY dates from parseCalendarDate, and the two conventions need
-         opposite corrections. The boundary is where the origin of each date is
-         still known. See storedCalendarDate. */
-      const startOn = storedCalendarDate(row.loan.startOn)
+/** interestAccruedIn, kept in its two halves: this lender's own earnings, and the Admin cut. */
+function accruedSplit(
+  isSelf: boolean,
+  lenderId: string,
+  rows: AccrualRow[],
+  range: ReportRange,
+): { own: Centavos; cut: Centavos } {
+  let own = 0
+  let cut = 0
+  for (const row of rows) {
+    /* THE START DATE IS NORMALISED ON THE WAY IN, and it has to be here rather
+       than inside accruedBetween. `row.loan.startOn` is a Postgres `date`, so
+       the driver hands it back as midnight UTC, and reading its calendar day
+       with the local parts gives the day BEFORE under any negative UTC offset.
+       Unfixed, this figure changed by a hundred pesos on the same rows purely
+       because the server's TZ was America/New_York rather than UTC.
 
-      const accrued = (amount: number) =>
-        accruedBetween(centavos(amount), startOn, row.loan.termDays, range.from, range.to)
+       accruedBetween cannot do it: `range.from` and `range.to` are local
+       MIDDAY dates from parseCalendarDate, and the two conventions need
+       opposite corrections. The boundary is where the origin of each date is
+       still known. See storedCalendarDate. */
+    const startOn = storedCalendarDate(row.loan.startOn)
 
-      const own = row.lenderId === lenderId ? accrued(row.earningsCentavos) : 0
-      const cut = isSelf ? accrued(row.adminCutCentavos) : 0
-      return total + own + cut
-    }, 0),
-  )
+    const accrued = (amount: number) =>
+      accruedBetween(centavos(amount), startOn, row.loan.termDays, range.from, range.to)
+
+    if (row.lenderId === lenderId) own += accrued(row.earningsCentavos)
+    if (isSelf) cut += accrued(row.adminCutCentavos)
+  }
+  return { own: centavos(own), cut: centavos(cut) }
+}
+
+const MONTH_LABEL = new Intl.DateTimeFormat('en-PH', { month: 'short' })
+
+/**
+ * Interest earned in each of the last twelve months, oldest first — the chart
+ * on a lender's page.
+ *
+ * THE SAME FIGURE AS "Interest earned" ABOVE IT, month by month: accruedSplit
+ * over each calendar month, so pick "Last month" in that box and it matches the
+ * second-last column exactly. Spread across the days each loan ran, not dated
+ * by when the money arrived, so a repaid loan never moves an old month.
+ *
+ * The last column runs to TODAY. A month that has not finished would otherwise
+ * include days that have not happened.
+ */
+function interestByMonth(isSelf: boolean, lenderId: string, rows: AccrualRow[], today: Date = new Date()): InterestMonth[] {
+  const months: InterestMonth[] = []
+  for (let back = 11; back >= 0; back -= 1) {
+    const from = calendarDate(new Date(today.getFullYear(), today.getMonth() - back, 1))
+    const to = back === 0 ? calendarDate(today) : calendarDate(new Date(today.getFullYear(), today.getMonth() - back + 1, 0))
+    months.push({ label: MONTH_LABEL.format(from), ...accruedSplit(isSelf, lenderId, rows, { from, to }) })
+  }
+  return months
 }
 
 /**
@@ -752,16 +664,6 @@ export async function getLender(
         state: storedLoanState(row.loan.status, row.loan.nextDueOn),
       })),
     ),
-    notYetStarted: centavos(
-      historyRows
-        .filter(
-          (row) =>
-            row.lenderId === lender.id &&
-            settledOn(row.loan.payments) === null &&
-            row.loan.startOn > new Date(),
-        )
-        .reduce((total, row) => total + row.principalCentavos, 0),
-    ),
     range,
     /* SAME ROWS THE CHART IS BUILT FROM, which is why no extra query was
        needed: `historyRows` is already every live funding row this figure can
@@ -806,27 +708,7 @@ export async function getLender(
           : null,
       })),
     ),
-    history: buildHistory(
-      lender.isSelf,
-      historyRows.map((row) => ({
-        lenderId: row.lenderId,
-        principalCentavos: row.principalCentavos,
-        earningsCentavos: row.earningsCentavos,
-        adminCutCentavos: row.adminCutCentavos,
-        loan: {
-          startOn: row.loan.startOn,
-          paidOn: settledOn(row.loan.payments),
-          termDays: row.loan.termDays,
-          interestCollection: row.loan.interestCollection,
-          weeksPaid: liveWeeklyPayments(row.loan.payments).map((payment) => ({
-            week: payment.weekNumber as number,
-            paidOn: payment.paidOn,
-          })),
-        },
-      })),
-      transactions,
-      lender.id,
-    ),
+    history: interestByMonth(lender.isSelf, lender.id, historyRows),
   }
 }
 
