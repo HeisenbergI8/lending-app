@@ -527,7 +527,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
         ]}
       />
 
-      {/* WHERE THE CUT COMES FROM. The two tiles above carry money that belongs
+      {/* WHERE THE CUT COMES FROM. Cut coming above, and Earned, carry money that belongs
           to none of the loans listed further down this page, because the cut is
           charged on capital that is not this pot's. This is that money, one row
           per funding row it was taken on, and each list sums to exactly the
@@ -559,6 +559,8 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             page={paging.cutsOut}
             photos={photos}
             href={href('cutsOut', 'cuts-running')}
+            retractable
+            open={part === 'cut'}
           />
           <CutList
             id="cuts-repaid"
@@ -797,10 +799,13 @@ function CutList({
   href,
   photos,
   retractable = false,
+  open = false,
 }: {
   photos: Map<string, string>
   /** Folded shut until tapped, and open again while paging through it. */
   retractable?: boolean
+  /** Start unfolded anyway — when "Cut coming" on the pie sent the Admin here. */
+  open?: boolean
   id: string
   title: string
   rows: LenderDetail['adminCuts']['running']
@@ -887,7 +892,7 @@ function CutList({
   )
 
   return retractable ? (
-    <Retractable id={id} open={at > 1} header={header} gap="space-y-2">
+    <Retractable id={id} open={open || at > 1} header={header} gap="space-y-2">
       {body}
     </Retractable>
   ) : (
