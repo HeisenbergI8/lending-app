@@ -234,7 +234,7 @@ export default async function LoansPage({ searchParams }: PageProps<'/loans'>) {
                             week reads exactly like a ₱144,000 capital repayment
                             falling on the same day. */}
                         <span className="whitespace-nowrap">
-                          {loan.dueIsWeekly ? 'Week due' : 'Due'} {formatListDate(loan.dueOn)}
+                          {loan.reminderOn ? `Reminder ${formatListDate(loan.reminderOn)}` : `${loan.dueIsWeekly ? 'Week due' : 'Due'} ${formatListDate(loan.dueOn)}`}
                         </span>{' '}
                         ·{' '}
                         <Money amount={loan.capital} variant="display" className="text-foreground/80" />

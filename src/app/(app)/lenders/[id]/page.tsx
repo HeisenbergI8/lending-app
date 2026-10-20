@@ -619,7 +619,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                     {/* Two lines, each one kind of fact: when, then the money.
                         The figures are a shade darker than the words around them. */}
                     <div className="text-muted-foreground mt-0.5 text-xs">
-                      <span className="whitespace-nowrap">Due {formatListDate(funding.dueOn)}</span> ·{' '}
+                      <span className="whitespace-nowrap">{funding.reminderOn ? `Reminder ${formatListDate(funding.reminderOn)}` : `Due ${formatListDate(funding.dueOn)}`}</span> ·{' '}
                       <span className="whitespace-nowrap">{describeTerm(funding.termDays)}</span>
                     </div>
                     <div className="text-muted-foreground text-xs">
@@ -871,7 +871,7 @@ function CutList({
                   <div className="truncate text-sm font-medium">{row.borrowerName}</div>
                   <div className="text-muted-foreground mt-0.5 text-xs">
                     <span className="whitespace-nowrap">
-                      {row.paidOn ? `Paid ${formatListDate(row.paidOn)}` : `Due ${formatListDate(row.dueOn)}`}
+                      {row.paidOn ? `Paid ${formatListDate(row.paidOn)}` : row.reminderOn ? `Reminder ${formatListDate(row.reminderOn)}` : `Due ${formatListDate(row.dueOn)}`}
                     </span>{' '}
                     · <span className="whitespace-nowrap">{describeTerm(row.termDays)}</span>
                   </div>

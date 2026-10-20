@@ -1,5 +1,5 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
-import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
+import { type LoanState, storedLoanState, storedLoanStateWithReminder } from '../../lib/loan-state.ts'
 import { type TrackRecord, trackRecord } from '../../lib/track-record.ts'
 import { PAGE_SIZE, type PageWindow } from '../../lib/pagination.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
@@ -48,6 +48,8 @@ export type BorrowerLoan = {
   startOn: Date
   dueOn: Date
   state: LoanState
+  /** The "Remind me" day, when that is what makes `state` due-soon. See LoanRow.reminderOn. */
+  reminderOn: Date | null
   paidOn: Date | null
   /** A payment recorded with no file attached. Flagged, never blocked. */
   missingProof: boolean
@@ -319,6 +321,7 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
           startOn: true,
           dueOn: true,
           nextDueOn: true,
+          remindEveryWeeks: true,
           status: true,
           payments: {
             select: {
@@ -362,7 +365,7 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     termDays: loan.termDays,
     startOn: loan.startOn,
     dueOn: loan.dueOn,
-    state: storedLoanState(loan.status, loan.nextDueOn),
+    ...storedLoanStateWithReminder(loan),
     paidOn: livePayment(loan)?.paidOn ?? null,
     missingProof: livePayment(loan) !== null && livePayment(loan)!.proofFiles.length === 0,
     funders: loan.fundings.map((funding) => ({

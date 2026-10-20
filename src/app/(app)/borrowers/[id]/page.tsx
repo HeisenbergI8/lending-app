@@ -150,6 +150,7 @@ export default async function BorrowerPage({ params, searchParams }: PageProps<'
                     <Money amount={loan.total} variant="display" className="text-lg font-semibold" />
                     <p className="text-muted-foreground mt-0.5 text-xs">
                       {formatListDate(loan.startOn)} → {formatListDate(loan.dueOn)} · {describeTerm(loan.termDays)}
+                      {loan.reminderOn ? ` · Reminder ${formatListDate(loan.reminderOn)}` : null}
                       {loan.paidOn ? ` · paid ${formatListDate(loan.paidOn)}` : ''}
                     </p>
                   </div>

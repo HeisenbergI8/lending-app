@@ -1,6 +1,7 @@
 import { type Centavos, parsePesos } from '../lib/money/centavos.ts'
 import { type Result, ok, err } from '../lib/money/result.ts'
 import { parseCalendarDate } from '../lib/money/weeks.ts'
+import { MAX_REMIND_WEEKS } from '../lib/loan-state.ts'
 
 // The shape itself lives in lib/ so client components can read it without
 // importing anything server-only. See src/lib/form-state.ts.
@@ -66,4 +67,19 @@ export function personName(form: FormData): Result<{ firstName: string; lastName
   if (!firstName || !lastName) return err('Enter a first and last name.')
   if (firstName.length > 80 || lastName.length > 80) return err('That name is too long.')
   return ok({ firstName, lastName })
+}
+
+/**
+ * The "Remind me every" setting: whole weeks, or null when it is off. Blank is
+ * off. Anything else that is not a whole number of weeks from 1 to
+ * MAX_REMIND_WEEKS is refused with a sentence saying what to type.
+ */
+export function remindEveryWeeks(form: FormData): Result<number | null, string> {
+  const raw = text(form, 'remindEveryWeeks')
+  if (raw === '') return ok(null)
+  const weeks = Number(raw)
+  if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_REMIND_WEEKS) {
+    return err(`Remind me every: type a whole number of weeks from 1 to ${MAX_REMIND_WEEKS}.`)
+  }
+  return ok(weeks)
 }

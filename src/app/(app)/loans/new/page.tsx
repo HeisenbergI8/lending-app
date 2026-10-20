@@ -103,6 +103,8 @@ export default async function NewLoanPage({ searchParams }: PageProps<'/loans/ne
           fixedInterest: '',
           fixedLenderShare: '',
           funders: [],
+          // A request's "Remind me" setting comes with it; a plain new loan starts off.
+          remindEveryWeeks: fromRequest?.remindEveryWeeks ?? null,
         }}
       />
     </div>

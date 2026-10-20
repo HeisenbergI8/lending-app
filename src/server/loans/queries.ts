@@ -2,7 +2,7 @@ import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type InterestBasis, type InterestCollection } from '../../lib/money/interest.ts'
 import { type AdminStake, adminStakeInLoan, adminTakeOnLoan } from '../../lib/money/split.ts'
 import { type LoanFilter, NO_FILTER } from '../../lib/loan-filter.ts'
-import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
+import { type LoanState, storedLoanStateWithReminder } from '../../lib/loan-state.ts'
 import { DAYS_PER_WEEK, addDays, calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { dueInWindow } from '../../lib/money/due-window.ts'
 import {
@@ -64,6 +64,12 @@ export type LoanRow = {
   /** True when `dueOn` above is a weekly instalment rather than the loan's own due date. */
   dueIsWeekly: boolean
   state: LoanState
+  /**
+   * Set only when a "Remind me every N weeks" reminder is what makes `state`
+   * read due-soon: the reminder day, so the row can say "Reminder <day>" and
+   * not pass it off as a due date. Null otherwise.
+   */
+  reminderOn: Date | null
   /** Whose money this is, largest share first. */
   funders: LoanRowFunder[]
   /**
@@ -104,6 +110,8 @@ export type LoanDetail = Omit<LoanRow, 'funders' | 'latestNote' | 'noteCount'> &
   /** The term in days. Say it with describeTerm — "4 weeks" or "3 days". */
   termDays: number
   startOn: Date
+  /** "Remind me every N weeks", or null when off. */
+  remindEveryWeeks: number | null
   interestBasis: InterestBasis
   interestCollection: InterestCollection
   /** The day the CAPITAL comes back. On a weekly loan this is NOT `dueOn` above. */
@@ -470,8 +478,10 @@ export async function listLoans(
         borrowerId: true,
         capitalCentavos: true,
         totalCentavos: true,
+        startOn: true,
         dueOn: true,
         nextDueOn: true,
+        remindEveryWeeks: true,
         interestCollection: true,
         status: true,
         borrower: { select: { firstName: true, lastName: true } },
@@ -554,7 +564,7 @@ export async function listLoans(
       // of. FEATURES.md section 5.
       dueOn: loan.nextDueOn,
       dueIsWeekly: loan.interestCollection === 'WEEKLY',
-      state: storedLoanState(loan.status, loan.nextDueOn),
+      ...storedLoanStateWithReminder(loan),
       latestNote: loan.notes[0] ?? null,
       noteCount: loan._count.notes,
       funders: loan.fundings.map((funding) => ({
@@ -677,6 +687,7 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
       startOn: true,
       dueOn: true,
       nextDueOn: true,
+      remindEveryWeeks: true,
       interestCollection: true,
       status: true,
       borrower: { select: { firstName: true, lastName: true } },
@@ -764,7 +775,8 @@ export async function getLoan(userId: string, loanId: string): Promise<LoanDetai
     weeklyOutstanding: weekly.outstanding,
     convertible: convertibleToWeekly(loan),
     borrowerRateBps: loan.borrowerRateBps,
-    state: storedLoanState(loan.status, loan.nextDueOn),
+    remindEveryWeeks: loan.remindEveryWeeks,
+    ...storedLoanStateWithReminder(loan),
     paidOn: payment?.paidOn ?? null,
     missingProof: payment !== null && payment.proofFiles.length === 0,
     funders,

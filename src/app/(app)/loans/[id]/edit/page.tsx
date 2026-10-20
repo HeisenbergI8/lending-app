@@ -91,6 +91,7 @@ export default async function EditLoanPage({ params }: PageProps<'/loans/[id]/ed
             lenderId: funder.lenderId,
             amount: pesosForInput(funder.principal),
           })),
+          remindEveryWeeks: loan.remindEveryWeeks,
         }}
       />
     </div>

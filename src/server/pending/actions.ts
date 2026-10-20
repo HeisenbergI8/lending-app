@@ -10,7 +10,7 @@ import {
 } from '../../lib/money/weeks.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
-import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
+import { type FormState, NO_ERROR, amount, date, failed, remindEveryWeeks, text } from '../forms.ts'
 import { DEFAULT_BORROWER_RATE_BPS, parseRate } from '../loans/terms.ts'
 
 /**
@@ -116,6 +116,9 @@ export async function createPendingLoan(_prev: FormState, form: FormData): Promi
   const term = readTerm(form)
   if (!term.ok) return failed(term.error)
 
+  const remind = remindEveryWeeks(form)
+  if (!remind.ok) return failed(remind.error)
+
   await db.pendingLoan.create({
     data: {
       userId: user.id,
@@ -125,6 +128,7 @@ export async function createPendingLoan(_prev: FormState, form: FormData): Promi
       borrowerRateBps: rate.value,
       termDays: term.value.termDays,
       startOn: term.value.startOn,
+      remindEveryWeeks: remind.value,
     },
   })
 
