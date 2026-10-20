@@ -6,6 +6,7 @@ import { CircleCheck, Plus, TriangleAlert, X } from 'lucide-react'
 import { SubmitButton } from '@/components/forms.tsx'
 import { Money } from '@/components/money.tsx'
 import { ProofInput } from '@/components/proof-input.tsx'
+import { RemindEvery } from '@/components/remind-every.tsx'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -68,6 +69,8 @@ export type LoanFormValues = {
   fixedInterest: string
   fixedLenderShare: string
   funders: { lenderId: string; amount: string }[]
+  /** "Remind me every N weeks", or null when off. */
+  remindEveryWeeks: number | null
 }
 
 /**
@@ -603,6 +606,8 @@ export function LoanForm({
             />
           </label>
         ) : null}
+
+        <RemindEvery initial={initial.remindEveryWeeks} />
       </section>
 
       {/* ── Whose money ───────────────────────────────────────────────────── */}

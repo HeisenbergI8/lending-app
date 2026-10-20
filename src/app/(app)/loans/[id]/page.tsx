@@ -23,7 +23,8 @@ import { ProofPreview } from '@/components/proof-preview.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { formatPesos } from '@/lib/money/centavos.ts'
-import { describeTerm, storedCalendarDate } from '@/lib/money/weeks.ts'
+import { calendarDate, describeTerm, storedCalendarDate } from '@/lib/money/weeks.ts'
+import { nextReminderOn } from '@/lib/loan-state.ts'
 import { describeBytes } from '@/lib/proof.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteLoan, deleteLoanNote } from '@/server/loans/actions.ts'
@@ -136,6 +137,22 @@ export default async function LoanPage({ params }: PageProps<'/loans/[id]'>) {
               {dateFormat.format(loan.startOn)} → {dateFormat.format(loan.capitalDueOn)} ·{' '}
               {describeTerm(loan.termDays)} · {chargeNote(loan)}
             </p>
+            {/* "Remind me every N weeks" — set on Edit. The next day it falls on
+                comes from the same rule the badge uses (lib/loan-state.ts). */}
+            {loan.remindEveryWeeks && !paid ? (
+              <p className="text-muted-foreground text-sm">
+                {(() => {
+                  const next = nextReminderOn(
+                    storedCalendarDate(loan.startOn),
+                    storedCalendarDate(loan.capitalDueOn),
+                    loan.remindEveryWeeks,
+                    calendarDate(new Date()),
+                  )
+                  const every = loan.remindEveryWeeks === 1 ? 'every week' : `every ${loan.remindEveryWeeks} weeks`
+                  return next ? `Reminds you ${every} · next ${dateFormat.format(next)}` : `Reminds you ${every} · none left before it is due`
+                })()}
+              </p>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-2">

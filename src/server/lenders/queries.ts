@@ -6,7 +6,7 @@ import { DAYS_PER_WEEK, calendarDate, storedCalendarDate } from '../../lib/money
 import { type Projection, projectFloating } from '../../lib/money/projection.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
-import { type LoanState, storedLoanState } from '../../lib/loan-state.ts'
+import { type LoanState, storedLoanStateWithReminder } from '../../lib/loan-state.ts'
 import { type MoneyEvent, moneyHistory } from '../../lib/money/money-history.ts'
 import { db } from '../db.ts'
 import { SETTLING, liveWeeklyPayments, settledOn } from '../payments/settled.ts'
@@ -53,6 +53,8 @@ export type LenderFunding = {
   /** The day the borrower repaid, on a loan that has been settled. Null while it runs. */
   paidOn: Date | null
   state: LoanState
+  /** The "Remind me" day, when that is what makes `state` due-soon. See LoanRow.reminderOn. */
+  reminderOn: Date | null
 }
 
 export type LenderTransactionRow = {
@@ -95,6 +97,8 @@ export type AdminCutRow = {
   dueOn: Date
   paidOn: Date | null
   state: LoanState
+  /** The "Remind me" day, when that is what makes `state` due-soon. See LoanRow.reminderOn. */
+  reminderOn: Date | null
 }
 
 export type LenderDetail = LenderSummary & {
@@ -486,8 +490,10 @@ export async function getLender(
           select: {
             id: true,
             status: true,
+            startOn: true,
             dueOn: true,
             nextDueOn: true,
+            remindEveryWeeks: true,
             termDays: true,
             borrower: { select: { id: true, firstName: true, lastName: true } },
             payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
@@ -547,8 +553,10 @@ export async function getLender(
               select: {
                 id: true,
                 status: true,
+                startOn: true,
                 dueOn: true,
                 nextDueOn: true,
+                remindEveryWeeks: true,
                 termDays: true,
                 borrower: { select: { id: true, firstName: true, lastName: true } },
                 payments: { where: SETTLING, select: { paidOn: true, deletedAt: true, weekNumber: true } },
@@ -569,7 +577,7 @@ export async function getLender(
     termDays: row.loan.termDays,
     dueOn: row.loan.dueOn,
     paidOn: settledOn(row.loan.payments),
-    state: storedLoanState(row.loan.status, row.loan.nextDueOn),
+    ...storedLoanStateWithReminder(row.loan),
   }))
 
   return {
@@ -614,7 +622,7 @@ export async function getLender(
         termDays: row.loan.termDays,
         dueOn: row.loan.dueOn,
         paidOn: settledOn(row.loan.payments),
-        state: storedLoanState(row.loan.status, row.loan.nextDueOn),
+        ...storedLoanStateWithReminder(row.loan),
       })),
     ),
     range,

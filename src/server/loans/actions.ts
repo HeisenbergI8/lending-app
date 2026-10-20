@@ -13,7 +13,7 @@ import { nextUnpaidWeek } from '../../lib/money/weekly.ts'
 import { shortfalls } from '../../lib/money/floating.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
-import { type FormState, NO_ERROR, amount, date, failed, text } from '../forms.ts'
+import { type FormState, NO_ERROR, amount, date, failed, remindEveryWeeks, text } from '../forms.ts'
 import { borrowerNameTaken, lenderNameTaken } from '../people.ts'
 import { floatingByLender } from '../lenders/queries.ts'
 import { checkProofFiles } from '../../lib/proof.ts'
@@ -94,6 +94,7 @@ type Parsed = {
   interest: InterestInput
   collection: InterestCollection
   funders: FunderRow[]
+  remindEveryWeeks: number | null
 }
 
 /**
@@ -175,6 +176,9 @@ function readForm(form: FormData): Result<Parsed, string> {
   const funders = readFunderRows(form)
   if (!funders.ok) return err(funders.error)
 
+  const remind = remindEveryWeeks(form)
+  if (!remind.ok) return err(remind.error)
+
   return ok({
     borrower,
     capital: capital.value,
@@ -183,6 +187,7 @@ function readForm(form: FormData): Result<Parsed, string> {
     interest: interest.value,
     collection,
     funders: funders.value,
+    remindEveryWeeks: remind.value,
   })
 }
 
@@ -370,6 +375,7 @@ export async function createLoan(_prev: FormState, form: FormData): Promise<Form
           startOn: input.startOn,
           dueOn: input.dueOn,
           interestCollection: input.collection,
+          remindEveryWeeks: input.remindEveryWeeks,
           nextDueOn: terms.value.nextDueOn,
           termDays: terms.value.termDays,
           interestCentavos: terms.value.interest,
@@ -553,6 +559,7 @@ export async function updateLoan(_prev: FormState, form: FormData): Promise<Form
           startOn: input.startOn,
           dueOn: input.dueOn,
           interestCollection: input.collection,
+          remindEveryWeeks: input.remindEveryWeeks,
           // Recomputed from the WEEKS ALREADY COLLECTED, not from the dates
           // alone. loanTerms answers for a brand new loan, which has none; an
           // edited loan may have six already in hand, and resetting it to week

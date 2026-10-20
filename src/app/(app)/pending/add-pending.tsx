@@ -5,6 +5,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 
 import { FormDialog } from '@/components/forms.tsx'
+import { RemindEvery } from '@/components/remind-every.tsx'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native.tsx'
@@ -196,6 +197,10 @@ export function AddPendingLoan({ borrowers }: { borrowers: BorrowerName[] }) {
           </div>
         </div>
       ) : null}
+
+      {/* Kept on the request and carried onto the loan it becomes. It starts
+          counting from the loan's start date, so nothing fires while it waits. */}
+      <RemindEvery initial={null} />
     </FormDialog>
   )
 }

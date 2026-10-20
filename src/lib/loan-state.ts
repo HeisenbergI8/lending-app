@@ -25,7 +25,7 @@
  * that is still the due date.
  */
 
-import { storedCalendarDate } from './money/weeks.ts'
+import { addDays, daysBetween, storedCalendarDate } from './money/weeks.ts'
 
 export type LoanState = 'paid' | 'overdue' | 'due-today' | 'due-soon' | 'active'
 
@@ -80,4 +80,52 @@ export function storedLoanState(
   now: Date = new Date(),
 ): LoanState {
   return loanState(status, storedCalendarDate(nextDueOn), now)
+}
+
+/** The longest gap the "Remind me every" setting accepts, in weeks. */
+export const MAX_REMIND_WEEKS = 52
+
+/**
+ * THE NEXT REMINDER DAY on a loan the Admin asked to be reminded about every
+ * `everyWeeks` weeks (owner, 2026-10-20), or null when there is none.
+ *
+ * Counted from the start date: start + N weeks, start + 2N weeks, and so on.
+ * The first one on or after `today` is the answer. A reminder that would land on
+ * or after the due date is dropped, because from there the real due date is
+ * what the badge shows. All three dates are calendar days at midday.
+ */
+export function nextReminderOn(startOn: Date, dueOn: Date, everyWeeks: number | null, today: Date): Date | null {
+  if (!everyWeeks || everyWeeks < 1) return null
+  const period = everyWeeks * 7
+  const since = daysBetween(startOn, today)
+  const step = Math.max(1, Math.ceil(since / period))
+  const on = addDays(startOn, step * period)
+  return daysBetween(on, dueOn) > 0 ? on : null
+}
+
+/**
+ * A loan's state with its reminder taken into account — what every badge on
+ * screen shows.
+ *
+ * The reminder can only RAISE a loan that would otherwise read 'active' to
+ * 'due-soon', inside the same DUE_SOON_DAYS window, the reminder day itself
+ * included. Overdue, due today and a real due-soon always win: those are about
+ * money owed, a reminder is only a nudge. `reminderOn` is set only when the
+ * reminder is the reason for the badge, so the row can say "Reminder <day>"
+ * instead of the due date.
+ *
+ * All dates as they come out of `date` columns (midnight UTC), like
+ * storedLoanState.
+ */
+export function storedLoanStateWithReminder(
+  loan: { status: 'ACTIVE' | 'PAID'; nextDueOn: Date; startOn: Date; dueOn: Date; remindEveryWeeks: number | null },
+  now: Date = new Date(),
+): { state: LoanState; reminderOn: Date | null } {
+  const state = storedLoanState(loan.status, loan.nextDueOn, now)
+  if (state !== 'active') return { state, reminderOn: null }
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+  const on = nextReminderOn(storedCalendarDate(loan.startOn), storedCalendarDate(loan.dueOn), loan.remindEveryWeeks, today)
+  if (on && daysBetween(today, on) <= DUE_SOON_DAYS) return { state: 'due-soon', reminderOn: on }
+  return { state, reminderOn: null }
 }

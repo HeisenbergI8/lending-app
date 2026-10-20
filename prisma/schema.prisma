@@ -208,23 +208,25 @@ enum BorrowerLabel {
 /// A request that IS funded is destroyed too, in the same transaction that
 /// writes the loan: the loan is the record from then on.
 model PendingLoan {
-  id              String    @id @default(cuid())
-  userId          String
-  firstName       String
-  lastName        String
-  capitalCentavos Int
+  id               String    @id @default(cuid())
+  userId           String
+  firstName        String
+  lastName         String
+  capitalCentavos  Int
   /// What the borrower would be charged per week. Never null: every request is
   /// on a weekly rate, and a request needing a fixed amount is rare enough to be
   /// entered straight as a loan.
-  borrowerRateBps Int
+  borrowerRateBps  Int
   /// Always an exact multiple of 7 — the weekly rate is a multiplier, so the
   /// same whole-weeks rule that governs a Loan governs a request for one.
-  termDays        Int
+  termDays         Int
   /// When the money is meant to change hands, if the Admin already knows. Null
   /// on a request entered as a plain length ("3 weeks"), which is most of them.
-  startOn         DateTime? @db.Date
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  startOn          DateTime? @db.Date
+  /// Carried onto the loan when this request is made into one. See Loan.remindEveryWeeks.
+  remindEveryWeeks Int?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -356,6 +358,11 @@ model Loan {
   totalCentavos      Int
   status             LoanStatus         @default(ACTIVE)
   deletedAt          DateTime?          @map("archivedAt")
+  /// "Remind me every N weeks" (owner, 2026-10-20): from the start date, every
+  /// N weeks the loan reads Due soon for a few days, until the due date. A nudge
+  /// only — it moves no money and nothing owes anything on those days. Null is
+  /// off. See storedLoanStateWithReminder in src/lib/loan-state.ts.
+  remindEveryWeeks   Int?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
