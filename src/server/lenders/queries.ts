@@ -1,3 +1,5 @@
+import { type Prisma } from '@prisma/client'
+
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type InterestCollection } from '../../lib/money/interest.ts'
 import { type ReportRange, defaultRange } from '../../lib/report-range.ts'
@@ -7,7 +9,7 @@ import { type Projection, projectFloating } from '../../lib/money/projection.ts'
 import { releasedOnFunding } from '../../lib/money/weekly.ts'
 import { type LenderLedger, type LenderPosition, EMPTY_LEDGER, lenderPosition } from '../../lib/money/floating.ts'
 import { type LoanState, storedLoanStateWithReminder } from '../../lib/loan-state.ts'
-import { type MoneyEvent, moneyHistory } from '../../lib/money/money-history.ts'
+import { type HistoryFunding, type HistoryMove, type MoneyEvent, moneyHistory } from '../../lib/money/money-history.ts'
 import { db } from '../db.ts'
 import { SETTLING, liveWeeklyPayments, settledOn } from '../payments/settled.ts'
 
@@ -452,6 +454,133 @@ export async function listLenderNames(
 }
 
 /**
+ * What the money history needs of each funding row: who was lent to, whose
+ * capital a cut came from, and whether and when the loan was repaid. Shared by
+ * a lender's page and the all-lenders Money history screen.
+ */
+const HISTORY_SELECT = {
+  lenderId: true,
+  principalCentavos: true,
+  earningsCentavos: true,
+  adminCutCentavos: true,
+  lender: { select: { firstName: true, lastName: true } },
+  loan: {
+    select: {
+      id: true,
+      status: true,
+      borrower: { select: { firstName: true, lastName: true } },
+      startOn: true,
+      termDays: true,
+      interestCollection: true,
+      // EVERY live payment, not only the settling one. A weekly loan's
+      // interest arrives week after week, and the history has to show each.
+      payments: { where: { deletedAt: null }, select: { paidOn: true, deletedAt: true, weekNumber: true } },
+    },
+  },
+} satisfies Prisma.LoanFundingSelect
+
+const MOVE_INCLUDE = {
+  // The loan comes along so a withdrawal drawn against one can say which.
+  loan: { select: { id: true, borrower: { select: { firstName: true, lastName: true } } } },
+} satisfies Prisma.LenderTransactionInclude
+
+function toHistoryFunding(row: Prisma.LoanFundingGetPayload<{ select: typeof HISTORY_SELECT }>): HistoryFunding {
+  return {
+    loanId: row.loan.id,
+    lenderId: row.lenderId,
+    lenderName: `${row.lender.firstName} ${row.lender.lastName}`,
+    borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
+    principal: centavos(row.principalCentavos),
+    earnings: centavos(row.earningsCentavos),
+    adminCut: centavos(row.adminCutCentavos),
+    // All three are `date` columns, read back at midnight UTC.
+    startOn: storedCalendarDate(row.loan.startOn),
+    paidOn: (() => {
+      const on = settledOn(row.loan.payments)
+      return on ? storedCalendarDate(on) : null
+    })(),
+    // STATUS, the test `ledgers` uses — so the last balance is floating.
+    paid: row.loan.status === 'PAID',
+    termDays: row.loan.termDays,
+    weekly: row.loan.interestCollection === 'WEEKLY',
+    weeksPaid: liveWeeklyPayments(row.loan.payments).map((payment) => ({
+      week: payment.weekNumber as number,
+      paidOn: storedCalendarDate(payment.paidOn),
+    })),
+  }
+}
+
+function toHistoryMove(row: Prisma.LenderTransactionGetPayload<{ include: typeof MOVE_INCLUDE }>): HistoryMove {
+  return {
+    id: row.id,
+    type: row.type,
+    amount: centavos(row.amountCentavos),
+    occurredOn: storedCalendarDate(row.occurredOn),
+    note: row.note,
+    against: row.loan
+      ? { loanId: row.loan.id, borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}` }
+      : null,
+  }
+}
+
+/** One line of the all-lenders Money history: a MoneyEvent, and whose pot it moved. */
+export type LenderMoneyEvent = MoneyEvent & { lender: { id: string; name: string; isSelf: boolean } }
+
+/**
+ * Every move of every live lender's floating money, NEWEST FIRST — the Money
+ * history screen.
+ *
+ * EXACTLY each lender page's own history, merged: the same moneyHistory() over
+ * the same rows, so a line here and the line on that lender's page always
+ * agree, `balance` included (it is THAT lender's floating after the move, not a
+ * total across lenders). The Admin pot sees every funding row because its cut
+ * is charged on other lenders' capital; everyone else sees their own rows.
+ *
+ * Deleted lenders are left out, the same as the Lenders list. Three queries,
+ * whatever the number of lenders.
+ */
+export async function allMoneyHistory(userId: string): Promise<{
+  events: LenderMoneyEvent[]
+  lenders: { id: string; name: string; isSelf: boolean }[]
+}> {
+  const [lenders, fundings, moves] = await Promise.all([
+    db.lender.findMany({
+      where: { userId, deletedAt: null },
+      orderBy: [{ isSelf: 'desc' }, { firstName: 'asc' }, { lastName: 'asc' }],
+      select: { id: true, firstName: true, lastName: true, isSelf: true },
+    }),
+    db.loanFunding.findMany({ where: { userId, loan: { deletedAt: null } }, select: HISTORY_SELECT }),
+    db.lenderTransaction.findMany({
+      where: { userId, deletedAt: null },
+      // The same order a lender's page reads them in, so same-day lines tie-break alike.
+      orderBy: [{ occurredOn: 'desc' }, { createdAt: 'desc' }],
+      include: MOVE_INCLUDE,
+    }),
+  ])
+
+  const rows = fundings.map(toHistoryFunding)
+  const people = lenders.map((lender) => ({
+    id: lender.id,
+    name: lender.isSelf ? 'Admin' : `${lender.firstName} ${lender.lastName}`,
+    isSelf: lender.isSelf,
+  }))
+
+  const events = people.flatMap((lender) =>
+    moneyHistory(
+      lender.id,
+      lender.isSelf,
+      lender.isSelf ? rows : rows.filter((row) => row.lenderId === lender.id),
+      moves.filter((move) => move.lenderId === lender.id).map(toHistoryMove),
+    ).map((event) => ({ ...event, lender })),
+  )
+  // Newest first across everyone. Each lender's list is already newest first,
+  // and sort is stable, so same-day lines keep their order within a lender.
+  events.sort((a, b) => b.on.getTime() - a.on.getTime())
+
+  return { events, lenders: people }
+}
+
+/**
  * One lender, with where their money is.
  *
  * This is the question the profile exists to answer — "where is John Ross's money
@@ -505,35 +634,11 @@ export async function getLender(
     db.lenderTransaction.findMany({
       where: { userId, lenderId, deletedAt: null },
       orderBy: [{ occurredOn: 'desc' }, { createdAt: 'desc' }],
-      // The loan comes along so a withdrawal drawn against one can say which.
-      // Only an advance has it; on every other row it is null.
-      include: { loan: { select: { id: true, borrower: { select: { firstName: true, lastName: true } } } } },
+      include: MOVE_INCLUDE,
     }),
     db.loanFunding.findMany({
       where: historyWhere,
-      select: {
-        lenderId: true,
-        principalCentavos: true,
-        earningsCentavos: true,
-        adminCutCentavos: true,
-        // Names and status for the money history: who was lent to, whose
-        // capital a cut came from, and whether the loan counts as repaid.
-        lender: { select: { firstName: true, lastName: true } },
-        loan: {
-          select: {
-            id: true,
-            status: true,
-            borrower: { select: { firstName: true, lastName: true } },
-            startOn: true,
-            termDays: true,
-            interestCollection: true,
-            // EVERY live payment, not only the settling one. A weekly loan's
-            // interest arrives month after month, and the chart's whole job is
-            // to show that — it cannot while every peso lands on one day.
-            payments: { where: { deletedAt: null }, select: { paidOn: true, deletedAt: true, weekNumber: true } },
-          },
-        },
-      },
+      select: HISTORY_SELECT,
     }),
     // THE ADMIN'S CUT, LOAN BY LOAN. Every funding row in the account whose cut
     // is more than nothing — which is every row funded by somebody other than
@@ -632,43 +737,7 @@ export async function getLender(
        the cut lives. `startOn` and `termDays` are the only two columns the
        spread reads. */
     rangeInterest: interestAccruedIn(lender.isSelf, lender.id, historyRows, range),
-    moneyHistory: moneyHistory(
-      lender.id,
-      lender.isSelf,
-      historyRows.map((row) => ({
-        loanId: row.loan.id,
-        lenderId: row.lenderId,
-        lenderName: `${row.lender.firstName} ${row.lender.lastName}`,
-        borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
-        principal: centavos(row.principalCentavos),
-        earnings: centavos(row.earningsCentavos),
-        adminCut: centavos(row.adminCutCentavos),
-        // All three are `date` columns, read back at midnight UTC.
-        startOn: storedCalendarDate(row.loan.startOn),
-        paidOn: (() => {
-          const on = settledOn(row.loan.payments)
-          return on ? storedCalendarDate(on) : null
-        })(),
-        // STATUS, the test `ledgers` uses — so the last balance is floating.
-        paid: row.loan.status === 'PAID',
-        termDays: row.loan.termDays,
-        weekly: row.loan.interestCollection === 'WEEKLY',
-        weeksPaid: liveWeeklyPayments(row.loan.payments).map((payment) => ({
-          week: payment.weekNumber as number,
-          paidOn: storedCalendarDate(payment.paidOn),
-        })),
-      })),
-      transactions.map((row) => ({
-        id: row.id,
-        type: row.type,
-        amount: centavos(row.amountCentavos),
-        occurredOn: storedCalendarDate(row.occurredOn),
-        note: row.note,
-        against: row.loan
-          ? { loanId: row.loan.id, borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}` }
-          : null,
-      })),
-    ),
+    moneyHistory: moneyHistory(lender.id, lender.isSelf, historyRows.map(toHistoryFunding), transactions.map(toHistoryMove)),
   }
 }
 
