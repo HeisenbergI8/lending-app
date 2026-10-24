@@ -114,10 +114,10 @@ export default async function MoneyHistoryPage({ searchParams }: PageProps<'/mon
     return `/money${search ? `?${search}` : ''}`
   }
 
-  const activeCount = (type ? 1 : 0) + (when !== 'all' ? 1 : 0) + (q ? 1 : 0)
+  const activeCount = (type ? 1 : 0) + (range ? 1 : 0) + (q ? 1 : 0)
   const summary = [
     type ? HISTORY_FILTERS.find((option) => option.key === type)?.label : null,
-    when !== 'all' ? WHENS.find((option) => option.key === when)?.label : null,
+    range ? WHENS.find((option) => option.key === when)?.label : null,
     q ? `“${q}”` : null,
   ].filter(Boolean)
 
@@ -219,7 +219,7 @@ export default async function MoneyHistoryPage({ searchParams }: PageProps<'/mon
                           {/* THAT LENDER'S floating after this move, as on their own
                               page — never a total across lenders. Wide screens only. */}
                           <span className="text-muted-foreground hidden text-xs sm:block">
-                            <Money amount={event.balance} variant="display" /> floating
+                            their floating <Money amount={event.balance} variant="display" />
                           </span>
                         </div>
                       </Link>
