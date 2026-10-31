@@ -123,10 +123,21 @@ function WeekRow({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
  * is the exception, not the routine. A week collected through the conversion
  * flow never had proof offered — the screenshots for weeks paid before the app
  * knew about them are wherever they are — so this is how they arrive later.
+ *
+ * Whether it is open lives in WeeklySchedule, which hides the collect form while
+ * it is: one upload box on screen, so a screenshot cannot go to the wrong week.
  */
-function WeekProof({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
-  const [open, setOpen] = useState(false)
-
+function WeekProof({
+  loanId,
+  week,
+  open,
+  setOpen,
+}: {
+  loanId: string
+  week: LoanWeekRow
+  open: boolean
+  setOpen: (open: boolean) => void
+}) {
   if (!open) {
     return (
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
@@ -135,7 +146,14 @@ function WeekProof({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
     )
   }
 
-  return <AddProofForm loanId={loanId} paymentId={week.paymentId ?? undefined} />
+  return (
+    <div className="space-y-2">
+      <AddProofForm loanId={loanId} paymentId={week.paymentId ?? undefined} />
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+    </div>
+  )
 }
 
 const markWeekPaidWithSound = withSound(markWeekPaid, 'cashIn')
@@ -191,6 +209,11 @@ function MarkWeekPaidForm({ loanId, week }: { loanId: string; week: LoanWeekRow 
 
 export function WeeklySchedule({ loan }: { loan: LoanDetail }) {
   const [showAll, setShowAll] = useState(false)
+  // The week whose proof form is open. Derived against the live rows, so once
+  // the proof lands (the week stops missing it) the collect form comes back on
+  // its own instead of staying hidden until a reload.
+  const [proofWeek, setProofWeek] = useState<number | null>(null)
+  const addingProof = loan.weeks.some((week) => week.week === proofWeek && week.missingProof && week.paymentId)
 
   const next = loan.weeks.find((week) => week.isNext) ?? null
   // Everything already collected, plus the week being chased and the two after
@@ -239,7 +262,7 @@ export function WeeklySchedule({ loan }: { loan: LoanDetail }) {
         />
       </StatRow>
 
-      {next && !next.withCapital ? <MarkWeekPaidForm loanId={loan.id} week={next} /> : null}
+      {next && !next.withCapital && !addingProof ? <MarkWeekPaidForm loanId={loan.id} week={next} /> : null}
 
       {next?.withCapital ? (
         <p className="text-muted-foreground text-xs">
@@ -256,7 +279,12 @@ export function WeeklySchedule({ loan }: { loan: LoanDetail }) {
             <WeekRow loanId={loan.id} week={week} />
             {week.missingProof && week.paymentId ? (
               <li className="border-b border-border/50 pb-2">
-                <WeekProof loanId={loan.id} week={week} />
+                <WeekProof
+                  loanId={loan.id}
+                  week={week}
+                  open={addingProof && proofWeek === week.week}
+                  setOpen={(open) => setProofWeek(open ? week.week : null)}
+                />
               </li>
             ) : null}
           </Fragment>

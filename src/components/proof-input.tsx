@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CircleAlert, FileText, ImagePlus, LoaderCircle, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -83,6 +83,10 @@ export function ProofInput({
   /** Told how many files are chosen, so a form can keep its button off until there is one. */
   onCountChange?: (count: number) => void
 }) {
+  // UNIQUE PER BOX, not the field name. A loan page holds several of these at
+  // once, and a shared id sent every label's tap to the FIRST box on the page:
+  // week 1's proof landed in the week 2 form above it.
+  const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const boxRef = useRef<HTMLLabelElement>(null)
   const [chosen, setChosen] = useState<File[]>([])
@@ -156,11 +160,11 @@ export function ProofInput({
 
   return (
     <div className={cn('space-y-2.5', className)}>
-      <Label htmlFor={name}>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
 
       <label
         ref={boxRef}
-        htmlFor={name}
+        htmlFor={id}
         onDragOver={(event) => {
           event.preventDefault()
           setDragging(true)
@@ -182,7 +186,7 @@ export function ProofInput({
       >
         <input
           ref={inputRef}
-          id={name}
+          id={id}
           name={name}
           type="file"
           multiple
