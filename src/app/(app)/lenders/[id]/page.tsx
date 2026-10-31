@@ -380,16 +380,13 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
   const shownFundings =
     part === 'late' ? lender.fundings.filter(isLate) : part === 'loan' ? lender.fundings.filter((row) => !isLate(row)) : lender.fundings
   const overdueCapital = centavos(lender.fundings.filter(isLate).reduce((total, row) => total + row.principal, 0))
-  /* WHAT THE "Out with" ROWS ON SCREEN EARN, added up: the "earns" figure on
-     each row, over every row the filter keeps (not just the ten on this page).
-     This pot's own share only — the Admin cut belongs to none of these rows,
-     which is why it can differ from Interest coming + Cut coming above. */
-  const shownEarnings = centavos(shownFundings.reduce((total, row) => total + row.earnings, 0))
-  /* WHAT OF THAT IS STILL TO COME: `toCollect` added up over the same rows.
-     Each row's toCollect is its earnings minus the share of every week already
-     collected (releasedOnFunding, the line Interest coming above is drawn on),
-     so on an Admin-free pot the two agree. Equal to shownEarnings when no loan
-     here collects weekly. */
+  /* WHAT THE "Out with" ROWS ON SCREEN STILL HAVE TO HAND OVER: `toCollect`
+     over every row the filter keeps (not just the ten on this page). Each row's
+     toCollect is its earnings minus the share of every week already collected
+     (releasedOnFunding), the same line `position.pending` is drawn on. So with
+     no filter it EQUALS Interest coming above, on every pot: on the Admin pot
+     Interest coming is pending minus the cut, and the cut is on none of these
+     rows. */
   const shownToCollect = centavos(shownFundings.reduce((total, row) => total + row.toCollect, 0))
   /** This page with a part selected (or none), the "Out with" list back on page 1. */
   const partHref = (key: string | null, anchor = 'where') => {
@@ -591,14 +588,12 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           </h2>
           {shownFundings.length > 0 ? (
             <p className="text-muted-foreground text-xs">
-              {shownFundings.length === 1 ? '1 loan' : `${shownFundings.length} loans`} · earns{' '}
-              <Money amount={shownEarnings} variant="display" />
-              {shownToCollect !== shownEarnings ? (
-                <>
-                  {' '}
-                  · <Money amount={shownToCollect} variant="display" /> left to collect
-                </>
-              ) : null}
+              {/* THE SAME FIGURE AS Interest coming above, on the unfiltered
+                  list — the owner's rule (2026-10-31): the two must read the
+                  same. Not the sum of each row's "earns", which still counts
+                  weekly interest already handed over. */}
+              {shownFundings.length === 1 ? '1 loan' : `${shownFundings.length} loans`} ·{' '}
+              <Money amount={shownToCollect} variant="display" /> interest left to collect
             </p>
           ) : null}
         </div>
