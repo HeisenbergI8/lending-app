@@ -385,6 +385,12 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
      This pot's own share only — the Admin cut belongs to none of these rows,
      which is why it can differ from Interest coming + Cut coming above. */
   const shownEarnings = centavos(shownFundings.reduce((total, row) => total + row.earnings, 0))
+  /* WHAT OF THAT IS STILL TO COME: `toCollect` added up over the same rows.
+     Each row's toCollect is its earnings minus the share of every week already
+     collected (releasedOnFunding, the line Interest coming above is drawn on),
+     so on an Admin-free pot the two agree. Equal to shownEarnings when no loan
+     here collects weekly. */
+  const shownToCollect = centavos(shownFundings.reduce((total, row) => total + row.toCollect, 0))
   /** This page with a part selected (or none), the "Out with" list back on page 1. */
   const partHref = (key: string | null, anchor = 'where') => {
     const next = new URLSearchParams()
@@ -587,6 +593,12 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
             <p className="text-muted-foreground text-xs">
               {shownFundings.length === 1 ? '1 loan' : `${shownFundings.length} loans`} · earns{' '}
               <Money amount={shownEarnings} variant="display" />
+              {shownToCollect !== shownEarnings ? (
+                <>
+                  {' '}
+                  · <Money amount={shownToCollect} variant="display" /> left to collect
+                </>
+              ) : null}
             </p>
           ) : null}
         </div>
@@ -631,14 +643,31 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
                       <span className="whitespace-nowrap">
                         earns <Money amount={funding.earnings} variant="display" className="text-foreground/80" />
                       </span>
+                      {/* Only when it differs: a weekly loan with weeks already
+                          collected. "earns" stays the whole loan's interest, as
+                          agreed; this is what of it has not been handed over. */}
+                      {funding.toCollect !== funding.earnings ? (
+                        <>
+                          {' '}
+                          ·{' '}
+                          <span className="whitespace-nowrap">
+                            <Money amount={funding.toCollect} variant="display" className="text-foreground/80" /> left to
+                            collect
+                          </span>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    {/* This pot's capital plus its own stored share of the interest,
-                        so the Admin cut is already out of it on another lender's
-                        row. Never the borrower's total. */}
+                    {/* What this pot is STILL OWED on the loan: its capital plus
+                        the part of its own share of the interest not yet
+                        collected. On a weekly loan it drops week by week, in
+                        step with Interest coming above; on any other loan it is
+                        capital + earns, as it always was. The Admin cut is
+                        already out of it on another lender's row. Never the
+                        borrower's total. */}
                     <Money
-                      amount={centavos(funding.principal + funding.earnings)}
+                      amount={centavos(funding.principal + funding.toCollect)}
                       variant="display"
                       className="text-sm font-semibold"
                     />

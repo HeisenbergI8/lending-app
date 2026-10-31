@@ -48,7 +48,14 @@ export type LenderFunding = {
   borrowerId: string
   borrowerName: string
   principal: Centavos
+  /** This pot's share of the WHOLE loan's interest, as agreed. Never shrinks as weeks are collected. */
   earnings: Centavos
+  /**
+   * What of `earnings` is still to come. Equal to it on a loan collected at the
+   * end; on a weekly loan it drops by each collected week's share, the same
+   * releasedOnFunding line Interest coming is drawn on. Zero once paid.
+   */
+  toCollect: Centavos
   /** How long the loan runs, start to due. Days for every loan; said in weeks. */
   termDays: number
   dueOn: Date
@@ -162,6 +169,34 @@ export type LenderDetail = LenderSummary & {
 }
 
 /**
+ * WHICH WEEKS HAVE BEEN COLLECTED, for every weekly loan on the account, in one
+ * query. Not one per loan and not a join: an account has a handful of weekly
+ * loans carrying twenty rows each, so this is tens of rows, and fetching the
+ * week NUMBERS rather than a count lets the caller decide what a gap means
+ * instead of having Postgres guess.
+ */
+async function weeksPaidByLoan(userId: string): Promise<Map<string, Set<number>>> {
+  const rows = await db.payment.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      weekNumber: { not: null },
+      loan: { deletedAt: null, interestCollection: 'WEEKLY' },
+    },
+    select: { loanId: true, weekNumber: true },
+  })
+
+  const paidByLoan = new Map<string, Set<number>>()
+  for (const row of rows) {
+    if (row.weekNumber === null) continue
+    const weeks = paidByLoan.get(row.loanId) ?? new Set<number>()
+    weeks.add(row.weekNumber)
+    paidByLoan.set(row.loanId, weeks)
+  }
+  return paidByLoan
+}
+
+/**
  * Every lender's ledger in two queries, not two per lender.
  *
  * Aggregation happens in JS rather than SQL deliberately. The sums depend on the
@@ -171,7 +206,7 @@ export type LenderDetail = LenderSummary & {
  * millions; clarity wins at this size.
  */
 async function ledgers(userId: string): Promise<Map<string, LenderLedger>> {
-  const [transactions, fundings, self, weeksPaid] = await Promise.all([
+  const [transactions, fundings, self, paidByLoan] = await Promise.all([
     db.lenderTransaction.groupBy({
       by: ['lenderId', 'type'],
       where: { userId, deletedAt: null },
@@ -188,29 +223,8 @@ async function ledgers(userId: string): Promise<Map<string, LenderLedger>> {
       },
     }),
     db.lender.findFirst({ where: { userId, isSelf: true }, select: { id: true } }),
-    // WHICH WEEKS HAVE BEEN COLLECTED, for every weekly loan on the account, in
-    // one query. Not one per loan and not a join: an account has a handful of
-    // weekly loans carrying twenty rows each, so this is tens of rows, and
-    // fetching the week NUMBERS rather than a count lets the caller decide what
-    // a gap means instead of having Postgres guess.
-    db.payment.findMany({
-      where: {
-        userId,
-        deletedAt: null,
-        weekNumber: { not: null },
-        loan: { deletedAt: null, interestCollection: 'WEEKLY' },
-      },
-      select: { loanId: true, weekNumber: true },
-    }),
+    weeksPaidByLoan(userId),
   ])
-
-  const paidByLoan = new Map<string, Set<number>>()
-  for (const row of weeksPaid) {
-    if (row.weekNumber === null) continue
-    const weeks = paidByLoan.get(row.loanId) ?? new Set<number>()
-    weeks.add(row.weekNumber)
-    paidByLoan.set(row.loanId, weeks)
-  }
 
   const byLender = new Map<string, LenderLedger>()
   const ledger = (id: string): LenderLedger => {
@@ -607,18 +621,20 @@ export async function getLender(
   // would return the same rows, so there is only ever one.
   const historyWhere = lender.isSelf ? { userId, loan: { deletedAt: null } } : { userId, lenderId, loan: { deletedAt: null } }
 
-  const [byLender, fundings, transactions, historyRows, cutRows] = await Promise.all([
+  const [byLender, fundings, transactions, historyRows, cutRows, paidByLoan] = await Promise.all([
     ledgers(userId),
     db.loanFunding.findMany({
       where: { userId, lenderId, loan: { deletedAt: null } },
       select: {
         principalCentavos: true,
         earningsCentavos: true,
+        adminCutCentavos: true,
         lenderRateBps: true,
         loan: {
           select: {
             id: true,
             status: true,
+            interestCollection: true,
             startOn: true,
             dueOn: true,
             nextDueOn: true,
@@ -671,6 +687,7 @@ export async function getLender(
           orderBy: { loan: { dueOn: 'asc' } },
         })
       : Promise.resolve([]),
+    weeksPaidByLoan(userId),
   ])
 
   const rows: LenderFunding[] = fundings.map((row) => ({
@@ -679,6 +696,10 @@ export async function getLender(
     borrowerName: `${row.loan.borrower.firstName} ${row.loan.borrower.lastName}`,
     principal: centavos(row.principalCentavos),
     earnings: centavos(row.earningsCentavos),
+    toCollect:
+      row.loan.status === 'PAID'
+        ? centavos(0)
+        : centavos(row.earningsCentavos - releasedOnRow(row, paidByLoan).earnings),
     termDays: row.loan.termDays,
     dueOn: row.loan.dueOn,
     paidOn: settledOn(row.loan.payments),
