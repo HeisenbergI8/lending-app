@@ -56,12 +56,45 @@ export async function paymentForLoan(userId: string, loanId: string): Promise<Pa
   })
   if (!payment) return null
 
-  const configured = storageConfigured()
+  const files = await signFiles(payment.proofFiles)
 
-  // One round trip per file, in parallel. A payment carries a handful of files,
-  // not a gallery, so this is two or three requests rather than a queue.
-  const files = await Promise.all(
-    payment.proofFiles.map(async (file) => ({
+  return { paidOn: payment.paidOn, amount: centavos(payment.amountCentavos), files }
+}
+
+/**
+ * ONE collected week's proof, signed. Null when the payment is not this user's
+ * or has been undone.
+ *
+ * Fetched when the Admin opens that week, not with the schedule — see the note
+ * on paymentForLoan: twenty weeks of links on every render is the cost this
+ * avoids.
+ */
+export async function proofForPayment(userId: string, paymentId: string): Promise<ProofFileView[] | null> {
+  const payment = await db.payment.findFirst({
+    where: { id: paymentId, userId, deletedAt: null },
+    select: {
+      proofFiles: {
+        where: { deletedAt: null },
+        orderBy: { uploadedAt: 'asc' },
+        select: { id: true, mimeType: true, sizeBytes: true, storagePath: true },
+      },
+    },
+  })
+  return payment ? signFiles(payment.proofFiles) : null
+}
+
+/**
+ * Turn stored proof rows into views with a short-lived link each.
+ *
+ * One round trip per file, in parallel. A payment carries a handful of files,
+ * not a gallery, so this is two or three requests rather than a queue.
+ */
+async function signFiles(
+  files: { id: string; mimeType: string; sizeBytes: number; storagePath: string }[],
+): Promise<ProofFileView[]> {
+  const configured = storageConfigured()
+  return Promise.all(
+    files.map(async (file) => ({
       id: file.id,
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
@@ -69,6 +102,4 @@ export async function paymentForLoan(userId: string, loanId: string): Promise<Pa
       url: configured ? await signProof(file.storagePath).catch(() => null) : null,
     })),
   )
-
-  return { paidOn: payment.paidOn, amount: centavos(payment.amountCentavos), files }
 }

@@ -164,6 +164,8 @@ export type LoanWeekRow = {
   paymentId: string | null
   /** A collected week with nothing attached. Flagged, never blocked. */
   missingProof: boolean
+  /** How many files are attached to this week, so the row can say so and refetch when it changes. */
+  proofCount: number
   /**
    * True for the last week, which is handed over WITH the capital in one
    * payment and so is never collected on its own. The row says so rather than
@@ -284,6 +286,7 @@ function weeklyDetail(loan: WeeklyLoanRow): {
       paidOn: payment?.paidOn ?? null,
       paymentId: payment?.id ?? null,
       missingProof: payment !== null && payment.proofFiles.length === 0,
+      proofCount: payment?.proofFiles.length ?? 0,
       withCapital: instalment.week === weeks,
       isNext: next?.week === instalment.week,
     }
