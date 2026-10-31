@@ -12,6 +12,7 @@ import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
 import { type FormState, NO_ERROR, date, failed, text } from '../forms.ts'
 import { StorageUnavailable } from '../storage/proof-bucket.ts'
+import { type ProofFileView, proofForPayment } from './queries.ts'
 import { paidWeekNumbers } from './settled.ts'
 import { type Upload, discardUploads, filesFrom, proofRows, uploadAll } from './uploads.ts'
 
@@ -203,4 +204,14 @@ export async function undoWeekPaid(_prev: FormState, form: FormData): Promise<Fo
 
   refresh()
   return NO_ERROR
+}
+
+/**
+ * The screenshots attached to one collected week, for the loan page to show
+ * when that week is opened. Read-only; scoped to the signed-in user, so another
+ * account's payment id comes back as nothing.
+ */
+export async function weekProof(paymentId: string): Promise<ProofFileView[]> {
+  const user = await requireUser()
+  return (await proofForPayment(user.id, String(paymentId))) ?? []
 }

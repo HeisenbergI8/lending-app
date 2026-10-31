@@ -6,9 +6,7 @@ import {
   ArrowUpRight,
   CalendarPlus,
   CheckCircle2,
-  FileText,
   HandCoins,
-  ImageIcon,
   Pencil,
   TrendingUp,
   Trash2,
@@ -19,13 +17,11 @@ import {
 import { ActionForm } from '@/components/forms.tsx'
 import { LoanStatusBadge } from '@/components/loan-status.tsx'
 import { Money } from '@/components/money.tsx'
-import { ProofPreview } from '@/components/proof-preview.tsx'
 import { IconChip, StatRow, StatTile } from '@/components/stat-tile.tsx'
 import { Button } from '@/components/ui/button'
 import { formatPesos } from '@/lib/money/centavos.ts'
 import { calendarDate, describeTerm, storedCalendarDate } from '@/lib/money/weeks.ts'
 import { nextReminderOn } from '@/lib/loan-state.ts'
-import { describeBytes } from '@/lib/proof.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { deleteLoan, deleteLoanNote } from '@/server/loans/actions.ts'
 import { undoExtension } from '@/server/loans/extend-actions.ts'
@@ -34,13 +30,14 @@ import { type LoanDetail, getLoan } from '@/server/loans/queries.ts'
 import { deleteLoanProof } from '@/server/loans/proof-actions.ts'
 import { type LoanProofs, proofsForLoan } from '@/server/loans/proofs.ts'
 import { deleteProof, undoPayment } from '@/server/payments/actions.ts'
-import { type ProofFileView, paymentForLoan } from '@/server/payments/queries.ts'
+import { paymentForLoan } from '@/server/payments/queries.ts'
 
 import { AdvanceForm } from './advance-form.tsx'
 import { NoteForm } from './note-form.tsx'
 import { AddProofForm, MarkPaidPanel } from './payment-panel.tsx'
 import { ConvertToWeekly } from './convert-to-weekly.tsx'
 import { ExtendLoan } from './extend-loan.tsx'
+import { ProofList } from './proof-list.tsx'
 import { WeeklySchedule } from './weekly-schedule.tsx'
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -629,76 +626,6 @@ function SentSection({ loanId, proofs, continuation }: { loanId: string; proofs:
 
       <AddProofForm loanId={loanId} sent />
     </section>
-  )
-}
-
-/** Proof files with a preview and a Remove button each — shared by payments and the money sent. */
-function ProofList({
-  files,
-  remove,
-  field,
-  removeBody,
-}: {
-  files: ProofFileView[]
-  /** Omitted when the file cannot be removed — the only screenshot of the money sent. */
-  remove?: React.ComponentProps<typeof ActionForm>['action']
-  field: string
-  removeBody: string
-}) {
-  if (files.length === 0) return null
-  return (
-    <ul className="space-y-2">
-      {files.map((file, index) => (
-        <li key={file.id} className="flex items-center gap-3 rounded-lg border p-2.5">
-          {file.url && !file.isPdf ? (
-            <ProofPreview
-              url={file.url}
-              label={`Screenshot ${index + 1}`}
-              meta={describeBytes(file.sizeBytes)}
-            />
-          ) : (
-            <>
-              <span className="bg-muted text-muted-foreground flex size-10 shrink-0 items-center justify-center rounded-lg">
-                {file.isPdf ? <FileText className="size-4" aria-hidden /> : <ImageIcon className="size-4" aria-hidden />}
-              </span>
-
-              <div className="min-w-0 flex-1 text-sm">
-                {file.url ? (
-                  // Signed, and good for a few minutes only — the bucket is
-                  // private, so there is no lasting address to leak.
-                  <a href={file.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
-                    Document {index + 1}
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground font-medium">
-                    {file.isPdf ? 'Document' : 'Screenshot'} {index + 1} · link unavailable
-                  </span>
-                )}
-                <div className="text-muted-foreground text-xs">{describeBytes(file.sizeBytes)}</div>
-              </div>
-            </>
-          )}
-
-          {remove ? (
-            <ActionForm
-              action={remove}
-              sound="trash"
-              values={{ [field]: file.id }}
-              variant="ghost"
-              size="sm"
-              pendingLabel="Removing…"
-              confirm={{
-                title: 'Remove this file?',
-                body: removeBody,
-                action: 'Remove file',
-              }}
-            >
-              Remove
-            </ActionForm>
-          ) : null}
-        </li>
-      ))}
-    </ul>
   )
 }
 

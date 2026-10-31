@@ -1,7 +1,7 @@
 'use client'
 
-import { Fragment, useActionState, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown } from 'lucide-react'
+import { Fragment, useActionState, useEffect, useState } from 'react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ImageIcon } from 'lucide-react'
 
 import { ActionForm, SubmitButton } from '@/components/forms.tsx'
 import { Money } from '@/components/money.tsx'
@@ -15,9 +15,12 @@ import { NO_ERROR } from '@/lib/form-state.ts'
 import { withSound } from '@/lib/sound.ts'
 import { formatPesos } from '@/lib/money/centavos.ts'
 import type { LoanDetail, LoanWeekRow } from '@/server/loans/queries.ts'
-import { markWeekPaid, undoWeekPaid } from '@/server/payments/week-actions.ts'
+import { deleteProof } from '@/server/payments/actions.ts'
+import type { ProofFileView } from '@/server/payments/queries.ts'
+import { markWeekPaid, undoWeekPaid, weekProof } from '@/server/payments/week-actions.ts'
 
 import { AddProofForm } from './payment-panel.tsx'
+import { ProofList } from './proof-list.tsx'
 
 /**
  * The week by week schedule of a loan that collects its interest weekly.
@@ -117,12 +120,17 @@ function WeekRow({ loanId, week }: { loanId: string; week: LoanWeekRow }) {
 }
 
 /**
- * Attaching proof to ONE collected week.
+ * Seeing and attaching the proof of ONE collected week.
  *
  * Opened from the week's own row rather than shown on all twenty at once: this
  * is the exception, not the routine. A week collected through the conversion
  * flow never had proof offered — the screenshots for weeks paid before the app
  * knew about them are wherever they are — so this is how they arrive later.
+ *
+ * The files are fetched WHEN THE WEEK IS OPENED, not with the schedule: twenty
+ * weeks of signed links on every render is the cost paymentForLoan's note warns
+ * about. They are fetched again whenever the count changes, so a file attached
+ * or removed here shows up without a reload.
  *
  * Whether it is open lives in WeeklySchedule, which hides the collect form while
  * it is: one upload box on screen, so a screenshot cannot go to the wrong week.
@@ -141,18 +149,58 @@ function WeekProof({
   if (!open) {
     return (
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
-        Add proof for week {week.week}
+        {week.missingProof ? (
+          `Add proof for week ${week.week}`
+        ) : (
+          <>
+            <ImageIcon className="size-4" aria-hidden />
+            View proof for week {week.week} ({week.proofCount})
+          </>
+        )}
       </Button>
     )
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {week.paymentId && week.proofCount > 0 ? (
+        <WeekProofFiles paymentId={week.paymentId} count={week.proofCount} />
+      ) : null}
       <AddProofForm loanId={loanId} paymentId={week.paymentId ?? undefined} />
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-        Cancel
+        {week.missingProof ? 'Cancel' : 'Close'}
       </Button>
     </div>
+  )
+}
+
+function WeekProofFiles({ paymentId, count }: { paymentId: string; count: number }) {
+  // Keyed by what was fetched, so a stale answer is never shown as current and
+  // "Loading" needs no state of its own.
+  const [loaded, setLoaded] = useState<{ key: string; files: ProofFileView[] } | null>(null)
+  const key = `${paymentId}:${count}`
+
+  useEffect(() => {
+    let live = true
+    weekProof(paymentId).then((files) => {
+      if (live) setLoaded({ key, files })
+    })
+    return () => {
+      live = false
+    }
+  }, [paymentId, key])
+
+  if (loaded?.key !== key) {
+    return <p className="text-muted-foreground text-xs">Loading the proof…</p>
+  }
+
+  return (
+    <ProofList
+      files={loaded.files}
+      remove={deleteProof}
+      field="proofFileId"
+      removeBody="It stops showing on this week. It is not listed on Recently Deleted, so put it back by uploading it again."
+    />
   )
 }
 
@@ -209,11 +257,11 @@ function MarkWeekPaidForm({ loanId, week }: { loanId: string; week: LoanWeekRow 
 
 export function WeeklySchedule({ loan }: { loan: LoanDetail }) {
   const [showAll, setShowAll] = useState(false)
-  // The week whose proof form is open. Derived against the live rows, so once
-  // the proof lands (the week stops missing it) the collect form comes back on
-  // its own instead of staying hidden until a reload.
+  // The week whose proof is open. It STAYS open once a file lands, so the Admin
+  // sees what they just attached; Close brings the collect form back. Derived
+  // against the live rows, so a week undone while open closes on its own.
   const [proofWeek, setProofWeek] = useState<number | null>(null)
-  const addingProof = loan.weeks.some((week) => week.week === proofWeek && week.missingProof && week.paymentId)
+  const addingProof = loan.weeks.some((week) => week.week === proofWeek && week.paymentId)
 
   const next = loan.weeks.find((week) => week.isNext) ?? null
   // Everything already collected, plus the week being chased and the two after
@@ -277,7 +325,7 @@ export function WeeklySchedule({ loan }: { loan: LoanDetail }) {
         {shown.map((week) => (
           <Fragment key={week.week}>
             <WeekRow loanId={loan.id} week={week} />
-            {week.missingProof && week.paymentId ? (
+            {week.paymentId ? (
               <li className="border-b border-border/50 pb-2">
                 <WeekProof
                   loanId={loan.id}
