@@ -58,7 +58,8 @@ export const ACTIONS: ActionSpec[] = [
     name: 'create_loan',
     title: 'Make a new loan',
     about: 'Lend money. funders must add up exactly to capital; ask how much from each lender if not said. Needs the screenshot of the money being sent.',
-    fields: [...LOAN_FIELDS, { name: 'pendingId', kind: 'id', about: 'When funding a pending request.' }],
+    // No reminder on a new loan from chat: models filled it in unasked. Set it on the loan page.
+    fields: [...LOAN_FIELDS.filter((f) => f.name !== 'remindEveryWeeks'), { name: 'pendingId', kind: 'id', about: 'When funding a pending request.' }],
     funders: true,
     files: { required: true, label: 'Screenshot of the money being sent' },
     words: 'lend new loan create borrow give money fund request',
@@ -66,7 +67,7 @@ export const ACTIONS: ActionSpec[] = [
   {
     name: 'update_loan',
     title: 'Edit a loan',
-    about: 'Fix a loan entered wrong. Send every loan field again, changed or not, read from get_loan.',
+    about: "Fix a loan entered wrong. Start from get_loan's editValues, change only what the Admin asked, and send all of them, or the rest is cleared.",
     fields: [id('loanId'), ...LOAN_FIELDS],
     funders: true,
     words: 'edit change fix correct loan amount date rate',

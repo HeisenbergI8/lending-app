@@ -328,6 +328,20 @@ async function loanDetail(userId: string, loanId: string) {
     })),
     notes: loan.notes.map((n) => ({ id: n.id, written: day(n.createdAt), text: n.body })),
     ...(await loanRecordIds(userId, loanId)),
+    // Exactly what update_loan must send back, so an edit changes only what was asked.
+    editValues: {
+      borrowerId: loan.borrowerId,
+      capital: String(loan.capital / 100),
+      startOn: day(loan.startOn),
+      dueOn: day(loan.capitalDueOn),
+      interestBasis: loan.interestBasis,
+      interestCollection: loan.interestCollection,
+      ...(loan.borrowerRateBps !== null ? { borrowerRate: String(loan.borrowerRateBps / 100) } : {}),
+      ...(loan.funders.find((f) => f.adminCutBps !== null) ? { adminCut: String(loan.funders.find((f) => f.adminCutBps !== null)!.adminCutBps! / 100) } : {}),
+      ...(loan.interestBasis === 'FIXED_AMOUNT' ? { fixedInterest: String(loan.interest / 100), fixedLenderShare: String(loan.lenderEarnings / 100) } : {}),
+      ...(loan.remindEveryWeeks !== null ? { remindEveryWeeks: String(loan.remindEveryWeeks) } : {}),
+      funders: loan.funders.map((f) => ({ lenderId: f.lenderId, amount: String(f.principal / 100) })),
+    },
   }
 }
 

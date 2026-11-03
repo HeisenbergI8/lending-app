@@ -92,8 +92,12 @@ export async function usageSummary(models: string[]): Promise<UsageSummary> {
     return { model, used: row?.tokens ?? 0, limit: row?.tokenLimit ?? DEFAULT_DAILY_TOKENS, coolUntil: cool }
   })
 
-  const questions = rows.reduce((n, row) => n + row.questions, 0)
-  const tokens = rows.reduce((n, row) => n + row.tokens, 0)
+  // The average comes from rows this app counted itself. A row a refusal
+  // overwrote holds Groq's rolling total, which includes tokens from before
+  // the row existed, so dividing it by today's questions overstates a question.
+  const counted = rows.filter((row) => row.tokenLimit === null)
+  const questions = counted.reduce((n, row) => n + row.questions, 0)
+  const tokens = counted.reduce((n, row) => n + row.tokens, 0)
   const perQuestion = questions >= 3 ? Math.max(500, tokens / questions) : DEFAULT_TOKENS_PER_QUESTION
 
   // A model resting for more than a few minutes was refused for the DAY, so it
