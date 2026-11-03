@@ -8,10 +8,9 @@ import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 /**
  * Ask Pondex: the chat that lives on every signed-in screen.
  *
- * UI ONLY FOR NOW. Nothing here calls a server. The answers below are written
- * out by hand so the screens, the mascot's poses and the open/close and
- * full-screen motion can be judged before the AI behind them exists. When it
- * does, `answerFor` becomes a request and everything else stays.
+ * Each question goes to /api/assistant with the conversation so far. The
+ * server picks which read-only lookups to run and sends back one answer, which
+ * is then typed out here so the mascot can "talk" while it appears.
  *
  * A launcher, not a sidebar item: the chat is a helper you call up over the page
  * you are on, so it opens on top of that page instead of replacing it. On a
@@ -19,62 +18,32 @@ import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
  * corner that can be made full screen.
  */
 
-type Fact = { label: string; value: string }
 type Message =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'bot'; text: string; full: string; facts: Fact[]; done: boolean }
+  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean }
 
-const SAMPLES: { q: string; keys: string[]; a: string; facts: Fact[] }[] = [
-  {
-    q: 'How much is out on loan right now?',
-    keys: ['out on loan', 'how much is out', 'lent out'],
-    a: '₱568,000.00 is out on loan right now, with 17 borrowers. Nobody is late.',
-    facts: [
-      { label: 'Out on loan', value: '₱568,000.00' },
-      { label: 'Borrowers', value: '17' },
-      { label: 'Overdue', value: '0' },
-    ],
-  },
-  {
-    q: 'Who funded Mitch G.’s loan due Oct 14?',
-    keys: ['mitch', 'funded'],
-    a: 'Three lenders funded it, ₱26,000.00 in all. It is fully paid, and ₱31,460.00 came back.',
-    facts: [
-      { label: 'John Ross Rivera', value: '₱14,990.00' },
-      { label: 'Fidel Rivera', value: '₱7,710.00' },
-      { label: 'Immanuel Rivera', value: '₱3,300.00' },
-    ],
-  },
-  {
-    q: 'What note is on Gladys A.’s Sep 28 loan?',
-    keys: ['gladys', 'note'],
-    a: 'The note says “4000 (interest) partial”. It looks like ₱4,000 of the interest was paid first. The loan is now fully paid.',
-    facts: [
-      { label: 'Loan', value: '₱20,000.00' },
-      { label: 'Paid back', value: '₱25,600.00' },
-      { label: 'Lender', value: 'Fidel Rivera' },
-    ],
-  },
-  {
-    q: 'What is Rina C.’s phone number?',
-    keys: ['phone', 'address', 'number', 'contact'],
-    a: 'I can’t share a borrower’s contact details. I can tell you about her loans and payments instead.',
-    facts: [],
-  },
+/** Starters shown on an empty chat. Real questions, answered from real data. */
+const SAMPLES = [
+  'How much is out on loan right now?',
+  'Who is overdue right now?',
+  'How much is floating in each pot?',
+  'What makes a borrower Good, Okay or Bad?',
 ]
 
-function answerFor(question: string) {
-  const q = question.toLowerCase()
-  return (
-    SAMPLES.find((s) => s.q.toLowerCase() === q) ??
-    SAMPLES.find((s) => s.keys.some((k) => q.includes(k))) ?? {
-      a: 'In this preview I can only answer the sample questions. Soon I will read your loans and notes to answer anything.',
-      facts: [],
-    }
-  )
+async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[]) {
+  try {
+    const response = await fetch('/api/assistant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history }),
+    })
+    const data = (await response.json()) as { ok: true; answer: string } | { ok: false; error: string }
+    return data.ok ? { text: data.answer, failed: false } : { text: data.error, failed: true }
+  } catch {
+    return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true }
+  }
 }
 
-const THINK_MS = 1800
 const TYPE_MS = 26
 const CHARS_PER_TICK = 3
 
@@ -121,32 +90,36 @@ export function AskPondex() {
     }
   }
 
-  function ask(question: string) {
+  async function ask(question: string) {
     const q = question.trim()
     if (!q || thinking || writing) return
-    const { a, facts } = answerFor(q)
     const id = nextId.current
     nextId.current += 2
+
+    const history = [
+      ...messages.filter((m) => !(m.role === 'bot' && m.failed)).map((m) => ({
+        role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
+        text: m.role === 'user' ? m.text : m.full,
+      })),
+      { role: 'user' as const, text: q },
+    ]
 
     setDraft('')
     setThinking(true)
     setMessages((ms) => [...ms, { id, role: 'user', text: q }])
 
-    timers.current.push(
-      setTimeout(() => {
-        setThinking(false)
-        setMessages((ms) => [...ms, { id: id + 1, role: 'bot', text: '', full: a, facts, done: false }])
-        let n = 0
-        const tick = () => {
-          n = Math.min(a.length, n + CHARS_PER_TICK)
-          setMessages((ms) =>
-            ms.map((m) => (m.id === id + 1 && m.role === 'bot' ? { ...m, text: a.slice(0, n), done: n >= a.length } : m)),
-          )
-          if (n < a.length) timers.current.push(setTimeout(tick, TYPE_MS))
-        }
-        timers.current.push(setTimeout(tick, 150))
-      }, THINK_MS),
-    )
+    const { text: a, failed } = await fetchAnswer(history)
+    setThinking(false)
+    setMessages((ms) => [...ms, { id: id + 1, role: 'bot', text: '', full: a, done: false, failed }])
+    let n = 0
+    const tick = () => {
+      n = Math.min(a.length, n + CHARS_PER_TICK)
+      setMessages((ms) =>
+        ms.map((m) => (m.id === id + 1 && m.role === 'bot' ? { ...m, text: a.slice(0, n), done: n >= a.length } : m)),
+      )
+      if (n < a.length) timers.current.push(setTimeout(tick, TYPE_MS))
+    }
+    timers.current.push(setTimeout(tick, 150))
   }
 
   const empty = messages.length === 0 && !thinking
@@ -217,12 +190,12 @@ export function AskPondex() {
                   <div className="mt-1 flex w-full flex-col gap-2">
                     {SAMPLES.map((s) => (
                       <button
-                        key={s.q}
+                        key={s}
                         type="button"
-                        onClick={() => ask(s.q)}
+                        onClick={() => ask(s)}
                         className="border-border bg-muted/40 hover:bg-accent hover:border-brand-line min-h-11 rounded-2xl border px-4 py-2.5 text-left text-sm"
                       >
-                        {s.q}
+                        {s}
                       </button>
                     ))}
                   </div>
@@ -241,20 +214,10 @@ export function AskPondex() {
                   <div key={m.id} className="animate-ask-rise flex max-w-[94%] items-start gap-2.5">
                     <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="shrink-0" />
                     <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
-                      <p className="text-sm leading-relaxed">
+                      <p className={cn('text-sm leading-relaxed whitespace-pre-line', m.failed && 'text-muted-foreground')}>
                         {m.text}
                         {!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
                       </p>
-                      {m.done && m.facts.length > 0 && (
-                        <div className="animate-ask-rise border-border bg-muted/30 overflow-hidden rounded-2xl border">
-                          {m.facts.map((f) => (
-                            <div key={f.label} className="border-border/60 flex justify-between gap-5 border-t px-3.5 py-2.5 text-sm first:border-t-0">
-                              <span className="text-muted-foreground">{f.label}</span>
-                              <span className="font-semibold tabular-nums">{f.value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </div>
                 ),
@@ -278,12 +241,12 @@ export function AskPondex() {
                 <div className="flex gap-2 overflow-x-auto pb-0.5">
                   {SAMPLES.map((s) => (
                     <button
-                      key={s.q}
+                      key={s}
                       type="button"
-                      onClick={() => ask(s.q)}
+                      onClick={() => ask(s)}
                       className="border-border hover:bg-accent min-h-10 shrink-0 rounded-full border px-3 text-xs whitespace-nowrap"
                     >
-                      {s.q}
+                      {s}
                     </button>
                   ))}
                 </div>
@@ -315,7 +278,7 @@ export function AskPondex() {
                 </button>
               </form>
               <p className="text-muted-foreground text-center text-[11px]">
-                Preview with sample answers. Pondex can only read, never change your data.
+                Pondex can only read, never change your data. Check important numbers in the app.
               </p>
             </div>
           </div>
