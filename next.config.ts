@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     '/api/reports': ['src/server/reports/fonts/**'],
+    // Ask Pondex sends its rules file to the model on every question.
+    '/api/assistant': ['ai/knowledge/**'],
   },
   /**
    * The Archive screen became Recently Deleted. Anything pointing at the old

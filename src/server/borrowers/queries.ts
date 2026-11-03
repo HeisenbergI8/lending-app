@@ -53,6 +53,15 @@ export type BorrowerLoan = {
   paidOn: Date | null
   /** A payment recorded with no file attached. Flagged, never blocked. */
   missingProof: boolean
+  /** Interest collected every week rather than with the capital at the end. */
+  weekly: boolean
+  /**
+   * Every live payment on the loan, oldest first: the weeks collected on a weekly
+   * loan and the settling payment. What changed hands on a given day, which the
+   * loan's total alone cannot say — on a weekly loan the last payment is the
+   * capital plus one week, not the total.
+   */
+  payments: { paidOn: Date; amount: Centavos; week: number | null }[]
   funders: { lenderId: string; name: string; isAdmin: boolean; principal: Centavos; earnings: Centavos; adminCut: Centavos }[]
 }
 
@@ -368,6 +377,11 @@ export async function getBorrower(userId: string, borrowerId: string): Promise<B
     ...storedLoanStateWithReminder(loan),
     paidOn: livePayment(loan)?.paidOn ?? null,
     missingProof: livePayment(loan) !== null && livePayment(loan)!.proofFiles.length === 0,
+    weekly: loan.interestCollection === 'WEEKLY',
+    payments: loan.payments
+      .filter((payment) => payment.deletedAt === null)
+      .sort((a, b) => a.paidOn.getTime() - b.paidOn.getTime())
+      .map((payment) => ({ paidOn: payment.paidOn, amount: centavos(payment.amountCentavos), week: payment.weekNumber })),
     funders: loan.fundings.map((funding) => ({
       lenderId: funding.lenderId,
       name: funding.lender.isSelf ? 'Admin' : `${funding.lender.firstName} ${funding.lender.lastName}`,
