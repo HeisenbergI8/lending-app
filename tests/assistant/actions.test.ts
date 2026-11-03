@@ -96,3 +96,19 @@ describe("reading Groq's refusals", () => {
     assert.equal(parseRefusal('per day (TPD). Please try again in 1h2m3s.', null).waitS, 3723)
   })
 })
+
+describe('a loan names its borrower', () => {
+  const loan = actionSpec('create_loan')!
+  const base = { capital: '20000', startOn: '2026-11-04', dueOn: '2026-11-25' }
+  const funders = [{ lenderId: 'fidel', amount: '20000' }]
+
+  test('a first name alone is not enough for someone new', () => {
+    const result = checkProposal(loan, { ...base, borrowerFirstName: 'Jelo' }, funders)
+    assert.equal(result.ok, false)
+  })
+
+  test('both names, or an existing borrower, are', () => {
+    assert.equal(checkProposal(loan, { ...base, borrowerFirstName: 'Jelo', borrowerLastName: 'Cruz' }, funders).ok, true)
+    assert.equal(checkProposal(loan, { ...base, borrowerId: 'b1' }, funders).ok, true)
+  })
+})

@@ -433,8 +433,12 @@ export async function proposeAction(userId: string, args: Record<string, unknown
   const checked = checkProposal(spec, fields, args.funders)
   if (!checked.ok) return { error: checked.error }
   const proposal = await describeProposal(userId, spec, checked.fields, checked.funders)
-  const unknown = proposal.lines.filter((line) => line.value === 'not found').map((line) => line.label)
-  if (unknown.length > 0) return { error: `Not found: ${unknown.join(', ')}. Look the id up again.` }
+  // Every id must point at a real record of this account, funders included,
+  // or the card would ask the Admin to approve "not found".
+  const unknown = proposal.lines
+    .filter((line) => line.value === 'not found' || line.label.includes('not found'))
+    .map((line) => line.label)
+  if (unknown.length > 0) return { error: `Not found: ${unknown.join(', ')}. Look the ids up with find_borrower, list_lenders or get_loan.` }
   return { proposal }
 }
 

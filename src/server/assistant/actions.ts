@@ -260,6 +260,10 @@ export function checkProposal(spec: ActionSpec, fields: Record<string, unknown>,
         .filter((r) => r.lenderId && r.amount)
     : []
   if (spec.name === 'create_loan' && rows.length === 0) missing.push('funders')
+  // A loan's borrower is either someone on the list or a new person with both names.
+  if ((spec.name === 'create_loan' || spec.name === 'update_loan') && !clean.borrowerId && !(clean.borrowerFirstName && clean.borrowerLastName)) {
+    missing.push('borrowerId (or both borrowerFirstName and borrowerLastName for someone new)')
+  }
   if (missing.length > 0) return { ok: false as const, error: `Missing: ${missing.join(', ')}. Ask the Admin.` }
   return { ok: true as const, fields: clean, funders: rows }
 }

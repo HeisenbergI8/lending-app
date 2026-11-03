@@ -51,6 +51,13 @@ const LABELS: Record<string, string> = {
   paidNow: 'Interest paid now',
   weekNumber: 'Week',
   termChoice: 'Term given as',
+  body: 'Note',
+  weeks: 'Weeks',
+  type: 'Type',
+  amount: 'Amount',
+  note: 'Note',
+  label: 'Label',
+  loans: 'Their loans',
 }
 
 const CHOICES: Record<string, string> = {
