@@ -84,3 +84,15 @@ describe('loan options the Admin did not ask for are dropped', () => {
     assert.deepEqual(args.fields, { interestCollection: 'WEEKLY' })
   })
 })
+
+describe('the slips the first runs found', () => {
+  test('"ready to confirm" with no card is sent back', () =>
+    assert.match(nudgeFor('Done, check it, then tap Confirm.', 'add a note on dan', ['find_action']) ?? '', /No card/))
+  test('an invented "did you mean" name is sent back', () =>
+    assert.match(nudgeFor('Did you mean Mark Lope?', 'how much does mark owe', ['find_borrower'], ['Rico Mendoza']) ?? '', /Only offer names/))
+  test('a "did you mean" from the lookup is fine', () =>
+    assert.equal(nudgeFor('Did you mean Rico Mendoza?', 'how much does ricco owe', ['find_borrower'], ['Rico Mendoza']), null))
+  test('a change answered without trying it is sent back', () =>
+    assert.match(nudgeFor('Okay, noted.', 'add lender Paolo Garcia', []) ?? '', /This is a change/))
+  test('a question about paying is not a change', () => assert.equal(nudgeFor('From your rules: full payment only.', 'can borrowers pay in parts?', ['read_rules']), null))
+})

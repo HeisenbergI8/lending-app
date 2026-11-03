@@ -1,4 +1,4 @@
-import { formatPesos, type Centavos } from '../../lib/money/centavos.ts'
+import { formatPesos, parsePesos, type Centavos } from '../../lib/money/centavos.ts'
 import { describeTerm, parseCalendarDate, toDateInput } from '../../lib/money/weeks.ts'
 import { NO_FILTER, type LoanFilter, type LoanStatusFilter } from '../../lib/loan-filter.ts'
 import { describeTrackRecord } from '../../lib/track-record.ts'
@@ -9,7 +9,7 @@ import { listDeleted, type DeletedSection } from '../deleted/queries.ts'
 import { listPendingLoans } from '../pending/queries.ts'
 import { ACTIONS, actionSpec, checkProposal, findActions, normalizeFields } from './actions.ts'
 import { borrowerPhotoUrls } from '../storage/borrower-photos.ts'
-import { closestNames, type Named } from './names.ts'
+import { amountsSaid, closestNames, nameSaid, type Named } from './names.ts'
 import { manilaToday } from './today.ts'
 import { describeProposal } from './proposal.ts'
 import { readRules } from './knowledge.ts'
@@ -566,7 +566,63 @@ async function resolveFunders(userId: string, funders: unknown): Promise<unknown
 }
 
 /** A change for the Admin to confirm. Nothing is saved here. */
+/** Words that point at the Admin's own pot without naming it. */
+const ADMIN_POT = /\b(admin|my pot|my money|own money|own pot|from me|sarili|akin)\b/i
+/** Amounts that must be ones the Admin said: a model filling one in is the costliest guess. */
+const SAID_AMOUNT: Record<string, string> = {
+  create_loan: 'capital',
+  create_request: 'capital',
+  record_money: 'amount',
+  record_advance: 'amount',
+  set_starting_capital: 'startingCapital',
+}
+
+/**
+ * Whether a card's amounts and people come from the Admin's own words, or the
+ * reason to ask instead. Seen in testing: the small model filled in a lender,
+ * an amount, or the wrong borrower's loan, and the card looked complete.
+ * Asking costs a turn; a confirmed guess costs money.
+ */
+async function notSaidByAdmin(userId: string, action: string, fields: Record<string, string>, funders: { lenderId: string; amount: string }[], said: string): Promise<string | null> {
+  const amounts = amountsSaid(said).map((n) => Math.round(n * 100))
+  const cents = (v: string) => (parsePesos(v).ok ? (parsePesos(v) as { value: number }).value : NaN)
+  const field = SAID_AMOUNT[action]
+  if (field && fields[field]) {
+    const value = cents(fields[field])
+    // A loan's total may also be the sum of per-lender amounts the Admin gave ("10k each").
+    const fromParts = action === 'create_loan' && funders.length > 0 && funders.every((f) => amounts.includes(cents(f.amount)))
+    if (!amounts.includes(value) && !fromParts) return `The Admin did not say ${field} ${fields[field]}. Ask how much.`
+  }
+  if (action === 'create_loan' && funders.length > 1) {
+    const even = funders.every((f) => f.amount === funders[0].amount)
+    const allSaid = funders.every((f) => amounts.includes(cents(f.amount)))
+    if (!allSaid && !(even && /\b(each|half|evenly|equally|hati)\b/i.test(said))) return 'The Admin did not say how much from each lender. Ask.'
+  }
+
+  const people: { firstName: string; lastName: string; isSelf?: boolean; role: string }[] = []
+  if (fields.borrowerId) {
+    const b = await db.borrower.findFirst({ where: { id: fields.borrowerId, userId }, select: { firstName: true, lastName: true } })
+    if (b) people.push({ ...b, role: 'borrower' })
+  }
+  if (fields.loanId) {
+    const l = await db.loan.findFirst({ where: { id: fields.loanId, userId }, select: { borrower: { select: { firstName: true, lastName: true } } } })
+    if (l) people.push({ ...l.borrower, role: 'borrower on that loan' })
+  }
+  const lenderIds = [fields.lenderId, ...funders.map((f) => f.lenderId)].filter(Boolean)
+  if (lenderIds.length > 0) {
+    const lenders = await db.lender.findMany({ where: { id: { in: lenderIds }, userId }, select: { firstName: true, lastName: true, isSelf: true } })
+    people.push(...lenders.map((l) => ({ ...l, role: 'lender' })))
+  }
+  const missing = people.filter((p) => !(nameSaid(said, p) || (p.isSelf && ADMIN_POT.test(said))))
+  if (missing.length > 0) {
+    return `The Admin did not name ${missing.map((p) => `${p.firstName} ${p.lastName} (${p.role})`).join(', ')}. Ask who they meant; do not pick someone.`
+  }
+  return null
+}
+
 export async function proposeAction(userId: string, args: Record<string, unknown>) {
+  const said = args._said
+  delete args._said
   const spec = actionSpec(str(args, 'action'))
   if (!spec) return { error: `No action called "${str(args, 'action')}". Use find_action.` }
   let given = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
@@ -599,6 +655,8 @@ export async function proposeAction(userId: string, args: Record<string, unknown
     .filter((line) => line.value === 'not found' || line.label.includes('not found'))
     .map((line) => line.label)
   if (unknown.length > 0) return { error: `Not found: ${unknown.join(', ')}. Look the ids up with find_borrower, list_lenders or get_loan.` }
+  const ungrounded = typeof said === 'string' ? await notSaidByAdmin(userId, spec.name, checked.fields, checked.funders, said) : null
+  if (ungrounded) return { error: ungrounded }
   return { proposal }
 }
 

@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { closestNames, distance, nameScore } from '../../src/server/assistant/names.ts'
+import { amountsSaid, closestNames, distance, nameSaid, nameScore } from '../../src/server/assistant/names.ts'
 
 /** The demo account's borrowers (prisma/seed/demo.ts). */
 const people = [
@@ -26,4 +26,19 @@ describe('did you mean', () => {
   test('case and accents do not matter', () => assert.deepEqual(ids('BEÁ villanueva'), ['bea']))
   test('a stranger matches nobody', () => assert.deepEqual(ids('Juan Santos'), []))
   test('the exact name scores highest', () => assert.ok(nameScore('Rico Mendoza', people[1]) > nameScore('Ricco Mendosa', people[1])))
+})
+
+describe('what the Admin actually said', () => {
+  test('amounts in every common form', () => {
+    assert.deepEqual(amountsSaid('lend bea 20k'), [20000])
+    assert.deepEqual(amountsSaid('₱20,000.50 from john'), [20000.5])
+    assert.deepEqual(amountsSaid('twenty thousand from john ross'), [20000])
+    assert.deepEqual(amountsSaid('15 thousand, 10k each'), [15000, 10000])
+  })
+  test('a person is named by first or last name, with one typo allowed', () => {
+    const rico = { firstName: 'Rico', lastName: 'Mendoza' }
+    assert.equal(nameSaid('lend rico 5k', rico), true)
+    assert.equal(nameSaid('mendosa paid today', rico), true)
+    assert.equal(nameSaid('lend lyn 5k from maria', rico), false)
+  })
 })

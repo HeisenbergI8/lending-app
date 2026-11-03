@@ -70,3 +70,34 @@ export function closestNames<T extends Named>(typed: string, people: T[], limit 
     .slice(0, limit)
     .map((x) => x.person)
 }
+
+const SMALL: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100,
+}
+
+/**
+ * Every peso amount in what the Admin typed: "20k", "20,000", "₱20000.50",
+ * "twenty thousand", "15 thousand". Used to check that an amount on a card is
+ * one the Admin actually said, not one the model filled in.
+ */
+export function amountsSaid(text: string): number[] {
+  const found: number[] = []
+  for (const m of text.toLowerCase().matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(k\b|thousand|libo)?/g)) {
+    const value = Number(m[1].replace(/,/g, ''))
+    if (Number.isFinite(value)) found.push(m[2] ? value * 1000 : value)
+  }
+  for (const m of text.toLowerCase().matchAll(/\b([a-z]+)(?:[\s-]([a-z]+))?\s+thousand\b/g)) {
+    const words = [m[1], m[2]].filter(Boolean).map((w) => SMALL[w as string])
+    if (words.length > 0 && words.every((w) => w !== undefined)) found.push(words.reduce((a, b) => a + b, 0) * 1000)
+  }
+  return found
+}
+
+/** Whether the Admin's words name this person: first or last name, allowing one typo in longer names. */
+export function nameSaid(text: string, person: { firstName: string; lastName: string }): boolean {
+  const said = norm(text).split(/\s+/).filter(Boolean)
+  const parts = norm(`${person.firstName} ${person.lastName}`).split(/\s+/).filter((p) => p.length > 1)
+  return parts.some((part) => said.some((word) => word === part || (part.length >= 4 && word.length >= 3 && distance(word, part) <= 1)))
+}

@@ -260,8 +260,28 @@ const ID = /\b(c[a-z0-9]{20,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * an empty reply, a reply that only promises a lookup, and a rules question
  * answered from memory. Costs nothing when the model behaves.
  */
-export function nudgeFor(answer: string, question: string, usedTools: string[]): string | null {
+/** A request to change something, in the words people use for it. */
+const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pay|record|deposit|withdr[ae]w|rename|extend|convert|label|note|advance|fund|request)\b/i
+/** An answer that claims a card exists. */
+const CLAIMS_CARD = /\b(tap confirm|ready to confirm|check it, then tap|confirm (it|the card)|card (is )?ready)\b/i
+
+export function nudgeFor(answer: string, question: string, usedTools: string[], offeredNames: string[] = []): string | null {
   if (!answer.trim()) return 'Your reply was empty. Answer the question, using the tools if you need them.'
+  // "Ready to confirm" with no card on screen would leave the Admin looking for one.
+  if (CLAIMS_CARD.test(answer) && !usedTools.includes('propose_action')) {
+    return 'No card was made yet. Call propose_action for the change, or ask the Admin for what is missing.'
+  }
+  // "Did you mean X?" may only offer names a lookup returned.
+  const offered = /did you mean\s+["“]?([^"”?]+)/i.exec(answer)?.[1]?.trim().toLowerCase()
+  if (offered && !offeredNames.some((name) => offered.includes(name.toLowerCase()) || name.toLowerCase().includes(offered))) {
+    return `Only offer names a lookup returned in didYouMean (${offeredNames.join(', ') || 'none'}). If there are none, say nobody by that name was found.`
+  }
+  // A change request answered without trying the change, and without a question back.
+  const triedChange = usedTools.includes('find_action') || usedTools.includes('propose_action')
+  const asks = /\?\s*$/.test(question.trim()) || /^(can|could|do|does|is|are|was|what|how|why|when|who|which|may)\b/i.test(question.trim())
+  if (CHANGE_REQUEST.test(question) && !asks && !triedChange && !answer.includes('?') && !/\b(can'?t|cannot|not stored|only see)\b/i.test(answer)) {
+    return 'This is a change. Call find_action, look up what it needs, then propose_action. If a detail is missing, ask for it.'
+  }
   if (PROMISE_ONLY.test(answer) && answer.length < 200) return 'Do the lookup now with the tools, then answer. Do not say you will check.'
   // A change in progress ("mark Lyn as good") is not a rules question, whatever words it uses.
   const looked = usedTools.includes('read_rules') || usedTools.includes('propose_action') || usedTools.includes('find_action')
@@ -312,7 +332,9 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
   const started = Date.now()
   let model: string | null = null
   let tokens = 0
-  let nudged = false
+  // Up to two corrections per question; a third slip is answered as is.
+  let nudges = 0
+  const offeredNames: string[] = []
   const question = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
   const saidByAdmin = history.filter((t) => t.role === 'user').map((t) => t.text).join(' ')
 
@@ -332,9 +354,9 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
 
       if (calls.length === 0) {
         const answer = clean(turn.reply.content ?? '')
-        const nudge = nudged ? null : nudgeFor(answer, question, used)
+        const nudge = nudges >= 2 ? null : nudgeFor(answer, question, used, offeredNames)
         if (nudge) {
-          nudged = true
+          nudges++
           if (answer) messages.push({ role: 'assistant', content: answer })
           messages.push({ role: 'user', content: nudge })
           continue
@@ -348,7 +370,11 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
       for (const call of calls) {
         used.push(call.function.name)
         const args = parseArgs(call.function.arguments)
-        if (call.function.name === 'propose_action') dropUnasked(args, saidByAdmin)
+        if (call.function.name === 'propose_action') {
+          dropUnasked(args, saidByAdmin)
+          // The tool checks the card's amounts and people against the Admin's own words.
+          args._said = saidByAdmin
+        }
         const result = await runTool(userId, call.function.name, args).catch(() => ({
           error: 'That lookup failed.',
         }))
@@ -360,6 +386,11 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
           return finish('Here is the change. Check it, then tap Confirm.', (result as { proposal: Proposal }).proposal)
         }
 
+        // Names a lookup offered, the only ones "did you mean" may use.
+        for (const key of ['didYouMean', 'matches', 'deleted'] as const) {
+          const list = (result as Record<string, unknown> | null)?.[key]
+          if (Array.isArray(list)) for (const item of list) offeredNames.push(typeof item === 'string' ? item : String((item as { name?: unknown }).name ?? ''))
+        }
         messages.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: compact(result) })
       }
     }
