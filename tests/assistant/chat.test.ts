@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clip, dropUnasked, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { clip, dropUnasked, isChangeRequest, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -109,4 +109,11 @@ describe('phantom cards and missed changes (run 7)', () => {
 describe('phantom cards, more wordings (run 8)', () => {
   test('"You can now review and confirm the changes" with no card is sent back', () =>
     assert.match(nudgeFor('You can now review and confirm the changes.', 'move the due date', ['find_action']) ?? '', /No card/))
+})
+
+describe('change requests are planned by the server', () => {
+  test('"add lender Paolo Garcia" is a change request', () => assert.equal(isChangeRequest('add lender Paolo Garcia'), true))
+  test('"rico pd today" is a change request', () => assert.equal(isChangeRequest('rico pd today'), true))
+  test('"can borrowers pay in parts?" is a question', () => assert.equal(isChangeRequest('can borrowers pay in parts?'), false))
+  test('"how much does bea owe" is a question', () => assert.equal(isChangeRequest('how much does bea owe'), false))
 })

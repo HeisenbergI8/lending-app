@@ -265,6 +265,12 @@ const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrow
 /** An answer that claims a card exists. */
 const CLAIMS_CARD = /\b(tap confirm|ready[\s-]to[\s-]confirm|check it, then tap|confirm (it|the card)|card (is )?ready|here is the .{0,30}card|review and confirm|confirm the changes?|(is|are) (now )?prepared)\b/i
 
+/** A message asking for a change, not a question about one ("can borrowers pay in parts?" is a question). */
+export function isChangeRequest(question: string): boolean {
+  const asks = /\?\s*$/.test(question.trim()) || /^(can|could|do|does|is|are|was|what|how|why|when|who|which|may)\b/i.test(question.trim())
+  return CHANGE_REQUEST.test(question) && !asks
+}
+
 export function nudgeFor(answer: string, question: string, usedTools: string[], offeredNames: string[] = []): string | null {
   if (!answer.trim()) return 'Your reply was empty. Answer the question, using the tools if you need them.'
   // "Ready to confirm" with no card on screen would leave the Admin looking for one.
@@ -279,8 +285,7 @@ export function nudgeFor(answer: string, question: string, usedTools: string[], 
   }
   // A change request answered without trying the change, and without a question back.
   const triedChange = usedTools.includes('find_action') || usedTools.includes('propose_action')
-  const asks = /\?\s*$/.test(question.trim()) || /^(can|could|do|does|is|are|was|what|how|why|when|who|which|may)\b/i.test(question.trim())
-  if (CHANGE_REQUEST.test(question) && !asks && !triedChange && !answer.includes('?') && !/\b(can'?t|cannot|not stored|only see)\b/i.test(answer)) {
+  if (isChangeRequest(question) && !triedChange && !answer.includes('?') && !/\b(can'?t|cannot|not stored|only see)\b/i.test(answer)) {
     return 'This is a change. Call find_action, look up what it needs, then propose_action. If a detail is missing, ask for it.'
   }
   if (PROMISE_ONLY.test(answer) && answer.length < 200) return 'Do the lookup now with the tools, then answer. Do not say you will check.'
@@ -329,6 +334,19 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
     { role: 'system', content: systemPrompt() },
     ...trimHistory(history).map((t) => ({ role: t.role, content: t.text }) as GroqMessage),
   ]
+  // Plan first, the way a person would: for a change request, the server looks
+  // up the fitting actions itself and hands them over, so a smaller model does
+  // not have to remember to. It still picks the action and fills it in.
+  const lastAsk = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
+  if (isChangeRequest(lastAsk)) {
+    const fitting = (await runTool(userId, 'find_action', { what: lastAsk }).catch(() => null)) as { actions?: unknown[] } | null
+    if (fitting?.actions && fitting.actions.length > 0) {
+      messages.push({
+        role: 'system',
+        content: `Actions that fit this request (from find_action): ${compact(fitting.actions)}. Next: look up any ids you need, then call propose_action. If a detail is missing, ask the Admin.`,
+      })
+    }
+  }
   const used: string[] = []
   const started = Date.now()
   let model: string | null = null
