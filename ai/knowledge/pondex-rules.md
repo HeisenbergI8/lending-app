@@ -4,8 +4,8 @@ The knowledge file Ask Pondex looks up. It explains the words and rules of the a
 It holds NO live numbers: amounts, balances, dates and names always come from the database tools.
 The worked examples below are examples, never facts about a real loan.
 
-Sources: `docs/FEATURES.md`, the comments in `prisma/schema.prisma` and `src/lib/track-record.ts`.
-If this file and those disagree, those are right; update this file.
+Sources: `docs/FEATURES.md`, the comments in `prisma/schema.prisma`, `src/lib/track-record.ts` and the
+server actions' own checks. Where they disagree, what the code enforces is right; update this file.
 
 How this file is written (so retrieval keeps working):
 - One topic per `## ` section. Each section stands on its own and states each fact once.
@@ -93,8 +93,11 @@ screenshot
 
 - Full payment only: the whole total in one payment. No partial payments and no installments.
 - The one exception is a weekly-interest loan (next section).
-- Proof of payment is optional. A paid loan with no file shows a "no proof" warning until one is
-  added. One payment can have several files.
+- Marking a loan paid needs a screenshot of the payment. The app will not save it without one.
+- A weekly payment's proof is optional; one without a file shows a "no proof" warning until one is
+  added. Loans paid before the screenshot rule may show the same warning.
+- One payment can have several files.
+- A new loan needs a screenshot of the money being sent to the borrower.
 
 ## Weekly-interest loans
 Also called: weekly, every week, schedule, interest collected weekly, convert

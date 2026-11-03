@@ -1,5 +1,4 @@
-import { ask, type ChatTurn, models } from '@/server/assistant/chat.ts'
-import { usageSummary } from '@/server/assistant/usage.ts'
+import { ask, type ChatTurn, currentUsage } from '@/server/assistant/chat.ts'
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /**
@@ -27,7 +26,7 @@ function isTurn(value: unknown): value is ChatTurn {
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return Response.json({ error: 'Please log in again.' }, { status: 401 })
-  return Response.json(await usageSummary(models()))
+  return Response.json(await currentUsage())
 }
 
 export async function POST(request: Request) {

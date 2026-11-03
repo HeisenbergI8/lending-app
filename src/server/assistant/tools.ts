@@ -2,12 +2,14 @@ import { formatPesos, type Centavos } from '../../lib/money/centavos.ts'
 import { describeTerm, parseCalendarDate, toDateInput } from '../../lib/money/weeks.ts'
 import { NO_FILTER, type LoanFilter, type LoanStatusFilter } from '../../lib/loan-filter.ts'
 import { describeTrackRecord } from '../../lib/track-record.ts'
-import { borrowerCounts, getBorrower } from '../borrowers/queries.ts'
+import { borrowerCounts, getBorrower, listBorrowerNames } from '../borrowers/queries.ts'
 import { db } from '../db.ts'
-import { getLender, listLenders } from '../lenders/queries.ts'
+import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { listDeleted, type DeletedSection } from '../deleted/queries.ts'
 import { listPendingLoans } from '../pending/queries.ts'
 import { ACTIONS, actionSpec, checkProposal, findActions } from './actions.ts'
+import { borrowerPhotoUrls } from '../storage/borrower-photos.ts'
+import { closestNames } from './names.ts'
 import { describeProposal } from './proposal.ts'
 import { readRules } from './knowledge.ts'
 import { getLoan, interestSummary, listLoans, overdueSummary } from '../loans/queries.ts'
@@ -207,7 +209,14 @@ async function findBorrower(userId: string, name: string) {
     select: { id: true, firstName: true, lastName: true },
   })
 
-  if (matches.length === 0) return { found: false, reason: `No borrower named "${name}".` }
+  if (matches.length === 0) {
+    // A typo finds nobody by exact match. Offer the close names before the
+    // model offers to add a new person, which would be a duplicate.
+    const didYouMean = closestNames(name, await listBorrowerNames(userId)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))
+    return didYouMean.length > 0
+      ? { found: false, reason: `No borrower named exactly "${name}". Ask the Admin if they meant one of didYouMean before anything else.`, didYouMean }
+      : { found: false, reason: `No borrower named "${name}".` }
+  }
   // More than a handful means the name was too short to mean one person. Hand
   // back the names so the model can ask which one, instead of guessing.
   if (matches.length > 3) {
@@ -215,6 +224,7 @@ async function findBorrower(userId: string, name: string) {
   }
 
   const people = await Promise.all(matches.map((m) => getBorrower(userId, m.id)))
+  const several = matches.length > 1 ? { note: 'Several borrowers match. Unless the question is about all of them, ask which one.' } : {}
   // Notes ride along with each loan. Smaller models rarely go back for get_loan
   // on their own, and "what note is on her loan" is a common question.
   const notes = await db.loanNote.findMany({
@@ -225,6 +235,7 @@ async function findBorrower(userId: string, name: string) {
   const notesOf = (loanId: string) => notes.filter((n) => n.loanId === loanId).map((n) => n.body)
   return {
     found: true,
+    ...several,
     borrowers: people
       .filter((b) => b !== null)
       .map((b) => ({
@@ -372,15 +383,25 @@ async function loanRecordIds(userId: string, loanId: string) {
 
 async function lenderDetail(userId: string, name: string) {
   const terms = words(name)
-  const lender = await db.lender.findFirst({
+  const matches = await db.lender.findMany({
     where: {
       userId,
       deletedAt: null,
       AND: terms.map((term) => ({ OR: [{ firstName: { contains: term, ...INSENSITIVE } }, { lastName: { contains: term, ...INSENSITIVE } }] })),
     },
-    select: { id: true },
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    take: 5,
+    select: { id: true, firstName: true, lastName: true },
   })
-  const detail = lender ? await getLender(userId, lender.id) : null
+  // Two lenders sharing a name is a question for the Admin, not a guess.
+  if (matches.length > 1) {
+    return { found: false, reason: 'Several lenders match. Ask which one.', matches: matches.map((m) => ({ id: m.id, name: `${m.firstName} ${m.lastName}` })) }
+  }
+  if (matches.length === 0) {
+    const didYouMean = closestNames(name, await listLenderNames(userId)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))
+    return { found: false, reason: `No lender named "${name}".`, ...(didYouMean.length > 0 ? { didYouMean } : {}) }
+  }
+  const detail = await getLender(userId, matches[0].id)
   if (!detail) return { found: false, reason: `No lender named "${name}".` }
   return {
     found: true,
@@ -446,6 +467,11 @@ export async function proposeAction(userId: string, args: Record<string, unknown
   const fields = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
   const checked = checkProposal(spec, fields, args.funders)
   if (!checked.ok) return { error: checked.error }
+  // The app only offers "Remove photo" when there is one; removing a photo
+  // that is not there fails in storage after Confirm. Say so now instead.
+  if (spec.name === 'clear_borrower_photo' && !(await borrowerPhotoUrls(userId)).has(checked.fields.borrowerId)) {
+    return { error: 'That borrower has no photo to remove.' }
+  }
   const proposal = await describeProposal(userId, spec, checked.fields, checked.funders)
   // Every id must point at a real record of this account, funders included,
   // or the card would ask the Admin to approve "not found".

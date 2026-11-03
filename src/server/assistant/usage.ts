@@ -26,6 +26,8 @@ export type UsageSummary = {
   /** When the first model is free again, or null when one is free now. */
   coolUntil: Date | null
   models: ModelUsage[]
+  /** True when the chat runs on the Mac's own model, which has no daily limit. */
+  local?: boolean
 }
 
 function today(): Date {

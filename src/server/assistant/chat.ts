@@ -1,4 +1,3 @@
-import { toDateInput } from '../../lib/money/weeks.ts'
 import { type Proposal } from './proposal.ts'
 import { runTool, TOOLS } from './tools.ts'
 import { parseRefusal, recordCall, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
@@ -26,11 +25,16 @@ import { parseRefusal, recordCall, recordRefusal, type UsageSummary, usageSummar
  */
 
 const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
+/** Ollama's OpenAI-shaped endpoint on the Admin's own Mac. */
+const LOCAL_ENDPOINT = 'http://localhost:11434/v1/chat/completions'
 const DEFAULT_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']
 /** Tool rounds before giving up. A change needs a few lookups first. */
 const MAX_STEPS = 8
-/** Turns of history sent back. Older ones cost tokens and rarely matter. */
-const MAX_HISTORY = 10
+/**
+ * Turns of history sent back. Older ones cost tokens, but the FIRST turn is
+ * always kept: it usually holds the request a long back-and-forth is about.
+ */
+const MAX_HISTORY = 14
 /** Longest per-minute wait worth holding the chat for. Anything longer moves to the next model. */
 const MAX_WAIT_S = 20
 /** Room for the answer and the model's own reasoning. Caps a runaway reply eating the day's tokens. */
@@ -49,21 +53,50 @@ type GroqToolCall = { id: string; type: 'function'; function: { name: string; ar
 type GroqReply = { content: string | null; tool_calls?: GroqToolCall[] }
 
 class LimitError extends Error {
-  constructor(readonly daily: boolean) {
+  readonly daily: boolean
+  constructor(daily: boolean) {
     super(daily ? 'daily-limit' : 'rate-limited')
+    this.daily = daily
   }
 }
 
 /** One reply with a broken tool call. Retried; never rests the model. */
 class SlipError extends Error {}
 
+/**
+ * The model on this Mac, when the chat should use it instead of Groq: set
+ * ASSISTANT_LOCAL_MODEL (e.g. qwen3:8b) in .env.local to test without
+ * spending the free Groq allowance. Ignored on Vercel even if set there by
+ * mistake, so the testing link and the live app always use Groq.
+ */
+export function localModel(): string | null {
+  if (process.env.VERCEL) return null
+  return process.env.ASSISTANT_LOCAL_MODEL?.trim() || null
+}
+
 export function models(): string[] {
+  const local = localModel()
+  if (local) return [local]
   const list = (process.env.GROQ_MODELS || process.env.GROQ_MODEL || '').split(',').map((m) => m.trim()).filter(Boolean)
   return list.length > 0 ? list : DEFAULT_MODELS
 }
 
+/**
+ * Today in the Philippines, as YYYY-MM-DD. The server runs on UTC, where it is
+ * still yesterday until 8am Manila time, and "starting today" must mean the
+ * Admin's today.
+ */
+export function manilaToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+}
+
+/** The last turns, plus the first one when it would otherwise be cut. */
+export function trimHistory<T>(turns: T[], max = MAX_HISTORY): T[] {
+  return turns.length <= max ? turns : [turns[0], ...turns.slice(-(max - 1))]
+}
+
 function systemPrompt(): string {
-  return `You are Pondex, the helper in a private lending tracker. You talk only to the Admin who runs it. Today is ${toDateInput(new Date())}.
+  return `You are Pondex, the helper in a private lending tracker. You talk only to the Admin who runs it. Today is ${manilaToday()} (Philippine time).
 
 Sources:
 - Numbers (amounts, dates, names, counts) only from data tool results. You may add or subtract them; say which parts. Never invent one.
@@ -73,6 +106,7 @@ Sources:
 - A borrower question about a rule (e.g. "is she Good?") needs both a data tool and read_rules.
 - If the tools or rules lack it, say so ("not in Pondex", "your rules don't say"). Never guess.
 - A name matching nobody: not a borrower in Pondex. Matching several: ask which one.
+- A lookup that returns didYouMean: ask "Did you mean ...?" first. Never treat a misspelled name as a new person.
 
 Changes (add, edit, pay, delete, restore anything):
 - find_action first, then look up every id it needs (find_borrower, list_lenders, get_loan), then propose_action. The Admin confirms on a card; nothing is saved before that.
@@ -93,18 +127,21 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Per-family settings. Reasoning tokens count toward the daily limit, so they are kept low. */
 function modelOptions(model: string): Record<string, unknown> {
+  // On the Mac, thinking out loud only makes a test run slower.
+  if (model === localModel()) return { reasoning_effort: 'none' }
   if (model.startsWith('openai/gpt-oss')) return { reasoning_effort: 'low' }
   if (model.startsWith('qwen/')) return { reasoning_format: 'hidden' }
   return {}
 }
 
 async function complete(model: string, messages: GroqMessage[], retries = 1): Promise<{ reply: GroqReply; tokens: number }> {
+  const local = model === localModel()
   const key = process.env.GROQ_API_KEY
-  if (!key) throw new Error('GROQ_API_KEY is not set.')
+  if (!local && !key) throw new Error('GROQ_API_KEY is not set.')
 
-  const response = await fetch(ENDPOINT, {
+  const response = await fetch(local ? LOCAL_ENDPOINT : ENDPOINT, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    headers: local ? { 'Content-Type': 'application/json' } : { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages,
@@ -154,7 +191,7 @@ async function complete(model: string, messages: GroqMessage[], retries = 1): Pr
  * OpenAI-shaped, so a different model can pick the conversation up mid-way.
  */
 async function nextTurn(messages: GroqMessage[], preferred: string | null) {
-  const usage = await usageSummary(models())
+  const usage = await currentUsage()
   const ready = usage.models.filter((m) => m.coolUntil === null).map((m) => m.model)
   // Stay on the model that started the question while it still works.
   const order = preferred && ready.includes(preferred) ? [preferred, ...ready.filter((m) => m !== preferred)] : ready
@@ -180,6 +217,13 @@ async function nextTurn(messages: GroqMessage[], preferred: string | null) {
   throw last ?? new LimitError(usage.models.some((m) => m.coolUntil && m.coolUntil.getTime() - Date.now() > 5 * 60_000))
 }
 
+/** Today's allowance; on the Mac there is none to count, so the counter says so. */
+export async function currentUsage(): Promise<UsageSummary> {
+  const local = localModel()
+  if (local) return { questionsLeft: 0, coolUntil: null, models: [{ model: local, used: 0, limit: 0, coolUntil: null }], local: true }
+  return usageSummary(models())
+}
+
 function parseArgs(raw: string): Record<string, unknown> {
   try {
     const value: unknown = JSON.parse(raw || '{}')
@@ -200,7 +244,7 @@ const compact = (value: unknown) => JSON.stringify(value, (_key, v: unknown) => 
 export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResult> {
   const messages: GroqMessage[] = [
     { role: 'system', content: systemPrompt() },
-    ...history.slice(-MAX_HISTORY).map((t) => ({ role: t.role, content: t.text }) as GroqMessage),
+    ...trimHistory(history).map((t) => ({ role: t.role, content: t.text }) as GroqMessage),
   ]
   const used: string[] = []
   const started = Date.now()
@@ -210,7 +254,7 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
   const finish = async (answer: string, proposal: Proposal | null): Promise<ChatResult> => {
     // One line per question: which model, which tools, what it cost. Never the question or answer text.
     console.info('[ask-pondex]', { model, tools: used, tokens, ms: Date.now() - started, proposal: proposal?.action ?? null })
-    return { ok: true, answer, tools: used, model: model!, tokens, proposal, usage: await usageSummary(models()) }
+    return { ok: true, answer, tools: used, model: model!, tokens, proposal, usage: await currentUsage() }
   }
 
   try {
@@ -219,11 +263,11 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
       model = turn.model
       tokens += turn.tokens
       const calls = turn.reply.tool_calls ?? []
-      await recordCall(model, turn.tokens, calls.length === 0)
+      if (!localModel()) await recordCall(model, turn.tokens, calls.length === 0)
 
       if (calls.length === 0) {
         const answer = clean(turn.reply.content ?? '')
-        return answer ? finish(answer, null) : { ok: false, error: 'Pondex had no answer. Try asking another way.', usage: await usageSummary(models()) }
+        return answer ? finish(answer, null) : { ok: false, error: 'Pondex had no answer. Try asking another way.', usage: await currentUsage() }
       }
 
       messages.push({ role: 'assistant', content: turn.reply.content ?? null, tool_calls: calls })
@@ -236,22 +280,22 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
         // A ready proposal ends the turn here. The card says what will change,
         // so another model call to describe it would only spend tokens.
         if (call.function.name === 'propose_action' && result && typeof result === 'object' && 'proposal' in result) {
-          await recordCall(model, 0, true)
+          if (!localModel()) await recordCall(model, 0, true)
           return finish('Here is the change. Check it, then tap Confirm.', (result as { proposal: Proposal }).proposal)
         }
 
         messages.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: compact(result) })
       }
     }
-    return { ok: false, error: 'That question needed too many lookups. Try a narrower one.', usage: await usageSummary(models()) }
+    return { ok: false, error: 'That question needed too many lookups. Try a narrower one.', usage: await currentUsage() }
   } catch (error) {
-    const usage = await usageSummary(models()).catch(() => null)
+    const usage = await currentUsage().catch(() => null)
     if (error instanceof LimitError) {
       return error.daily
         ? { ok: false, error: 'Pondex has used up today’s free AI limit.', usage }
         : { ok: false, error: 'Pondex is busy (free plan limit).', usage }
     }
-    if (!process.env.GROQ_API_KEY) {
+    if (!localModel() && !process.env.GROQ_API_KEY) {
       return { ok: false, error: 'Pondex is not set up yet: GROQ_API_KEY is missing.', usage }
     }
     console.error('[ask-pondex]', error)

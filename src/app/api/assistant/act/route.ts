@@ -1,5 +1,5 @@
 import { runAction } from '@/server/assistant/action-runners.ts'
-import { actionSpec, checkProposal, toFormData } from '@/server/assistant/actions.ts'
+import { actionSpec, checkProposal, fileRequired, toFormData } from '@/server/assistant/actions.ts'
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /**
@@ -39,7 +39,9 @@ export async function POST(request: Request) {
   if (!checked.ok) return Response.json({ ok: false, error: checked.error })
 
   const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0)
-  if (spec.files?.required && files.length === 0) return Response.json({ ok: false, error: `Attach the ${spec.files.label.toLowerCase()}.` })
+  if (fileRequired(spec, checked.fields) && files.length === 0) {
+    return Response.json({ ok: false, error: `Attach the ${spec.files!.label.toLowerCase()}.` })
+  }
 
   const result = await runAction(spec, toFormData(checked.fields, checked.funders, spec.files ? files : []))
   console.info('[ask-pondex] action', { action: spec.name, ok: result.error === null })

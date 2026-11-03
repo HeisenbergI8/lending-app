@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { ACTIONS, actionSpec, checkProposal, findActions, toFormData } from '../../src/server/assistant/actions.ts'
+import { ACTIONS, actionSpec, checkProposal, fileRequired, findActions, toFormData } from '../../src/server/assistant/actions.ts'
 import { parseRefusal } from '../../src/server/assistant/usage.ts'
 
 /**
@@ -110,5 +110,53 @@ describe('a loan names its borrower', () => {
   test('both names, or an existing borrower, are', () => {
     assert.equal(checkProposal(loan, { ...base, borrowerFirstName: 'Jelo', borrowerLastName: 'Cruz' }, funders).ok, true)
     assert.equal(checkProposal(loan, { ...base, borrowerId: 'b1' }, funders).ok, true)
+  })
+})
+
+describe('overnight fixes (2026-11-04)', () => {
+  test('a pending request by dates uses the form\'s own "custom" option and needs both dates', () => {
+    const request = actionSpec('create_request')!
+    assert.deepEqual(checkProposal(request, { borrowerId: 'b', capital: '5000', termChoice: 'dates' }, undefined).ok, false)
+    const result = checkProposal(request, { borrowerId: 'b', capital: '5000', termChoice: 'custom', startOn: '2026-11-04' }, undefined)
+    assert.deepEqual(result, { ok: false, error: 'Missing: dueOn. Ask the Admin.' })
+    assert.equal(checkProposal(request, { borrowerId: 'b', capital: '5000', termChoice: 'weeks' }, undefined).ok, false)
+    assert.equal(checkProposal(request, { borrowerId: 'b', capital: '5000', termChoice: 'weeks', weeks: '3' }, undefined).ok, true)
+  })
+
+  test('an edit card must carry the funders, or the app would refuse after Confirm', () => {
+    const edit = actionSpec('update_loan')!
+    const result = checkProposal(edit, { loanId: 'l', borrowerId: 'b', capital: '20000', startOn: '2026-11-04', dueOn: '2026-11-25' }, [])
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.error, /funders/)
+  })
+
+  test('extending with the interest paid now needs the screenshot on the card', () => {
+    const extend = actionSpec('extend_loan')!
+    assert.equal(fileRequired(extend, { loanId: 'l', weeks: '2', paidNow: 'yes' }), true)
+    assert.equal(fileRequired(extend, { loanId: 'l', weeks: '2', paidNow: 'no' }), false)
+    assert.equal(fileRequired(actionSpec('mark_paid')!, { loanId: 'l', paidOn: '2026-11-04' }), true)
+    assert.equal(fileRequired(actionSpec('add_note')!, { loanId: 'l', body: 'x' }), false)
+  })
+
+  test('an amount or date the forms would refuse never reaches a card', () => {
+    const loan = actionSpec('create_loan')!
+    const funders = [{ lenderId: 'f', amount: '20000' }]
+    assert.equal(checkProposal(loan, { borrowerId: 'b', capital: '20k', startOn: '2026-11-04', dueOn: '2026-11-25' }, funders).ok, false)
+    assert.equal(checkProposal(loan, { borrowerId: 'b', capital: '20000', startOn: 'today', dueOn: '2026-11-25' }, funders).ok, false)
+    assert.equal(checkProposal(loan, { borrowerId: 'b', capital: '20000', startOn: '2026-11-04', dueOn: '2026-11-25' }, [{ lenderId: 'f', amount: 'half' }]).ok, false)
+    assert.equal(checkProposal(actionSpec('extend_loan')!, { loanId: 'l', weeks: 'two' }, undefined).ok, false)
+  })
+
+  test('a rate typed with a percent sign is read as the number, so the card says "7% a week" not "7%%"', () => {
+    const loan = actionSpec('create_loan')!
+    const result = checkProposal(loan, { borrowerId: 'b', capital: '20000', startOn: '2026-11-04', dueOn: '2026-11-25', borrowerRate: '7%' }, [{ lenderId: 'f', amount: '20000' }])
+    assert.ok(result.ok)
+    assert.equal(result.fields.borrowerRate, '7')
+  })
+
+  test('a fixed-amount loan needs its interest and the lenders\' share', () => {
+    const loan = actionSpec('create_loan')!
+    const result = checkProposal(loan, { borrowerId: 'b', capital: '20000', startOn: '2026-11-04', dueOn: '2026-11-07', interestBasis: 'FIXED_AMOUNT' }, [{ lenderId: 'f', amount: '20000' }])
+    assert.deepEqual(result, { ok: false, error: 'Missing: fixedInterest, fixedLenderShare. Ask the Admin.' })
   })
 })

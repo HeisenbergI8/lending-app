@@ -1,3 +1,6 @@
+import { parsePesos } from '../../lib/money/centavos.ts'
+import { parseCalendarDate } from '../../lib/money/weeks.ts'
+
 /**
  * Every change Ask Pondex can PROPOSE. It never makes one: the Admin taps
  * Confirm on a card, and the card runs the same server action the app's own
@@ -209,12 +212,13 @@ export const ACTIONS: ActionSpec[] = [
   {
     name: 'create_request',
     title: 'Add a pending request',
-    about: 'Someone asking to borrow, before money is behind it. The borrower must exist first (create_borrower). termChoice "weeks" with weeks, or "dates" with startOn and dueOn.',
+    about: 'Someone asking to borrow, before money is behind it. The borrower must exist first (create_borrower). termChoice "weeks" with weeks, or "custom" with startOn and dueOn.',
     fields: [
       id('borrowerId'),
       { name: 'capital', kind: 'pesos', required: true },
       { name: 'borrowerRate', kind: 'percent', about: 'Default 7.' },
-      { name: 'termChoice', kind: 'choice', values: ['weeks', 'dates'], required: true },
+      // The pending form's own option names: "weeks" with a count, or "custom" with two dates.
+      { name: 'termChoice', kind: 'choice', values: ['weeks', 'custom'], required: true },
       { name: 'weeks', kind: 'number' },
       { name: 'startOn', kind: 'date' },
       { name: 'dueOn', kind: 'date' },
@@ -243,28 +247,81 @@ export function findActions(what: string, limit = 3): ActionSpec[] {
 
 export type Funder = { lenderId: string; amount: string }
 
-/** Check a proposal against its spec. Returns what is missing so the model can ask. */
+/** Why a value cannot be what its field needs, or null when it can. Same parsers as the forms. */
+function badValue(field: ActionField, value: string): string | null {
+  switch (field.kind) {
+    case 'pesos':
+      return parsePesos(value).ok ? null : `${field.name} "${value}" is not an amount in pesos (like 20000 or 20,000.50).`
+    case 'date':
+      return parseCalendarDate(value) ? null : `${field.name} "${value}" is not a date (YYYY-MM-DD).`
+    case 'percent':
+      return parsePesos(value).ok ? null : `${field.name} "${value}" is not a rate (like 7 or 7.5).`
+    case 'number':
+      return /^\d+$/.test(value) ? null : `${field.name} "${value}" is not a whole number.`
+    default:
+      return null
+  }
+}
+
+/**
+ * Details that are only needed in some cases, named so the model can ask for
+ * them before a card is shown rather than the app refusing after Confirm.
+ */
+function conditionalMissing(spec: ActionSpec, clean: Record<string, string>, funders: Funder[]): string[] {
+  const missing: string[] = []
+  const isLoan = spec.name === 'create_loan' || spec.name === 'update_loan'
+  // Every loan has funders; an edit sends them all again, or the app refuses.
+  if (isLoan && funders.length === 0) missing.push('funders')
+  // A loan's borrower is either someone on the list or a new person with both names.
+  if (isLoan && !clean.borrowerId && !(clean.borrowerFirstName && clean.borrowerLastName)) {
+    missing.push('borrowerId (or both borrowerFirstName and borrowerLastName for someone new)')
+  }
+  if (isLoan && clean.interestBasis === 'FIXED_AMOUNT') {
+    if (!clean.fixedInterest) missing.push('fixedInterest')
+    if (!clean.fixedLenderShare) missing.push('fixedLenderShare')
+  }
+  if (spec.name === 'create_request') {
+    if (clean.termChoice === 'weeks' && !clean.weeks) missing.push('weeks')
+    if (clean.termChoice === 'custom' && !clean.startOn) missing.push('startOn')
+    if (clean.termChoice === 'custom' && !clean.dueOn) missing.push('dueOn')
+  }
+  return missing
+}
+
+/** Whether the card must have a file before Confirm. Extending with the interest paid now needs its screenshot. */
+export function fileRequired(spec: ActionSpec, fields: Record<string, string>): boolean {
+  if (!spec.files) return false
+  return spec.files.required || (spec.name === 'extend_loan' && fields.paidNow === 'yes')
+}
+
+/** Check a proposal against its spec. Returns what is missing or wrong so the model can ask. */
 export function checkProposal(spec: ActionSpec, fields: Record<string, unknown>, funders: unknown) {
   const clean: Record<string, string> = {}
+  const wrong: string[] = []
   for (const field of spec.fields) {
     const value = fields[field.name]
     if (value === undefined || value === null) continue
-    const textValue = String(value).trim().slice(0, 500)
+    // A rate typed "7%" means 7; the form strips the sign the same way.
+    let textValue = String(value).trim().slice(0, 500)
+    if (field.kind === 'percent') textValue = textValue.replace(/%/g, '').trim()
+    if (textValue === '' && !field.values) continue
     if (field.values && !field.values.includes(textValue)) return { ok: false as const, error: `${field.name} must be one of: ${field.values.join(', ')}.` }
+    const bad = textValue === '' ? null : badValue(field, textValue)
+    if (bad) wrong.push(bad)
     clean[field.name] = textValue
   }
-  const missing = spec.fields.filter((f) => f.required && !clean[f.name]).map((f) => f.name)
+  if (wrong.length > 0) return { ok: false as const, error: `${wrong.join(' ')} Ask the Admin.` }
+
   const rows: Funder[] = spec.funders && Array.isArray(funders)
     ? funders
         .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
-        .map((r) => ({ lenderId: String(r.lenderId ?? ''), amount: String(r.amount ?? '') }))
+        .map((r) => ({ lenderId: String(r.lenderId ?? '').trim(), amount: String(r.amount ?? '').trim() }))
         .filter((r) => r.lenderId && r.amount)
     : []
-  if (spec.name === 'create_loan' && rows.length === 0) missing.push('funders')
-  // A loan's borrower is either someone on the list or a new person with both names.
-  if ((spec.name === 'create_loan' || spec.name === 'update_loan') && !clean.borrowerId && !(clean.borrowerFirstName && clean.borrowerLastName)) {
-    missing.push('borrowerId (or both borrowerFirstName and borrowerLastName for someone new)')
-  }
+  const badFunder = rows.find((r) => !parsePesos(r.amount).ok)
+  if (badFunder) return { ok: false as const, error: `Funder amount "${badFunder.amount}" is not an amount in pesos. Ask the Admin.` }
+
+  const missing = [...spec.fields.filter((f) => f.required && !clean[f.name]).map((f) => f.name), ...conditionalMissing(spec, clean, rows)]
   if (missing.length > 0) return { ok: false as const, error: `Missing: ${missing.join(', ')}. Ask the Admin.` }
   return { ok: true as const, fields: clean, funders: rows }
 }

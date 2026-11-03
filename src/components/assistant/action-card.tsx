@@ -23,7 +23,8 @@ export type ProposalView = {
   files: { required: boolean; label: string } | null
 }
 
-export type CardStatus = 'ready' | 'saving' | 'done' | 'failed' | 'cancelled'
+/** `replaced`: a newer card came after this one, so this one can no longer be confirmed. */
+export type CardStatus = 'ready' | 'saving' | 'done' | 'failed' | 'cancelled' | 'replaced'
 
 export function ActionCard({
   proposal,
@@ -60,7 +61,11 @@ export function ActionCard({
     <div
       className={cn(
         'animate-ask-rise overflow-hidden rounded-2xl border',
-        status === 'done' ? 'border-emerald-500/40' : status === 'cancelled' ? 'border-border opacity-60' : 'border-brand/40',
+        status === 'done'
+          ? 'border-emerald-500/40'
+          : status === 'cancelled' || status === 'replaced'
+            ? 'border-border opacity-60'
+            : 'border-brand/40',
       )}
     >
       <div className="bg-muted/40 flex items-center justify-between gap-3 px-3.5 py-2.5">
@@ -69,12 +74,20 @@ export function ActionCard({
           className={cn(
             'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium',
             status === 'done' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-            status === 'cancelled' && 'bg-muted text-muted-foreground',
+            (status === 'cancelled' || status === 'replaced') && 'bg-muted text-muted-foreground',
             (status === 'ready' || status === 'saving') && 'bg-brand/10 text-brand',
             status === 'failed' && 'bg-destructive/10 text-destructive',
           )}
         >
-          {status === 'done' ? 'Saved' : status === 'cancelled' ? 'Cancelled' : status === 'failed' ? 'Not saved' : 'Not saved yet'}
+          {status === 'done'
+            ? 'Saved'
+            : status === 'cancelled'
+              ? 'Cancelled'
+              : status === 'replaced'
+                ? 'Replaced by a newer card'
+                : status === 'failed'
+                  ? 'Not saved'
+                  : 'Not saved yet'}
         </span>
       </div>
 

@@ -1,7 +1,8 @@
 import { centavos, formatPesos, parsePesos } from '../../lib/money/centavos.ts'
 import { parseCalendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
-import { type ActionSpec, type Funder } from './actions.ts'
+import { type ActionSpec, type Funder, fileRequired } from './actions.ts'
+import { closestNames } from './names.ts'
 
 /**
  * What the Confirm card says: each field in words, with every id turned back
@@ -29,6 +30,8 @@ const LABELS: Record<string, string> = {
   transactionId: 'Entry',
   paymentId: 'Payment',
   extensionId: 'Extension',
+  proofFileId: 'Payment proof file',
+  loanProofId: 'Loan proof file',
   capital: 'Amount',
   startOn: 'Start',
   dueOn: 'Due',
@@ -82,6 +85,7 @@ const pesos = (raw: string) => {
   const parsed = parsePesos(raw)
   return parsed.ok ? formatPesos(parsed.value) : `${raw} (not an amount)`
 }
+const short = (date: Date) => date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
 const person = (p: { firstName: string; lastName: string } | null) => (p ? `${p.firstName} ${p.lastName}` : 'not found')
 
 /** One id in words, always within this account. */
@@ -97,7 +101,7 @@ async function nameOf(userId: string, field: string, value: string): Promise<str
         select: { capitalCentavos: true, dueOn: true, borrower: { select: { firstName: true, lastName: true } } },
       })
       return loan
-        ? `${person(loan.borrower)}, ${formatPesos(centavos(loan.capitalCentavos))} due ${loan.dueOn.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}`
+        ? `${person(loan.borrower)}, ${formatPesos(centavos(loan.capitalCentavos))} due ${short(loan.dueOn)}`
         : 'not found'
     }
     case 'pendingId': {
@@ -114,11 +118,35 @@ async function nameOf(userId: string, field: string, value: string): Promise<str
         select: { type: true, amountCentavos: true, occurredOn: true, lender: { select: { firstName: true, lastName: true } } },
       })
       return tx
-        ? `${person(tx.lender)}: ${CHOICES[tx.type]} ${formatPesos(centavos(tx.amountCentavos))} on ${tx.occurredOn.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}`
+        ? `${person(tx.lender)}: ${CHOICES[tx.type]} ${formatPesos(centavos(tx.amountCentavos))} on ${short(tx.occurredOn)}`
         : 'not found'
     }
+    case 'paymentId': {
+      const payment = await db.payment.findFirst({
+        where: { id: value, userId, deletedAt: null },
+        select: { paidOn: true, amountCentavos: true, weekNumber: true },
+      })
+      return payment
+        ? `${formatPesos(centavos(payment.amountCentavos))} paid ${short(payment.paidOn)}${payment.weekNumber ? ` (week ${payment.weekNumber})` : ''}`
+        : 'not found'
+    }
+    case 'proofFileId': {
+      const file = await db.proofFile.findFirst({ where: { id: value, userId, deletedAt: null }, select: { uploadedAt: true } })
+      return file ? `File added ${short(file.uploadedAt)}` : 'not found'
+    }
+    case 'loanProofId': {
+      const file = await db.loanProof.findFirst({ where: { id: value, userId, deletedAt: null }, select: { uploadedAt: true } })
+      return file ? `File added ${short(file.uploadedAt)}` : 'not found'
+    }
+    case 'extensionId': {
+      const extension = await db.loanExtension
+        .findFirst({ where: { id: value, userId }, select: { fromDueOn: true, toDueOn: true } })
+        .catch(() => null)
+      return extension ? `Due ${short(extension.fromDueOn)} moved to ${short(extension.toDueOn)}` : 'not found'
+    }
     default:
-      return 'selected'
+      // Every id field has a case above; an unknown one is refused, never shown as "selected".
+      return 'not found'
   }
 }
 
@@ -147,5 +175,33 @@ export async function describeProposal(userId: string, spec: ActionSpec, fields:
   }
   if (spec.name === 'set_label' && !fields.label) lines.push({ label: 'Label', value: 'Cleared' })
 
-  return { action: spec.name, title: spec.title, lines, fields, funders, files: spec.files ?? null }
+  // A "new" person who looks like someone already on the list is most often a
+  // typo. Say so on the card, where the Admin decides, rather than block it:
+  // two real people can have close names.
+  const newName =
+    spec.name === 'create_loan' && !fields.borrowerId
+      ? `${fields.borrowerFirstName ?? ''} ${fields.borrowerLastName ?? ''}`
+      : spec.name === 'create_borrower'
+        ? `${fields.firstName ?? ''} ${fields.lastName ?? ''}`
+        : spec.name === 'create_lender'
+          ? `${fields.firstName ?? ''} ${fields.lastName ?? ''}`
+          : null
+  if (newName && newName.trim()) {
+    const existing = spec.name === 'create_lender'
+      ? await db.lender.findMany({ where: { userId, deletedAt: null }, select: { id: true, firstName: true, lastName: true } })
+      : await db.borrower.findMany({ where: { userId, deletedAt: null }, select: { id: true, firstName: true, lastName: true } })
+    const close = closestNames(newName, existing)
+    if (close.length > 0) {
+      lines.push({ label: '⚠ Already on the list', value: `${close.map((p) => person(p)).join(', ')}. Is this really someone new?` })
+    }
+  }
+
+  return {
+    action: spec.name,
+    title: spec.title,
+    lines,
+    fields,
+    funders,
+    files: spec.files ? { label: spec.files.label, required: fileRequired(spec, fields) } : null,
+  }
 }

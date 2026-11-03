@@ -31,7 +31,7 @@ type Message =
   | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card }
 
 /** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
-type Usage = { questionsLeft: number; coolUntil: string | null }
+type Usage = { questionsLeft: number; coolUntil: string | null; local?: boolean }
 
 /** Starters shown on an empty chat. Real questions, answered from real data. */
 const SAMPLES = [
@@ -66,6 +66,7 @@ function cardNote(card: Card): string {
   const what = `I proposed: ${card.proposal.title} (${card.proposal.lines.map((l) => `${l.label} ${l.value}`).join(', ')}).`
   if (card.status === 'done') return `${what} The Admin confirmed it and it was saved.`
   if (card.status === 'cancelled') return `${what} The Admin cancelled it; nothing was saved.`
+  if (card.status === 'replaced') return `${what} A newer card replaced it; nothing was saved from this one.`
   if (card.status === 'failed') return `${what} It was not saved: ${card.error}`
   return `${what} Not confirmed yet.`
 }
@@ -187,7 +188,18 @@ export function AskPondex() {
     // The countdown corrects its clock on its first tick, a second from now.
     if (latest) setUsage(latest)
     const card: Card | undefined = proposal ? { proposal, status: 'ready', error: null } : undefined
-    setMessages((ms) => [...ms, { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card }])
+    setMessages((ms) => [
+      // A new card retires every older one still waiting, so "actually make it
+      // 6k" cannot leave the 5k card confirmable alongside it.
+      ...(card
+        ? ms.map((m) =>
+            m.role === 'bot' && m.card && (m.card.status === 'ready' || m.card.status === 'failed')
+              ? { ...m, card: { ...m.card, status: 'replaced' as const } }
+              : m,
+          )
+        : ms),
+      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card },
+    ])
     let n = 0
     const tick = () => {
       n = Math.min(a.length, n + CHARS_PER_TICK)
@@ -238,8 +250,10 @@ export function AskPondex() {
                       ? 'Writing an answer…'
                       : resting
                         ? `Resting · back in ${clock(coolMs)}`
-                        : usage
-                          ? `About ${usage.questionsLeft} questions left today`
+                        : usage?.local
+                          ? "Running on this Mac's AI · no daily limit"
+                          : usage
+                            ? `About ${usage.questionsLeft} questions left today`
                           : 'Answers from your loans'}
                 </p>
               </div>

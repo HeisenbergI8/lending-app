@@ -78,6 +78,9 @@ async function main() {
   const userId = user.id
 
   // Wipe this user's data only. Order matters — children before parents.
+  // Requests are not tied to a loan or a borrower row, so nothing below would
+  // take them with it. Without this, requests made while testing survived a reset.
+  await prisma.pendingLoan.deleteMany({ where: { userId } })
   await prisma.proofFile.deleteMany({ where: { userId } })
   await prisma.payment.deleteMany({ where: { userId } })
   await prisma.loanFunding.deleteMany({ where: { userId } })
