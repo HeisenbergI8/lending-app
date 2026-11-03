@@ -105,3 +105,8 @@ describe('phantom cards and missed changes (run 7)', () => {
     assert.match(nudgeFor('Noted.', 'record jun withdrawal 5k', []) ?? '', /This is a change/)
   })
 })
+
+describe('phantom cards, more wordings (run 8)', () => {
+  test('"You can now review and confirm the changes" with no card is sent back', () =>
+    assert.match(nudgeFor('You can now review and confirm the changes.', 'move the due date', ['find_action']) ?? '', /No card/))
+})

@@ -254,7 +254,7 @@ async function findBorrower(userId: string, name: string) {
     const didYouMean = closestNames(name, await listBorrowerNames(userId)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))
     return didYouMean.length > 0
       ? { found: false, reason: `No borrower named exactly "${name}". Ask the Admin if they meant one of didYouMean before anything else.`, didYouMean }
-      : { found: false, reason: `No borrower named "${name}".` }
+      : { found: false, reason: `No borrower named "${name}". Ask the Admin whether to add them as a new borrower, with first and last name.` }
   }
   // More than a handful means the name was too short to mean one person. Hand
   // back the names so the model can ask which one, instead of guessing.
@@ -675,6 +675,16 @@ export async function proposeAction(userId: string, args: Record<string, unknown
       delete given.extraLenderShare
     }
   }
+  // Funding a pending request: its amount, borrower and length are already agreed.
+  if (spec.name === 'create_loan' && typeof given.pendingId === 'string') {
+    const request = await db.pendingLoan.findFirst({ where: { id: given.pendingId, userId }, select: { capitalCentavos: true, termDays: true, firstName: true, lastName: true, startOn: true } })
+    if (request) {
+      given.capital ??= String(request.capitalCentavos / 100)
+      if (!given.borrowerId && !given.borrowerFirstName) given.borrowerId = `${request.firstName} ${request.lastName}`
+      if (given.startOn === undefined) given.startOn = request.startOn ? request.startOn.toISOString().slice(0, 10) : 'today'
+      if (given.dueOn === undefined && given.weeks === undefined && request.termDays % 7 === 0) given.weeks = String(request.termDays / 7)
+    }
+  }
   // A "new" borrower whose full name is exactly someone already on the list is that person.
   if (spec.name === 'create_loan' && !given.borrowerId && typeof given.borrowerFirstName === 'string' && typeof given.borrowerLastName === 'string') {
     const same = await db.borrower.findMany({
@@ -690,6 +700,10 @@ export async function proposeAction(userId: string, args: Record<string, unknown
   }
   const fields = await resolveNames(userId, normalizeFields(spec, given, manilaToday()))
   const funders = await resolveFunders(userId, rawFunders)
+  // "How long?" comes before any date check, or the Admin is asked about a due date they never gave.
+  if (typeof said === 'string' && (spec.name === 'create_loan' || spec.name === 'create_request') && !fields.pendingId && !LENGTH_SAID.test(said)) {
+    return { error: 'The Admin did not say how long the loan runs. Ask (for example "4 weeks" or a due date).' }
+  }
   const checked = checkProposal(spec, fields, funders)
   if (!checked.ok) return { error: checked.error }
   // The app only offers "Remove photo" when there is one; removing a photo

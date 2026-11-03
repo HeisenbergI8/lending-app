@@ -10,6 +10,8 @@ const t = async (name: string, tool: string, args: object, ok: (r: any) => boole
 }
 const rico = (await db.borrower.findFirst({ where: { userId: U, firstName: 'Rico' } }))!
 const anyLoan = (await db.loan.findFirst({ where: { userId: U, deletedAt: null } }))!
+const ricoLoan = (await db.loan.findFirst({ where: { userId: U, deletedAt: null, borrower: { firstName: 'Rico' } } }))!
+const anyLoanOf = (_name: string) => ricoLoan.id
 await t('find_borrower typo offers did-you-mean', 'find_borrower', { name: 'Ricco Mendosa' }, (r) => !r.found && r.didYouMean?.[0]?.name === 'Rico Mendoza')
 await t('find_borrower first name only typo', 'find_borrower', { name: 'Angle' }, (r) => r.didYouMean?.[0]?.name === 'Angel Dela Cruz')
 await t('find_borrower stranger: plain not found', 'find_borrower', { name: 'Juan Santos' }, (r) => !r.found && !r.didYouMean)
@@ -35,6 +37,19 @@ await t('misspelled lender name resolves to the one close match', 'propose_actio
 await t('two possible lenders is never a guess', 'propose_action', { action: 'create_loan', fields: { borrowerId: 'Lyn', capital: '5000', startOn: 'today', weeks: '2' }, funders: [{ lenderId: 'J', amount: '5000' }] },
   (r) => /Not found/.test(r.error ?? ''))
 await t('made-up lender id still refused', 'propose_action', { action: 'record_money', fields: { lenderId: 'cmzzzzzzzzzzzzzzzzzzzzzzz', type: 'DEPOSIT', amount: '100', occurredOn: 'today' } }, (r) => /Not found/.test(r.error ?? ''))
+await t('grounding: amount the Admin never said is refused', 'propose_action', { action: 'create_loan', _said: 'lend lyn from maria for 2 weeks', fields: { borrowerId: 'Lyn', capital: '5000', startOn: 'today', weeks: '2' }, funders: [{ lender: 'Maria', amount: '5000' }] }, (r) => /did not say capital/.test(r.error ?? ''))
+await t('grounding: lender the Admin never named is refused', 'propose_action', { action: 'create_loan', _said: 'lend lyn 5k for 2 weeks', fields: { borrowerId: 'Lyn', capital: '5000', startOn: 'today', weeks: '2' }, funders: [{ lender: 'Maria', amount: '5000' }] }, (r) => /did not name Maria Cruz/.test(r.error ?? ''))
+await t('grounding: said amount and names pass', 'propose_action', { action: 'create_loan', _said: 'lend lyn 5k from maria for 2 weeks', fields: { borrowerId: 'Lyn', capital: '5000', startOn: 'today', weeks: '2' }, funders: [{ lender: 'Maria', amount: '5000' }] }, (r) => !!r.proposal)
+await t('grounding: "10k each" makes a 20k loan', 'propose_action', { action: 'create_loan', _said: 'lend rico 10k each from john ross and maria, 4 weeks', fields: { borrowerId: 'Rico', capital: '20000', startOn: 'today', weeks: '4' }, funders: [{ lender: 'John Ross', amount: '10000' }, { lender: 'Maria', amount: '10000' }] }, (r) => !!r.proposal)
+await t('grounding: admin pot without its name', 'propose_action', { action: 'create_loan', _said: 'lend bea 5k from my pot, 2 weeks', fields: { borrowerId: 'Bea', capital: '5000', startOn: 'today', weeks: '2' }, funders: [{ lender: 'Demo', amount: '5000' }] }, (r) => !!r.proposal || /Not found/.test(r.error ?? ''))
+await t('grounding: wrong borrower on a note is refused', 'propose_action', { action: 'add_note', _said: "note on dan's loan: paid half", fields: { loanId: anyLoanOf('Rico'), body: 'paid half' } }, (r) => /did not name Rico/.test(r.error ?? ''))
+await t('grounding: a loan with no length is refused', 'propose_action', { action: 'create_loan', _said: 'lend lyn 5k from maria', fields: { borrowerId: 'Lyn', capital: '5000', startOn: 'today', weeks: '4' }, funders: [{ lender: 'Maria', amount: '5000' }] }, (r) => /how long/.test(r.error ?? ''))
+await t('edit: people already on the loan need not be named', 'propose_action', { action: 'update_loan', _said: "move rico's due date to 5 weeks", fields: { loanId: ricoLoan.id, weeks: '5' } }, (r) => !!r.proposal)
+await t('extend weekly-rate loan: no typed extra interest on the card', 'propose_action', { action: 'extend_loan', _said: "extend rico's loan 2 weeks, pay later", fields: { loanId: ricoLoan.id, weeks: '2', paidNow: 'no', extraInterest: '560' } }, (r) => !!r.proposal && !r.proposal.lines.some((l: any) => l.label === 'Extra interest'))
+await t('exact existing name sent as new becomes that borrower', 'propose_action', { action: 'create_loan', _said: 'lend rico mendoza 5k from maria, 2 weeks', fields: { borrowerFirstName: 'Rico', borrowerLastName: 'Mendoza', capital: '5000', startOn: 'today', weeks: '2' }, funders: [{ lender: 'Maria', amount: '5000' }] }, (r) => r.proposal?.lines.some((l: any) => l.label === 'Borrower' && l.value === 'Rico Mendoza'))
+const req = await db.pendingLoan.create({ data: { userId: U, firstName: 'Rico', lastName: 'Mendoza', capitalCentavos: 1500000, borrowerRateBps: 700, termDays: 21 } })
+await t('funding a request: its own amount and length count as said', 'propose_action', { action: 'create_loan', _said: "fund rico's request from maria, starting today", fields: { pendingId: req.id, borrowerId: 'Rico', capital: '15000', startOn: 'today', weeks: '3' }, funders: [{ lender: 'Maria', amount: '15000' }] }, (r) => !!r.proposal)
+await db.pendingLoan.delete({ where: { id: req.id } })
 await db.$disconnect()
 for (const [n, p, r] of out) console.log(p ? 'PASS' : 'FAIL', n.padEnd(46), p ? '' : r)
 console.log(`\n${out.filter((x) => x[1]).length}/${out.length} passed`)
