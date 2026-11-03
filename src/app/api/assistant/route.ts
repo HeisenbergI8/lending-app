@@ -9,6 +9,9 @@ import { getCurrentUser } from '@/server/auth/guard.ts'
  * tools can only ever read the signed-in account's loans.
  */
 
+/** A question can wait out the free plan's per-minute limit, twice. */
+export const maxDuration = 60
+
 /** Longest question accepted. A real one is a sentence; this stops pasted essays costing tokens. */
 const MAX_CHARS = 600
 

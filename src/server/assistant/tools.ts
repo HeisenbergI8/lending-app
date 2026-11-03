@@ -5,6 +5,7 @@ import { describeTrackRecord } from '../../lib/track-record.ts'
 import { borrowerCounts, getBorrower } from '../borrowers/queries.ts'
 import { db } from '../db.ts'
 import { listLenders } from '../lenders/queries.ts'
+import { readRules } from './knowledge.ts'
 import { getLoan, interestSummary, listLoans, overdueSummary } from '../loans/queries.ts'
 
 /**
@@ -27,6 +28,16 @@ type JsonSchema = Record<string, unknown>
 export type ToolSpec = { name: string; description: string; parameters: JsonSchema }
 
 export const TOOLS: ToolSpec[] = [
+  {
+    name: 'read_rules',
+    description:
+      "Look up how Pondex works and the Admin's own lending rules: words like floating or earned, how interest is worked out, loan states, weekly-interest loans, splits, deleting, the Good/Okay/Bad labels, usual loan length, what happens when overdue. Returns the best matching sections.",
+    parameters: {
+      type: 'object',
+      properties: { question: { type: 'string', description: 'What to look up, in a few words, e.g. "good okay bad label".' } },
+      required: ['question'],
+    },
+  },
   {
     name: 'get_overview',
     description:
@@ -292,6 +303,8 @@ async function searchNotes(userId: string, text: string) {
 /** Run one tool the model asked for. An unknown name is answered, not thrown. */
 export async function runTool(userId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
   switch (name) {
+    case 'read_rules':
+      return readRules(str(args, 'question'))
     case 'get_overview':
       return getOverview(userId)
     case 'list_lenders':
