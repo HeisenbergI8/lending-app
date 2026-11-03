@@ -1,5 +1,5 @@
 import { parsePesos } from '../../lib/money/centavos.ts'
-import { parseCalendarDate } from '../../lib/money/weeks.ts'
+import { describeWeeksError, parseCalendarDate, weeksBetween } from '../../lib/money/weeks.ts'
 import { addCalendarDays } from './today.ts'
 
 /**
@@ -264,7 +264,7 @@ function badValue(field: ActionField, value: string): string | null {
     case 'pesos':
       return parsePesos(value).ok ? null : `${field.name} "${value}" is not an amount in pesos (like 20000 or 20,000.50).`
     case 'date':
-      return parseCalendarDate(value) ? null : `${field.name} "${value}" is not a date (YYYY-MM-DD).`
+      return parseCalendarDate(value) ? null : `${field.name} "${value}" is not a date. Send YYYY-MM-DD or "today"; for a loan's due date you can send weeks instead.`
     case 'percent':
       return parsePesos(value).ok ? null : `${field.name} "${value}" is not a rate (like 7 or 7.5).`
     case 'number':
@@ -299,6 +299,33 @@ function conditionalMissing(spec: ActionSpec, clean: Record<string, string>, fun
   return missing
 }
 
+/**
+ * The loan form's own term checks, run before a card is shown rather than
+ * after Confirm: whole weeks on a weekly-rate loan, a due date after the start,
+ * an amount above zero, and funders that add up to the amount exactly. The
+ * sentence is the app's, so the model can relay it.
+ */
+function loanTermsRefusal(spec: ActionSpec, clean: Record<string, string>, funders: Funder[]): string | null {
+  if (spec.name !== 'create_loan' && spec.name !== 'update_loan') return null
+  const capital = parsePesos(clean.capital ?? '')
+  if (capital.ok && capital.value <= 0) return 'The amount must be more than ₱0.00.'
+  const start = parseCalendarDate(clean.startOn ?? '')
+  const due = parseCalendarDate(clean.dueOn ?? '')
+  if (start && due) {
+    const weeks = weeksBetween(start, due)
+    const fixed = clean.interestBasis === 'FIXED_AMOUNT'
+    if (!weeks.ok && (!fixed || weeks.error.kind === 'due-before-start')) return `${describeWeeksError(weeks.error)} Ask the Admin.`
+  }
+  if (capital.ok && funders.length > 0) {
+    const total = funders.reduce((sum, f) => sum + (parsePesos(f.amount).ok ? (parsePesos(f.amount) as { value: number }).value : 0), 0)
+    if (total !== capital.value) {
+      const peso = (c: number) => `₱${(c / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+      return `The funders add up to ${peso(total)}, but the amount is ${peso(capital.value)}. Ask the Admin how to split it.`
+    }
+  }
+  return null
+}
+
 /** Whether the card must have a file before Confirm. Extending with the interest paid now needs its screenshot. */
 export function fileRequired(spec: ActionSpec, fields: Record<string, string>): boolean {
   if (!spec.files) return false
@@ -307,8 +334,8 @@ export function fileRequired(spec: ActionSpec, fields: Record<string, string>): 
 
 /**
  * Turn what people say into what the forms take, before anything is checked:
- * "today" and "tomorrow" in a date field, and "4 weeks" into a due date when
- * no date was given. Counting weeks on a calendar is where smaller models
+ * "today" and "tomorrow" in a date field, and "4 weeks" into the due date
+ * (weeks win over a date the model computed). Counting weeks on a calendar is where smaller models
  * slip, so the server does it.
  */
 export function normalizeFields(spec: ActionSpec, fields: Record<string, unknown>, today: string): Record<string, unknown> {
@@ -319,10 +346,20 @@ export function normalizeFields(spec: ActionSpec, fields: Record<string, unknown
     if (said === 'today' || said === 'now') out[field.name] = today
     else if (said === 'tomorrow') out[field.name] = addCalendarDays(today, 1)
     else if (said === 'yesterday') out[field.name] = addCalendarDays(today, -1)
+    else {
+      // "4 weeks from today" typed into a due date is a length, not a date.
+      const length = /^(\d+)\s*(weeks?|wks?|weaks?)\b/.exec(said)
+      if (length && field.name === 'dueOn' && out.weeks === undefined) {
+        out.weeks = length[1]
+        delete out[field.name]
+      }
+    }
   }
   const weeks = Number(out.weeks)
   const start = typeof out.startOn === 'string' && parseCalendarDate(out.startOn) ? out.startOn : null
-  if ((spec.name === 'create_loan' || spec.name === 'update_loan') && !out.dueOn && start && Number.isInteger(weeks) && weeks > 0) {
+  // When weeks were said, they decide the due date, even over a date the model
+  // worked out itself: counting weeks is the slip this exists to prevent.
+  if ((spec.name === 'create_loan' || spec.name === 'update_loan') && start && Number.isInteger(weeks) && weeks > 0) {
     out.dueOn = addCalendarDays(start, weeks * 7)
   }
   return out
@@ -357,6 +394,14 @@ export function checkProposal(spec: ActionSpec, fields: Record<string, unknown>,
 
   const missing = [...spec.fields.filter((f) => f.required && !clean[f.name]).map((f) => f.name), ...conditionalMissing(spec, clean, rows)]
   if (missing.length > 0) return { ok: false as const, error: `Missing: ${missing.join(', ')}. Ask the Admin.` }
+
+  // An existing borrower makes the new-person names meaningless; the card shows one or the other.
+  if (clean.borrowerId) {
+    delete clean.borrowerFirstName
+    delete clean.borrowerLastName
+  }
+  const refused = loanTermsRefusal(spec, clean, rows)
+  if (refused) return { ok: false as const, error: refused }
   return { ok: true as const, fields: clean, funders: rows }
 }
 

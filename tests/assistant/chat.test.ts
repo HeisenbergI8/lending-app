@@ -29,6 +29,12 @@ describe('nudges for smaller models', () => {
     assert.match(nudgeFor('Good means never late.', 'What makes a borrower Good, Okay or Bad?', []) ?? '', /read_rules/))
   test('a rules question that used read_rules is left alone', () =>
     assert.equal(nudgeFor('From your rules: Good is never late.', 'What makes a borrower Good?', ['read_rules']), null))
+  test('"do I need a screenshot" is a rules question', () =>
+    assert.match(nudgeFor('Your rules don\'t say.', 'do i need a screenshot to mark paid?', []) ?? '', /read_rules/))
+  test('"can borrowers pay in parts" is a rules question', () =>
+    assert.match(nudgeFor('Yes, they can.', 'can borrowers pay in parts?', []) ?? '', /read_rules/))
+  test('an answer that cites the rules without reading them is sent back', () =>
+    assert.match(nudgeFor('Your rules say 4 weeks.', 'usual length?', []) ?? '', /read_rules/))
   test('a plain data answer is left alone', () => assert.equal(nudgeFor('Out on loan is ₱95,000.00.', 'How much is out on loan right now?', ['get_overview']), null))
 })
 
@@ -49,4 +55,14 @@ describe('long messages', () => {
     assert.ok(kept.endsWith('How much is out on loan right now?'))
   })
   test('a short message is untouched', () => assert.equal(clip('hi', 600), 'hi'))
+})
+
+describe('change requests are not rules questions', () => {
+  test('"can you lend…" asking a follow-up is left alone', () =>
+    assert.equal(nudgeFor('How much from each lender?', 'can you lend lyn 5k from maria and jun?', ['find_action']), null))
+})
+
+describe('a change in progress is not nudged to the rules', () => {
+  test('"mark Lyn as good" after find_action is left alone', () =>
+    assert.equal(nudgeFor('Which label: Good, Okay or Bad?', 'mark Lyn as good', ['find_action']), null))
 })

@@ -199,16 +199,16 @@ async function listLenderPots(userId: string) {
 }
 
 async function findBorrower(userId: string, name: string) {
-  const terms = words(name)
+  let terms = words(name)
   if (terms.length === 0) return { found: false, reason: 'No name given.' }
 
-  const matches = await db.borrower.findMany({
+  const search = (list: string[]) => db.borrower.findMany({
     where: {
       userId,
       deletedAt: null,
       // A single letter is an initial ("Mitch G."), so it only matches the start
       // of the last name. Anything longer may sit anywhere in either name.
-      AND: terms.map((term) =>
+      AND: list.map((term) =>
         term.length === 1
           ? { lastName: { startsWith: term, ...INSENSITIVE } }
           : { OR: [{ firstName: { contains: term, ...INSENSITIVE } }, { lastName: { contains: term, ...INSENSITIVE } }] },
@@ -218,8 +218,32 @@ async function findBorrower(userId: string, name: string) {
     take: 6,
     select: { id: true, firstName: true, lastName: true },
   })
+  let matches = await search(terms)
+  // "dans loan": a possessive typed without the apostrophe. Only tried when
+  // the name as typed found nobody, so a real name ending in s still wins.
+  if (matches.length === 0 && terms.some((t) => t.length > 3 && /s$/i.test(t))) {
+    const singular = terms.map((t) => (t.length > 3 ? t.replace(/s$/i, '') : t))
+    const retry = await search(singular)
+    if (retry.length > 0) {
+      matches = retry
+      terms = singular
+    }
+  }
 
   if (matches.length === 0) {
+    // Someone in Recently Deleted is not a stranger: offer the restore, not a new person.
+    const deleted = await db.borrower.findMany({
+      where: { userId, deletedAt: { not: null }, AND: terms.map((term) => ({ OR: [{ firstName: { contains: term, ...INSENSITIVE } }, { lastName: { contains: term, ...INSENSITIVE } }] })) },
+      select: { id: true, firstName: true, lastName: true },
+      take: 3,
+    })
+    if (deleted.length > 0) {
+      return {
+        found: false,
+        reason: `${deleted.map((d) => `${d.firstName} ${d.lastName}`).join(', ')} is in Recently Deleted. Say so, and offer restore_borrower before anything else.`,
+        deleted: deleted.map((d) => ({ id: d.id, name: `${d.firstName} ${d.lastName}` })),
+      }
+    }
     // A typo finds nobody by exact match. Offer the close names before the
     // model offers to add a new person, which would be a duplicate.
     const didYouMean = closestNames(name, await listBorrowerNames(userId)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))
@@ -532,9 +556,22 @@ async function resolveFunders(userId: string, funders: unknown): Promise<unknown
 export async function proposeAction(userId: string, args: Record<string, unknown>) {
   const spec = actionSpec(str(args, 'action'))
   if (!spec) return { error: `No action called "${str(args, 'action')}". Use find_action.` }
-  const given = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
+  let given = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
+  let rawFunders = args.funders
+  // An edit starts from the loan as saved, so the model only has to send what
+  // changes. Without this, any field it left out was cleared by the form.
+  if (spec.name === 'update_loan' && typeof given.loanId === 'string') {
+    const saved = (await loanDetail(userId, given.loanId)) as { found: boolean; editValues?: Record<string, unknown> & { funders: unknown[] } }
+    if (saved.found && saved.editValues) {
+      const { funders: savedFunders, ...savedFields } = saved.editValues
+      // A new length in weeks replaces the saved due date, which would otherwise win.
+      if (given.weeks !== undefined && given.dueOn === undefined) delete savedFields.dueOn
+      given = { ...savedFields, ...given }
+      if (!Array.isArray(rawFunders) || rawFunders.length === 0) rawFunders = savedFunders
+    }
+  }
   const fields = await resolveNames(userId, normalizeFields(spec, given, manilaToday()))
-  const funders = await resolveFunders(userId, args.funders)
+  const funders = await resolveFunders(userId, rawFunders)
   const checked = checkProposal(spec, fields, funders)
   if (!checked.ok) return { error: checked.error }
   // The app only offers "Remove photo" when there is one; removing a photo

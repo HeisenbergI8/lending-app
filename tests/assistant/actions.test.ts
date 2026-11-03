@@ -166,8 +166,11 @@ describe('the server does the calendar, not the model', () => {
   test('"today" becomes the date, and 4 weeks becomes the due date', () => {
     assert.deepEqual(normalizeFields(loan, { startOn: 'today', weeks: '4' }, '2026-11-04'), { startOn: '2026-11-04', weeks: '4', dueOn: '2026-12-02' })
   })
-  test('a due date given is kept', () => {
-    assert.equal(normalizeFields(loan, { startOn: '2026-11-04', dueOn: '2026-11-18', weeks: '4' }, '2026-11-04').dueOn, '2026-11-18')
+  test('weeks win over a due date the model counted wrong', () => {
+    assert.equal(normalizeFields(loan, { startOn: '2026-11-04', dueOn: '2026-11-15', weeks: '2' }, '2026-11-04').dueOn, '2026-11-18')
+  })
+  test('a due date with no weeks is kept', () => {
+    assert.equal(normalizeFields(loan, { startOn: '2026-11-04', dueOn: '2026-11-18' }, '2026-11-04').dueOn, '2026-11-18')
   })
   test('weeks across a month end', () => {
     assert.equal(normalizeFields(loan, { startOn: '2026-11-28', weeks: '1' }, '2026-11-04').dueOn, '2026-12-05')
@@ -181,4 +184,32 @@ describe('find_action matches whole words', () => {
   test('"mark as good" finds the label, not a note ("remark")', () => assert.equal(findActions('mark Rico as good')[0]?.name, 'set_label'))
   test('"remove label" finds the label', () => assert.ok(findActions('remove label').some((a) => a.name === 'set_label')))
   test('"mark paid" still finds mark_paid first', () => assert.equal(findActions('mark paid')[0]?.name, 'mark_paid'))
+})
+
+describe("the loan form's term checks run before a card", () => {
+  const loan = actionSpec('create_loan')!
+  const base = { borrowerId: 'b', capital: '5000', startOn: '2026-11-04' }
+  const one = [{ lenderId: 'm', amount: '5000' }]
+  test('10 days on a weekly-rate loan is refused with the two dates that work', () => {
+    const r = checkProposal(loan, { ...base, dueOn: '2026-11-14' }, one)
+    assert.equal(r.ok, false)
+    assert.match(r.ok ? '' : r.error, /week/i)
+  })
+  test('a due date before the start is refused', () => {
+    assert.match((checkProposal(loan, { ...base, dueOn: '2026-10-28' }, one) as { error: string }).error, /before the start/)
+  })
+  test('funders that do not add up are refused before the card', () => {
+    assert.match((checkProposal(loan, { ...base, dueOn: '2026-11-18' }, [{ lenderId: 'm', amount: '3000' }]) as { error: string }).error, /add up to ₱3,000\.00/)
+  })
+  test('a fixed-amount loan may run 10 days', () => {
+    assert.equal(checkProposal(loan, { ...base, dueOn: '2026-11-14', interestBasis: 'FIXED_AMOUNT', fixedInterest: '500', fixedLenderShare: '300' }, one).ok, true)
+  })
+  test('an existing borrower drops the new-person names from the card', () => {
+    const r = checkProposal(loan, { ...base, dueOn: '2026-11-18', borrowerFirstName: 'Lyn', borrowerLastName: 'Bautista' }, one)
+    assert.ok(r.ok)
+    assert.equal(r.fields.borrowerFirstName, undefined)
+  })
+  test('"4 weeks from today" typed as the due date becomes weeks', () => {
+    assert.equal(normalizeFields(loan, { startOn: 'today', dueOn: '4 weeks from today' }, '2026-11-04').dueOn, '2026-12-02')
+  })
 })
