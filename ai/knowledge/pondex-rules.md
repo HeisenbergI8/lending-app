@@ -60,12 +60,23 @@ Also called: fixed interest, flat amount, days, short loan
 - The Admin types the interest directly. There is no rate and the term can be any number of days.
 
 ## A loan's total never changes
-Also called: frozen, late fee, penalty, early payment, discount, rebate, extension, rollover
+Also called: frozen, late fee, penalty, early payment, discount, rebate
 
 - Interest and the total are worked out once, the day the loan is made, and stored.
 - Changing a usual rate never changes an existing loan.
 - No late fees, no extra interest for paying late, no discount for paying early.
-- Loans are never extended and never rolled into a new loan.
+- The only way a total grows is an extension the Admin makes (next section).
+
+## Extending a loan
+Also called: extend a loan, extension, more time, more weeks, push the due date, rollover
+
+- The Admin can push a loan's due date out by whole weeks. It adds interest; nothing happens on its own.
+- Two ways. Pay later: the same loan runs longer, on its own rates and funders, and the extra interest
+  is the difference. Pay now: the interest so far is paid today, that loan closes as paid, and the
+  same capital carries on as a new loan from the old due date.
+- Pay now is only for loans whose interest is paid at the end.
+- On a fixed-amount loan the Admin types the extra interest and the lenders' share of it.
+- An extension can be undone.
 
 ## Loan states
 Also called: status, active, overdue, paid, late, due
@@ -186,11 +197,18 @@ Also called: delete, remove, restore, undo, recently deleted, trash
 - Deleted loans are left out of every figure and report.
 
 ## What Pondex does not do
-Also called: not supported, missing feature, reminders, messages, SMS
+Also called: not supported, missing feature, messages, SMS, notify
 
 - No borrower or lender logins, partial payments, installments, early payoff, late penalties,
-  extensions, rollovers, compounding interest, reminders, or messages to borrowers.
+  compounding interest, or messages to borrowers.
 - Peso only. No other currency.
+
+## Remind me every N weeks
+Also called: reminder, remind, nudge, due soon
+
+- An optional setting on a loan or a pending request. Every N weeks from the start date, the loan
+  shows as Due soon for a few days, until the due date.
+- A nudge on screen only. It moves no money and sends no message.
 
 ---
 

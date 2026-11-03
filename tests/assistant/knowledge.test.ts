@@ -57,6 +57,8 @@ describe('questions find the right section first', () => {
     ['What is the usual loan length?', "The Admin's own lending rules"],
     ['Can someone have two loans at once?', "The Admin's own lending rules"],
     ['Is there a limit on how much one person can borrow?', "The Admin's own lending rules"],
+    ['Can I extend a loan by two weeks?', 'Extending a loan'],
+    ['How do reminders work?', 'Remind me every N weeks'],
   ]
   for (const [question, title] of cases) {
     test(question, () => assert.equal(top(question), title))

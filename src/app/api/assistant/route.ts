@@ -1,10 +1,13 @@
-import { ask, type ChatTurn } from '@/server/assistant/chat.ts'
+import { ask, type ChatTurn, models } from '@/server/assistant/chat.ts'
+import { usageSummary } from '@/server/assistant/usage.ts'
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /**
- * Ask Pondex: the chat's one endpoint.
+ * Ask Pondex: the chat's endpoint.
  *
- * The browser sends the conversation so far; the answer comes back as JSON.
+ * POST: the browser sends the conversation so far; the answer comes back as
+ * JSON, with a card to confirm when the answer is a change. GET: how many
+ * questions are left today, and when the AI is free again if it is resting.
  * Who is asking comes from the session cookie, never from the body, so the
  * tools can only ever read the signed-in account's loans.
  */
@@ -19,6 +22,12 @@ function isTurn(value: unknown): value is ChatTurn {
   if (!value || typeof value !== 'object') return false
   const turn = value as Record<string, unknown>
   return (turn.role === 'user' || turn.role === 'assistant') && typeof turn.text === 'string'
+}
+
+export async function GET() {
+  const user = await getCurrentUser()
+  if (!user) return Response.json({ error: 'Please log in again.' }, { status: 401 })
+  return Response.json(await usageSummary(models()))
 }
 
 export async function POST(request: Request) {

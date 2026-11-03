@@ -4,7 +4,11 @@ import { NO_FILTER, type LoanFilter, type LoanStatusFilter } from '../../lib/loa
 import { describeTrackRecord } from '../../lib/track-record.ts'
 import { borrowerCounts, getBorrower } from '../borrowers/queries.ts'
 import { db } from '../db.ts'
-import { listLenders } from '../lenders/queries.ts'
+import { getLender, listLenders } from '../lenders/queries.ts'
+import { listDeleted, type DeletedSection } from '../deleted/queries.ts'
+import { listPendingLoans } from '../pending/queries.ts'
+import { ACTIONS, actionSpec, checkProposal, findActions } from './actions.ts'
+import { describeProposal } from './proposal.ts'
 import { readRules } from './knowledge.ts'
 import { getLoan, interestSummary, listLoans, overdueSummary } from '../loans/queries.ts'
 
@@ -86,6 +90,44 @@ export const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: 'get_lender',
+    description: "One lender by name: id, floating, starting capital, and money in/out entries with ids.",
+    parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  },
+  {
+    name: 'list_pending',
+    description: 'Pending loan requests with ids.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'list_deleted',
+    description: 'Recently Deleted: borrowers, lenders, loans and money entries with ids, for restoring.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'find_action',
+    description: 'Before ANY change: find the action and its fields. * marks required.',
+    parameters: {
+      type: 'object',
+      properties: { what: { type: 'string', description: 'The change in a few words, e.g. "new loan" or "mark paid".' } },
+      required: ['what'],
+    },
+  },
+  {
+    name: 'propose_action',
+    description:
+      'Show the Admin a card to confirm a change. Nothing is saved until they tap Confirm. Give ids from the lookup tools, amounts in pesos, dates as YYYY-MM-DD.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string' },
+        fields: { type: 'object', description: 'Field name to value.' },
+        funders: { type: 'array', items: { type: 'object', properties: { lenderId: { type: 'string' }, amount: { type: 'string' } } } },
+      },
+      required: ['action', 'fields'],
+    },
+  },
+  {
     name: 'search_notes',
     description:
       "Loan notes containing some words. Notes are the Admin's remarks, not checked facts.",
@@ -134,6 +176,7 @@ async function getOverview(userId: string) {
 async function listLenderPots(userId: string) {
   const lenders = await listLenders(userId)
   return lenders.map((l) => ({
+    id: l.id,
     name: `${l.firstName} ${l.lastName}`,
     isAdmin: l.isSelf,
     floating: peso(l.position.floating),
@@ -185,6 +228,7 @@ async function findBorrower(userId: string, name: string) {
     borrowers: people
       .filter((b) => b !== null)
       .map((b) => ({
+        id: b.id,
         name: `${b.firstName} ${b.lastName}`,
         label: b.label,
         trackRecord: describeTrackRecord(b.record),
@@ -282,8 +326,116 @@ async function loanDetail(userId: string, loanId: string) {
       paidOn: day(w.paidOn),
       ...(w.withCapital ? { paidWithCapital: true } : {}),
     })),
-    notes: loan.notes.map((n) => ({ written: day(n.createdAt), text: n.body })),
+    notes: loan.notes.map((n) => ({ id: n.id, written: day(n.createdAt), text: n.body })),
+    ...(await loanRecordIds(userId, loanId)),
   }
+}
+
+/**
+ * The ids a change needs that the loan page shows but LoanDetail does not
+ * carry: each payment and its proof files, the proof the money was sent, and
+ * any extensions. Only for propose_action; never shown to the Admin.
+ */
+async function loanRecordIds(userId: string, loanId: string) {
+  const [payments, sentProof, extensions] = await Promise.all([
+    db.payment.findMany({
+      where: { userId, loanId, deletedAt: null },
+      orderBy: { paidOn: 'asc' },
+      select: { id: true, weekNumber: true, paidOn: true, proofFiles: { where: { deletedAt: null }, select: { id: true } } },
+    }),
+    db.loanProof.findMany({ where: { userId, loanId, deletedAt: null }, select: { id: true } }),
+    // The extensions table may be missing on an older database; the loan page treats that as none.
+    db.loanExtension
+      .findMany({ where: { userId, loanId }, orderBy: { extendedOn: 'asc' }, select: { id: true, fromDueOn: true, toDueOn: true } })
+      .catch(() => []),
+  ])
+  return {
+    payments: payments.map((p) => ({ id: p.id, week: p.weekNumber, paidOn: day(p.paidOn), proofFileIds: p.proofFiles.map((f) => f.id) })),
+    sentProofIds: sentProof.map((p) => p.id),
+    extensions: extensions.map((e) => ({ id: e.id, from: day(e.fromDueOn), to: day(e.toDueOn) })),
+  }
+}
+
+async function lenderDetail(userId: string, name: string) {
+  const terms = words(name)
+  const lender = await db.lender.findFirst({
+    where: {
+      userId,
+      deletedAt: null,
+      AND: terms.map((term) => ({ OR: [{ firstName: { contains: term, ...INSENSITIVE } }, { lastName: { contains: term, ...INSENSITIVE } }] })),
+    },
+    select: { id: true },
+  })
+  const detail = lender ? await getLender(userId, lender.id) : null
+  if (!detail) return { found: false, reason: `No lender named "${name}".` }
+  return {
+    found: true,
+    id: detail.id,
+    name: `${detail.firstName} ${detail.lastName}`,
+    isAdmin: detail.isSelf,
+    floating: peso(detail.position.floating),
+    outOnLoan: peso(detail.position.outOnLoan),
+    startingCapital: peso(detail.startingCapital),
+    moneyInAndOut: detail.transactions.slice(0, 30).map((t) => ({
+      id: t.id,
+      type: t.type,
+      amount: peso(t.amount),
+      date: day(t.occurredOn),
+      note: t.note,
+      advanceAgainst: t.against?.borrowerName ?? null,
+    })),
+  }
+}
+
+async function pendingRequests(userId: string) {
+  const { rows } = await listPendingLoans(userId, { page: 1, skip: 0, take: 50 })
+  return rows.map((r) => ({
+    id: r.id,
+    name: `${r.firstName} ${r.lastName}`,
+    amount: peso(r.capital),
+    rate: `${r.rateBps / 100}% a week`,
+    term: describeTerm(r.termDays),
+    start: day(r.startOn),
+  }))
+}
+
+async function recentlyDeleted(userId: string) {
+  const sections: DeletedSection[] = ['lenders', 'borrowers', 'loans', 'transactions']
+  const all = await Promise.all(sections.map((section) => listDeleted(userId, section, { page: 1, skip: 0, take: 25 })))
+  return {
+    borrowers: all[1].borrowers.map((b) => ({ id: b.id, name: `${b.firstName} ${b.lastName}`, deleted: day(b.deletedAt) })),
+    lenders: all[0].lenders.map((l) => ({ id: l.id, name: `${l.firstName} ${l.lastName}`, deleted: day(l.deletedAt) })),
+    loans: all[2].loans.map((l) => ({ id: l.id, borrower: l.borrowerName, amount: peso(l.capital), due: day(l.dueOn), deleted: day(l.deletedAt) })),
+    moneyEntries: all[3].transactions.map((t) => ({ id: t.id, lender: t.lenderName, type: t.type, amount: peso(t.amount), date: day(t.occurredOn) })),
+  }
+}
+
+/** The fields of the actions that fit what the Admin wants to do. */
+function describeActions(what: string) {
+  const found = findActions(what)
+  return {
+    actions: found.map((a) => ({
+      action: a.name,
+      what: a.title + (a.about ? `. ${a.about}` : ''),
+      fields: a.fields.map((f) => `${f.name}${f.required ? '*' : ''}: ${f.kind}${f.values ? ` (${f.values.join('|')})` : ''}${f.about ? ` - ${f.about}` : ''}`),
+      ...(a.funders ? { funders: '* list of { lenderId, amount }' } : {}),
+      ...(a.files ? { file: `${a.files.label}; the Admin attaches it on the card` } : {}),
+    })),
+    ...(found.length === 0 ? { all: ACTIONS.map((a) => a.name) } : {}),
+  }
+}
+
+/** A change for the Admin to confirm. Nothing is saved here. */
+export async function proposeAction(userId: string, args: Record<string, unknown>) {
+  const spec = actionSpec(str(args, 'action'))
+  if (!spec) return { error: `No action called "${str(args, 'action')}". Use find_action.` }
+  const fields = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
+  const checked = checkProposal(spec, fields, args.funders)
+  if (!checked.ok) return { error: checked.error }
+  const proposal = await describeProposal(userId, spec, checked.fields, checked.funders)
+  const unknown = proposal.lines.filter((line) => line.value === 'not found').map((line) => line.label)
+  if (unknown.length > 0) return { error: `Not found: ${unknown.join(', ')}. Look the id up again.` }
+  return { proposal }
 }
 
 async function searchNotes(userId: string, text: string) {
@@ -293,6 +445,7 @@ async function searchNotes(userId: string, text: string) {
     orderBy: { createdAt: 'desc' },
     take: 20,
     select: {
+      id: true,
       body: true,
       createdAt: true,
       loan: {
@@ -307,6 +460,7 @@ async function searchNotes(userId: string, text: string) {
   })
   return {
     notes: notes.map((n) => ({
+      id: n.id,
       text: n.body,
       written: day(n.createdAt),
       loanId: n.loan.id,
@@ -332,6 +486,16 @@ export async function runTool(userId: string, name: string, args: Record<string,
       return findLoans(userId, args)
     case 'get_loan':
       return loanDetail(userId, str(args, 'loan_id'))
+    case 'get_lender':
+      return lenderDetail(userId, str(args, 'name'))
+    case 'list_pending':
+      return pendingRequests(userId)
+    case 'list_deleted':
+      return recentlyDeleted(userId)
+    case 'find_action':
+      return describeActions(str(args, 'what'))
+    case 'propose_action':
+      return proposeAction(userId, args)
     case 'search_notes':
       return searchNotes(userId, str(args, 'text'))
     default:

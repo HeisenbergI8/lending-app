@@ -1,16 +1,23 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, ChevronDown, Maximize2, Minimize2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { ArrowUp, ChevronDown, Hourglass, Maximize2, Minimize2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ActionCard, type CardStatus, type ProposalView } from './action-card.tsx'
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 
 /**
  * Ask Pondex: the chat that lives on every signed-in screen.
  *
  * Each question goes to /api/assistant with the conversation so far. The
- * server picks which read-only lookups to run and sends back one answer, which
- * is then typed out here so the mascot can "talk" while it appears.
+ * server picks which lookups to run and sends back one answer, which is then
+ * typed out here so the mascot can "talk" while it appears. When the answer is
+ * a change, it comes with a card the Admin confirms (see action-card.tsx).
+ *
+ * The header says roughly how many questions are left in today's free AI
+ * allowance. When every model is resting, the input is locked and a countdown
+ * says when Pondex is back, instead of letting a question fail.
  *
  * A launcher, not a sidebar item: the chat is a helper you call up over the page
  * you are on, so it opens on top of that page instead of replacing it. On a
@@ -18,9 +25,13 @@ import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
  * corner that can be made full screen.
  */
 
+type Card = { proposal: ProposalView; status: CardStatus; error: string | null }
 type Message =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean }
+  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card }
+
+/** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
+type Usage = { questionsLeft: number; coolUntil: string | null }
 
 /** Starters shown on an empty chat. Real questions, answered from real data. */
 const SAMPLES = [
@@ -30,18 +41,42 @@ const SAMPLES = [
   'What makes a borrower Good, Okay or Bad?',
 ]
 
-async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[]) {
+type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null }
+
+async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[]): Promise<Answer> {
   try {
     const response = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: history }),
     })
-    const data = (await response.json()) as { ok: true; answer: string } | { ok: false; error: string }
-    return data.ok ? { text: data.answer, failed: false } : { text: data.error, failed: true }
+    const data = (await response.json()) as
+      | { ok: true; answer: string; proposal: ProposalView | null; usage: Usage }
+      | { ok: false; error: string; usage: Usage | null }
+    return data.ok
+      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage }
+      : { text: data.error, failed: true, proposal: null, usage: data.usage }
   } catch {
-    return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true }
+    return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true, proposal: null, usage: null }
   }
+}
+
+/** What the model is told about a card, so the next question knows whether it was saved. */
+function cardNote(card: Card): string {
+  const what = `I proposed: ${card.proposal.title} (${card.proposal.lines.map((l) => `${l.label} ${l.value}`).join(', ')}).`
+  if (card.status === 'done') return `${what} The Admin confirmed it and it was saved.`
+  if (card.status === 'cancelled') return `${what} The Admin cancelled it; nothing was saved.`
+  if (card.status === 'failed') return `${what} It was not saved: ${card.error}`
+  return `${what} Not confirmed yet.`
+}
+
+/** "12:05" under an hour, "2:03:09" over one. */
+function clock(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = String(total % 60).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 
 const TYPE_MS = 26
@@ -58,6 +93,35 @@ export function AskPondex() {
   const pokeTimers = useRef<ReturnType<typeof setTimeout>[]>([])
   const list = useRef<HTMLDivElement>(null)
   const nextId = useRef(1)
+  const router = useRouter()
+  const [usage, setUsage] = useState<Usage | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  const coolMs = usage?.coolUntil ? new Date(usage.coolUntil).getTime() - now : 0
+  const resting = coolMs > 0
+
+  const loadUsage = useCallback(async () => {
+    try {
+      const response = await fetch('/api/assistant')
+      if (response.ok) setUsage((await response.json()) as Usage)
+    } catch {
+      // The counter is a nicety; a failed fetch leaves the chat usable.
+    }
+  }, [])
+
+  // The countdown ticks only while there is one, and asks again the moment it ends.
+  useEffect(() => {
+    if (!usage?.coolUntil) return
+    const timer = setInterval(() => {
+      const t = Date.now()
+      setNow(t)
+      if (new Date(usage.coolUntil!).getTime() <= t) {
+        clearInterval(timer)
+        void loadUsage()
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [usage?.coolUntil, loadUsage])
 
   const writing = messages.some((m) => m.role === 'bot' && !m.done)
   const working: MascotMood = thinking ? 'think' : writing ? 'talk' : 'idle'
@@ -87,19 +151,29 @@ export function AskPondex() {
     } else {
       setOpen(true)
       poke()
+      // Fresh figures each time the chat opens.
+      void loadUsage()
     }
+  }
+
+  function setCard(messageId: number, status: CardStatus, error: string | null) {
+    setMessages((ms) =>
+      ms.map((m) => (m.id === messageId && m.role === 'bot' && m.card ? { ...m, card: { ...m.card, status, error } } : m)),
+    )
+    // The page behind the chat shows the old figures until it is re-rendered.
+    if (status === 'done') router.refresh()
   }
 
   async function ask(question: string) {
     const q = question.trim()
-    if (!q || thinking || writing) return
+    if (!q || thinking || writing || resting) return
     const id = nextId.current
     nextId.current += 2
 
     const history = [
       ...messages.filter((m) => !(m.role === 'bot' && m.failed)).map((m) => ({
         role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
-        text: m.role === 'user' ? m.text : m.full,
+        text: m.role === 'user' ? m.text : m.card ? cardNote(m.card) : m.full,
       })),
       { role: 'user' as const, text: q },
     ]
@@ -108,9 +182,12 @@ export function AskPondex() {
     setThinking(true)
     setMessages((ms) => [...ms, { id, role: 'user', text: q }])
 
-    const { text: a, failed } = await fetchAnswer(history)
+    const { text: a, failed, proposal, usage: latest } = await fetchAnswer(history)
     setThinking(false)
-    setMessages((ms) => [...ms, { id: id + 1, role: 'bot', text: '', full: a, done: false, failed }])
+    // The countdown corrects its clock on its first tick, a second from now.
+    if (latest) setUsage(latest)
+    const card: Card | undefined = proposal ? { proposal, status: 'ready', error: null } : undefined
+    setMessages((ms) => [...ms, { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card }])
     let n = 0
     const tick = () => {
       n = Math.min(a.length, n + CHARS_PER_TICK)
@@ -155,7 +232,15 @@ export function AskPondex() {
               <div className="min-w-0 flex-1">
                 <p className="text-base font-semibold">Pondex</p>
                 <p className="text-muted-foreground truncate text-xs">
-                  {thinking ? 'Looking through your loans…' : writing ? 'Writing an answer…' : 'Answers from your loans'}
+                  {thinking
+                    ? 'Looking through your loans…'
+                    : writing
+                      ? 'Writing an answer…'
+                      : resting
+                        ? `Resting · back in ${clock(coolMs)}`
+                        : usage
+                          ? `About ${usage.questionsLeft} questions left today`
+                          : 'Answers from your loans'}
                 </p>
               </div>
               <button
@@ -184,8 +269,8 @@ export function AskPondex() {
                   </button>
                   <h2 className="text-xl font-semibold">Hi, I’m Pondex.</h2>
                   <p className="text-muted-foreground text-sm leading-relaxed">
-                    I read your loans, payments and notes, and answer in plain words. I can only look, never change
-                    anything.
+                    I read your loans, payments and notes, and answer in plain words. I can also add, edit or pay
+                    things, but only after you tap Confirm.
                   </p>
                   <div className="mt-1 flex w-full flex-col gap-2">
                     {SAMPLES.map((s) => (
@@ -193,7 +278,8 @@ export function AskPondex() {
                         key={s}
                         type="button"
                         onClick={() => ask(s)}
-                        className="border-border bg-muted/40 hover:bg-accent hover:border-brand-line min-h-11 rounded-2xl border px-4 py-2.5 text-left text-sm"
+                        disabled={resting}
+                        className="border-border bg-muted/40 hover:bg-accent hover:border-brand-line min-h-11 cursor-pointer rounded-2xl border px-4 py-2.5 text-left text-sm disabled:cursor-default disabled:opacity-50"
                       >
                         {s}
                       </button>
@@ -218,6 +304,14 @@ export function AskPondex() {
                         {m.text}
                         {!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
                       </p>
+                      {m.done && m.card && (
+                        <ActionCard
+                          proposal={m.card.proposal}
+                          status={m.card.status}
+                          error={m.card.error}
+                          onStatus={(status, error) => setCard(m.id, status, error)}
+                        />
+                      )}
                     </div>
                   </div>
                 ),
@@ -237,14 +331,23 @@ export function AskPondex() {
             </div>
 
             <div className="border-border/70 flex flex-col gap-2.5 border-t px-3 pt-2.5 pb-3">
-              {!empty && (
+              {resting && (
+                <div role="status" className="bg-brand/8 text-foreground flex items-center gap-3 rounded-2xl px-3.5 py-2.5">
+                  <Hourglass className="text-brand size-5 shrink-0" />
+                  <p className="min-w-0 flex-1 text-sm leading-snug">
+                    Pondex used up its free AI for now. Back in{' '}
+                    <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>.
+                  </p>
+                </div>
+              )}
+              {!empty && !resting && (
                 <div className="flex gap-2 overflow-x-auto pb-0.5">
                   {SAMPLES.map((s) => (
                     <button
                       key={s}
                       type="button"
                       onClick={() => ask(s)}
-                      className="border-border hover:bg-accent min-h-10 shrink-0 rounded-full border px-3 text-xs whitespace-nowrap"
+                      className="border-border hover:bg-accent min-h-10 shrink-0 cursor-pointer rounded-full border px-3 text-xs whitespace-nowrap"
                     >
                       {s}
                     </button>
@@ -265,20 +368,22 @@ export function AskPondex() {
                   id="ask-pondex-input"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Ask about a loan or a borrower…"
+                  placeholder={resting ? 'Pondex is resting…' : 'Ask, or say what to change…'}
+                  disabled={resting}
                   autoComplete="off"
                   className="min-w-0 flex-1 bg-transparent py-2.5 text-base outline-none md:text-sm"
                 />
                 <button
                   type="submit"
                   aria-label="Send"
-                  className="bg-brand text-brand-foreground hover:bg-brand-strong flex size-11 shrink-0 items-center justify-center rounded-xl"
+                  disabled={resting}
+                  className="bg-brand text-brand-foreground hover:bg-brand-strong flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl disabled:cursor-default disabled:opacity-50"
                 >
                   <ArrowUp className="size-5" />
                 </button>
               </form>
               <p className="text-muted-foreground text-center text-[11px]">
-                Pondex can only read, never change your data. Check important numbers in the app.
+                Pondex never changes anything until you tap Confirm. Check important numbers in the app.
               </p>
             </div>
           </div>
