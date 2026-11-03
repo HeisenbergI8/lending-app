@@ -137,15 +137,19 @@ Each section stands on its own, so it can be searched and quoted alone.
 
 ---
 
-## The Admin's own lending rules (TO BE CONFIRMED)
+## The Admin's own lending rules
 
-These are the Admin's personal rules, not things the app enforces. Each one stays
-`To be confirmed` until the Admin writes it. Until then, answer "that rule isn't written down yet"
-instead of guessing.
+The Admin's personal rules, written by the Admin on 2026-11-03. The app does not enforce them; they
+explain how the Admin decides. Anything not listed here is not written down yet: say so instead of
+guessing.
 
-- Most one borrower can borrow at once: To be confirmed
-- Who can get a second loan while one is still active: To be confirmed
-- What makes a borrower Good, Okay or Bad: To be confirmed
-- Usual loan length the Admin offers: To be confirmed
-- What the Admin does when a loan is overdue: To be confirmed
-- Who decides whether a pending request gets funded: To be confirmed
+- **Most one borrower can borrow:** no limit.
+- **A second loan:** yes, a borrower can have two active loans at the same time.
+- **Good, Okay or Bad label:**
+  - Good: never late, and pays in advance.
+  - Okay: late once or twice.
+  - Bad: late more than 2 times.
+- **Usual loan length:** 4 weeks.
+- **When a loan is overdue:** nothing. No penalty and no extra action.
+- **Who decides whether a pending request gets funded:** the Admin, when there is floating money
+  available to lend.
