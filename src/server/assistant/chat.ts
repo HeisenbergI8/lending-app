@@ -74,15 +74,19 @@ async function complete(messages: GroqMessage[], retries = 2): Promise<{ content
     }),
   })
 
-  // The free plan counts tokens per minute. Groq says how long to wait; a short
-  // wait is better than an error, a long one is not worth holding the chat for.
+  // The free plan counts tokens per minute AND per day. Groq says how long to
+  // wait; a short wait is better than an error, a long one is not worth holding
+  // the chat for. The day's limit gets its own message, because "try again in a
+  // minute" would be false for hours.
   if (response.status === 429) {
     const wait = Number(response.headers.get('retry-after') ?? '')
+    const why = await response.text()
+    console.warn('[ask-pondex] rate limited', { retryAfter: wait, why: why.slice(0, 300) })
     if (retries > 0 && Number.isFinite(wait) && wait <= MAX_WAIT_S) {
       await sleep(Math.max(1, wait) * 1000)
       return complete(messages, retries - 1)
     }
-    throw new Error('rate-limited')
+    throw new Error(/per day|TPD|RPD/i.test(why) ? 'daily-limit' : 'rate-limited')
   }
   if (!response.ok) throw new Error(`Groq answered ${response.status}: ${(await response.text()).slice(0, 300)}`)
 
@@ -132,6 +136,9 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
     }
     return { ok: false, error: 'That question needed too many lookups. Try a narrower one.' }
   } catch (error) {
+    if (error instanceof Error && error.message === 'daily-limit') {
+      return { ok: false, error: 'Pondex has used up today’s free AI limit. It resets within a day.' }
+    }
     if (error instanceof Error && error.message === 'rate-limited') {
       return { ok: false, error: 'Pondex is busy (free plan limit). Try again in a minute.' }
     }
