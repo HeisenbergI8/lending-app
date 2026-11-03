@@ -566,6 +566,9 @@ async function resolveFunders(userId: string, funders: unknown): Promise<unknown
 }
 
 /** A change for the Admin to confirm. Nothing is saved here. */
+/** A length or a date in the Admin's words: "4 weeks", "3 weaks", "10 days", "until Dec 2", "2026-12-02", "12/2". */
+const LENGTH_SAID = /(\d+\s*(weeks?|weaks?|wks?|days?|linggo|araw|months?)\b|\b(a|one|two|three|four|five|six)\s+(weeks?|weaks?)\b|\b(due|until|hanggang|by)\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}\b|\d{4}-\d{2}-\d{2}|\b\d{1,2}\/\d{1,2}\b)/i
+
 /** Words that point at the Admin's own pot without naming it. */
 const ADMIN_POT = /\b(admin|my pot|my money|own money|own pot|from me|sarili|akin)\b/i
 /** Amounts that must be ones the Admin said: a model filling one in is the costliest guess. */
@@ -583,7 +586,18 @@ const SAID_AMOUNT: Record<string, string> = {
  * an amount, or the wrong borrower's loan, and the card looked complete.
  * Asking costs a turn; a confirmed guess costs money.
  */
-async function notSaidByAdmin(userId: string, action: string, fields: Record<string, string>, funders: { lenderId: string; amount: string }[], said: string): Promise<string | null> {
+async function notSaidByAdmin(
+  userId: string,
+  action: string,
+  fields: Record<string, string>,
+  funders: { lenderId: string; amount: string }[],
+  said: string,
+  unchanged: Set<string> = new Set(),
+): Promise<string | null> {
+  // A new loan or request needs a length the Admin gave: weeks, days, or a date.
+  if ((action === 'create_loan' || action === 'create_request') && !LENGTH_SAID.test(said)) {
+    return 'The Admin did not say how long the loan runs. Ask (for example "4 weeks" or a due date).'
+  }
   const amounts = amountsSaid(said).map((n) => Math.round(n * 100))
   const cents = (v: string) => (parsePesos(v).ok ? (parsePesos(v) as { value: number }).value : NaN)
   const field = SAID_AMOUNT[action]
@@ -600,7 +614,7 @@ async function notSaidByAdmin(userId: string, action: string, fields: Record<str
   }
 
   const people: { firstName: string; lastName: string; isSelf?: boolean; role: string }[] = []
-  if (fields.borrowerId) {
+  if (fields.borrowerId && !unchanged.has(fields.borrowerId)) {
     const b = await db.borrower.findFirst({ where: { id: fields.borrowerId, userId }, select: { firstName: true, lastName: true } })
     if (b) people.push({ ...b, role: 'borrower' })
   }
@@ -608,7 +622,8 @@ async function notSaidByAdmin(userId: string, action: string, fields: Record<str
     const l = await db.loan.findFirst({ where: { id: fields.loanId, userId }, select: { borrower: { select: { firstName: true, lastName: true } } } })
     if (l) people.push({ ...l.borrower, role: 'borrower on that loan' })
   }
-  const lenderIds = [fields.lenderId, ...funders.map((f) => f.lenderId)].filter(Boolean)
+  // On an edit, the people already on the loan were not named in this request, and need not be.
+  const lenderIds = [fields.lenderId, ...funders.map((f) => f.lenderId)].filter((id) => id && !unchanged.has(id))
   if (lenderIds.length > 0) {
     const lenders = await db.lender.findMany({ where: { id: { in: lenderIds }, userId }, select: { firstName: true, lastName: true, isSelf: true } })
     people.push(...lenders.map((l) => ({ ...l, role: 'lender' })))
@@ -627,16 +642,42 @@ export async function proposeAction(userId: string, args: Record<string, unknown
   if (!spec) return { error: `No action called "${str(args, 'action')}". Use find_action.` }
   let given = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
   let rawFunders = args.funders
+  const unchanged = new Set<string>()
   // An edit starts from the loan as saved, so the model only has to send what
   // changes. Without this, any field it left out was cleared by the form.
   if (spec.name === 'update_loan' && typeof given.loanId === 'string') {
     const saved = (await loanDetail(userId, given.loanId)) as { found: boolean; editValues?: Record<string, unknown> & { funders: unknown[] } }
     if (saved.found && saved.editValues) {
       const { funders: savedFunders, ...savedFields } = saved.editValues
+      // Who is on the loan now: the check below only asks about people this edit adds.
+      unchanged.add(String(savedFields.borrowerId))
+      for (const f of savedFunders as { lenderId: string }[]) unchanged.add(f.lenderId)
       // A new length in weeks replaces the saved due date, which would otherwise win.
       if (given.weeks !== undefined && given.dueOn === undefined) delete savedFields.dueOn
       given = { ...savedFields, ...given }
       if (!Array.isArray(rawFunders) || rawFunders.length === 0) rawFunders = savedFunders
+    }
+  }
+  // Extra interest is typed only on a fixed-amount loan; on a weekly-rate loan the app
+  // works it out and ignores a typed figure, so a card must not show one.
+  if (spec.name === 'extend_loan' && typeof given.loanId === 'string') {
+    const loan = await db.loan.findFirst({ where: { id: given.loanId, userId }, select: { interestBasis: true } })
+    if (loan && loan.interestBasis !== 'FIXED_AMOUNT') {
+      delete given.extraInterest
+      delete given.extraLenderShare
+    }
+  }
+  // A "new" borrower whose full name is exactly someone already on the list is that person.
+  if (spec.name === 'create_loan' && !given.borrowerId && typeof given.borrowerFirstName === 'string' && typeof given.borrowerLastName === 'string') {
+    const same = await db.borrower.findMany({
+      where: { userId, deletedAt: null, firstName: { equals: given.borrowerFirstName.trim(), ...INSENSITIVE }, lastName: { equals: given.borrowerLastName.trim(), ...INSENSITIVE } },
+      select: { id: true },
+      take: 2,
+    })
+    if (same.length === 1) {
+      given.borrowerId = same[0].id
+      delete given.borrowerFirstName
+      delete given.borrowerLastName
     }
   }
   const fields = await resolveNames(userId, normalizeFields(spec, given, manilaToday()))
@@ -655,7 +696,7 @@ export async function proposeAction(userId: string, args: Record<string, unknown
     .filter((line) => line.value === 'not found' || line.label.includes('not found'))
     .map((line) => line.label)
   if (unknown.length > 0) return { error: `Not found: ${unknown.join(', ')}. Look the ids up with find_borrower, list_lenders or get_loan.` }
-  const ungrounded = typeof said === 'string' ? await notSaidByAdmin(userId, spec.name, checked.fields, checked.funders, said) : null
+  const ungrounded = typeof said === 'string' ? await notSaidByAdmin(userId, spec.name, checked.fields, checked.funders, said, unchanged) : null
   if (ungrounded) return { error: ungrounded }
   return { proposal }
 }

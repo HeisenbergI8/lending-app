@@ -42,3 +42,8 @@ describe('what the Admin actually said', () => {
     assert.equal(nameSaid('lend lyn 5k from maria', rico), false)
   })
 })
+
+describe('number words next to names', () => {
+  test('"lend bea twenty thousand" is 20,000', () => assert.deepEqual(amountsSaid('lend bea twenty thousand from john ross'), [20000]))
+  test('"lend twenty five thousand" is 25,000', () => assert.deepEqual(amountsSaid('lend twenty five thousand'), [25000]))
+})

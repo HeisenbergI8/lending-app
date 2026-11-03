@@ -88,9 +88,10 @@ export function amountsSaid(text: string): number[] {
     const value = Number(m[1].replace(/,/g, ''))
     if (Number.isFinite(value)) found.push(m[2] ? value * 1000 : value)
   }
-  for (const m of text.toLowerCase().matchAll(/\b([a-z]+)(?:[\s-]([a-z]+))?\s+thousand\b/g)) {
-    const words = [m[1], m[2]].filter(Boolean).map((w) => SMALL[w as string])
-    if (words.length > 0 && words.every((w) => w !== undefined)) found.push(words.reduce((a, b) => a + b, 0) * 1000)
+  // Only number words may sit before "thousand": "lend bea twenty thousand" is 20,000, not "bea twenty".
+  const word = Object.keys(SMALL).join('|')
+  for (const m of text.toLowerCase().matchAll(new RegExp(`\\b(?:(${word})[\\s-])?(${word})\\s+thousand\\b`, 'g'))) {
+    found.push([m[1], m[2]].filter(Boolean).reduce((sum, w) => sum + SMALL[w as string], 0) * 1000)
   }
   return found
 }

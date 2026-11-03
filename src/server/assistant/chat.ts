@@ -268,7 +268,8 @@ const CLAIMS_CARD = /\b(tap confirm|ready to confirm|check it, then tap|confirm 
 export function nudgeFor(answer: string, question: string, usedTools: string[], offeredNames: string[] = []): string | null {
   if (!answer.trim()) return 'Your reply was empty. Answer the question, using the tools if you need them.'
   // "Ready to confirm" with no card on screen would leave the Admin looking for one.
-  if (CLAIMS_CARD.test(answer) && !usedTools.includes('propose_action')) {
+  // A proposal that worked ends the turn before this point, so any answer here has no card.
+  if (CLAIMS_CARD.test(answer)) {
     return 'No card was made yet. Call propose_action for the change, or ask the Admin for what is missing.'
   }
   // "Did you mean X?" may only offer names a lookup returned.
