@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clip, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { clip, dropUnasked, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -65,4 +65,22 @@ describe('change requests are not rules questions', () => {
 describe('a change in progress is not nudged to the rules', () => {
   test('"mark Lyn as good" after find_action is left alone', () =>
     assert.equal(nudgeFor('Which label: Good, Okay or Bad?', 'mark Lyn as good', ['find_action']), null))
+})
+
+describe('loan options the Admin did not ask for are dropped', () => {
+  test('weekly interest nobody mentioned is removed', () => {
+    const args = { action: 'create_loan', fields: { capital: '5000', interestCollection: 'WEEKLY', borrowerRate: '7', interestBasis: 'WEEKLY_RATE' } }
+    dropUnasked(args, 'lend Lyn Bautista 5,000 today, due in 4 weeks, all from Maria')
+    assert.deepEqual(args.fields, { capital: '5000' })
+  })
+  test('what the Admin said stays', () => {
+    const args = { action: 'create_loan', fields: { interestCollection: 'WEEKLY', borrowerRate: '8' } }
+    dropUnasked(args, 'lend bea 30k at 8% with weekly interest')
+    assert.deepEqual(args.fields, { interestCollection: 'WEEKLY', borrowerRate: '8' })
+  })
+  test('other actions are untouched', () => {
+    const args = { action: 'update_loan', fields: { interestCollection: 'WEEKLY' } }
+    dropUnasked(args, 'change the date')
+    assert.deepEqual(args.fields, { interestCollection: 'WEEKLY' })
+  })
 })

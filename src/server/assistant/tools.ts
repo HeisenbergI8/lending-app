@@ -318,7 +318,13 @@ async function findLoans(userId: string, args: Record<string, unknown>) {
     status: ['active', 'overdue', 'paid', 'week'].includes(status) ? (status as LoanStatusFilter) : null,
   }
 
-  const { rows, totals } = await listLoans(userId, filter, { page: 1, skip: 0, take: 25 })
+  let { rows, totals } = await listLoans(userId, filter, { page: 1, skip: 0, take: 25 })
+  // "dans loan": a possessive typed without the apostrophe, as in findBorrower.
+  if (rows.length === 0 && filter.terms.some((t) => t.length > 3 && /s$/i.test(t))) {
+    const singular = { ...filter, terms: filter.terms.map((t) => (t.length > 3 ? t.replace(/s$/i, '') : t)) }
+    const retry = await listLoans(userId, singular, { page: 1, skip: 0, take: 25 })
+    if (retry.rows.length > 0) ({ rows, totals } = retry)
+  }
   // A typed name that matches no loan is most often a typo: offer the close
   // borrower and lender names, as find_borrower does, instead of "none".
   const typed = str(args, 'name')

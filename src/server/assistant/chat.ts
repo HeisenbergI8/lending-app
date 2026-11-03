@@ -271,6 +271,30 @@ export function nudgeFor(answer: string, question: string, usedTools: string[]):
   return null
 }
 
+/**
+ * Loan options a smaller model fills in unasked ("weekly interest", a rate),
+ * dropped unless the Admin's own words mention them, so the app's defaults
+ * apply. Seen in testing: a card saved with weekly collection nobody asked
+ * for. The card would show it, but nothing the Admin did not say should be on it.
+ */
+const ASKED_FOR: [field: string, words: RegExp][] = [
+  ['interestCollection', /\b(weekly|every week|each week|per week|lingguhan|kada linggo)\b/i],
+  ['interestBasis', /\b(fixed|flat|tubo lang|fixed amount)\b/i],
+  ['fixedInterest', /\b(fixed|flat|tubo)\b/i],
+  ['fixedLenderShare', /\b(fixed|flat|share|tubo)\b/i],
+  ['borrowerRate', /(%|\brate\b|\bpercent\b|\binterest\b)/i],
+  ['adminCut', /(\bcut\b|\badmin('s)? share\b)/i],
+  ['remindEveryWeeks', /\bremind/i],
+]
+
+export function dropUnasked(args: Record<string, unknown>, saidByAdmin: string): void {
+  if (!['create_loan', 'create_request'].includes(String(args.action)) || !args.fields || typeof args.fields !== 'object') return
+  const fields = args.fields as Record<string, unknown>
+  for (const [field, words] of ASKED_FOR) {
+    if (field in fields && !words.test(saidByAdmin)) delete fields[field]
+  }
+}
+
 /** Ids removed from what the Admin reads. */
 export function withoutIds(answer: string): string {
   return answer.replace(ID, '').replace(/\(\s*\)/g, '').replace(/ {2,}/g, ' ').trim()
@@ -290,6 +314,7 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
   let tokens = 0
   let nudged = false
   const question = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
+  const saidByAdmin = history.filter((t) => t.role === 'user').map((t) => t.text).join(' ')
 
   const finish = async (answer: string, proposal: Proposal | null): Promise<ChatResult> => {
     // One line per question: which model, which tools, what it cost. Never the question or answer text.
@@ -322,7 +347,9 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
       messages.push({ role: 'assistant', content: turn.reply.content ?? null, tool_calls: calls })
       for (const call of calls) {
         used.push(call.function.name)
-        const result = await runTool(userId, call.function.name, parseArgs(call.function.arguments)).catch(() => ({
+        const args = parseArgs(call.function.arguments)
+        if (call.function.name === 'propose_action') dropUnasked(args, saidByAdmin)
+        const result = await runTool(userId, call.function.name, args).catch(() => ({
           error: 'That lookup failed.',
         }))
 

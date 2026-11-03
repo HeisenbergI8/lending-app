@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Ask Pondex eval scripts: dev tools run by hand, not app code.
+    "ai/evals/runner/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
