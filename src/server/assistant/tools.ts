@@ -31,39 +31,39 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'read_rules',
     description:
-      "Look up how Pondex works and the Admin's own lending rules: what a word means (floating, earned, overdue, late), how interest is worked out, payments, weekly-interest loans, splits, advances, starting capital, pending requests, labels, reports, deleting, and the Admin's rules (limits, second loans, usual length, label rules). Returns the best matching sections with their source, or found: false.",
+      "How Pondex works and the Admin's own lending rules: word meanings (floating, earned, late, overdue), interest, payments, weekly loans, splits, advances, labels, reports, deleting, limits, usual length. Returns matching sections with their source, or found: false.",
     parameters: {
       type: 'object',
-      properties: { question: { type: 'string', description: 'What to look up, in a few words, e.g. "good okay bad label".' } },
+      properties: { question: { type: 'string', description: 'A few words, e.g. "label rules".' } },
       required: ['question'],
     },
   },
   {
     name: 'get_overview',
     description:
-      'The dashboard figures for today: total out on loan, floating, earned, interest charged/collected/still owed, overdue loans and people, and borrower counts.',
+      "Today's dashboard totals: out on loan, floating, earned, interest, overdue, borrower counts.",
     parameters: { type: 'object', properties: {} },
   },
   {
     name: 'list_lenders',
     description:
-      "Every lender's pot today: floating (idle cash), out on loan, earned, interest still owed to them. The Admin's own pot has isAdmin true.",
+      "Each lender's pot today: floating, out on loan, earned, interest still owed. isAdmin marks the Admin's pot.",
     parameters: { type: 'object', properties: {} },
   },
   {
     name: 'find_borrower',
     description:
-      'Look up a borrower by name (first, last or both). Returns their label, track record, what they still owe, and every loan with its funders. Returns found: false when nobody matches.',
+      'A borrower by name: label, track record, still owed, and every loan with funders and each payment made. found: false if nobody matches.',
     parameters: {
       type: 'object',
-      properties: { name: { type: 'string', description: 'The name as the user wrote it, e.g. "Mitch" or "Mitch G".' } },
+      properties: { name: { type: 'string', description: 'As written, e.g. "Mitch G".' } },
       required: ['name'],
     },
   },
   {
     name: 'find_loans',
     description:
-      'Search loans. Every filter is optional and they combine. Use due_from/due_to for "due in October". Returns up to 25 loans, soonest due first, and totals across ALL matches.',
+      'Search loans; filters optional and combined. Up to 25 loans plus totals across all matches.',
     parameters: {
       type: 'object',
       properties: {
@@ -71,14 +71,14 @@ export const TOOLS: ToolSpec[] = [
         status: { type: 'string', enum: ['active', 'overdue', 'paid'] },
         due_from: { type: 'string', description: 'YYYY-MM-DD, due on or after.' },
         due_to: { type: 'string', description: 'YYYY-MM-DD, due on or before.' },
-        amount: { type: 'number', description: 'Exact loan amount or total in pesos, e.g. 30000.' },
+        amount: { type: 'number', description: 'Exact amount or total in pesos.' },
       },
     },
   },
   {
     name: 'get_loan',
     description:
-      'Everything about one loan by its id (from find_loans or find_borrower): rates, interest, each funder with earnings and admin cut, weekly schedule, paid date, and every note.',
+      'One loan by id (from find_loans or find_borrower): rates, interest, funders with earnings and admin cut, weekly schedule, notes.',
     parameters: {
       type: 'object',
       properties: { loan_id: { type: 'string' } },
@@ -88,10 +88,10 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'search_notes',
     description:
-      "Find the Admin's notes on loans that contain some words. Notes are the Admin's remarks, not checked facts.",
+      "Loan notes containing some words. Notes are the Admin's remarks, not checked facts.",
     parameters: {
       type: 'object',
-      properties: { text: { type: 'string', description: 'Words to look for, e.g. "partial".' } },
+      properties: { text: { type: 'string' } },
       required: ['text'],
     },
   },
