@@ -54,6 +54,9 @@ class LimitError extends Error {
   }
 }
 
+/** One reply with a broken tool call. Retried; never rests the model. */
+class SlipError extends Error {}
+
 export function models(): string[] {
   const list = (process.env.GROQ_MODELS || process.env.GROQ_MODEL || '').split(',').map((m) => m.trim()).filter(Boolean)
   return list.length > 0 ? list : DEFAULT_MODELS
@@ -125,10 +128,17 @@ async function complete(model: string, messages: GroqMessage[], retries = 1): Pr
     await recordRefusal(model, refusal)
     throw new LimitError(refusal.daily)
   }
-  // A model Groq refuses outright (retired, renamed, or a setting it does not
-  // take) is rested for an hour, so the next model answers instead.
   if (response.status === 400 || response.status === 404) {
-    console.warn('[ask-pondex] model refused', { model, status: response.status, why: (await response.text()).slice(0, 200) })
+    const why = await response.text()
+    // The model wrote a broken tool call (a tool that does not exist, bad
+    // JSON). A slip in this one reply, not a problem with the model: try again.
+    if (/tool_use_failed/.test(why)) {
+      console.warn('[ask-pondex] bad tool call', { model, why: why.slice(0, 200) })
+      throw new SlipError()
+    }
+    // A model Groq refuses outright (retired, renamed, or a setting it does
+    // not take) is rested for an hour, so the next model answers instead.
+    console.warn('[ask-pondex] model refused', { model, status: response.status, why: why.slice(0, 200) })
     await recordRefusal(model, { daily: true, waitS: 3600, used: null, limit: null })
     throw new LimitError(true)
   }
@@ -149,15 +159,24 @@ async function nextTurn(messages: GroqMessage[], preferred: string | null) {
   // Stay on the model that started the question while it still works.
   const order = preferred && ready.includes(preferred) ? [preferred, ...ready.filter((m) => m !== preferred)] : ready
 
-  let last: LimitError | null = null
+  let last: Error | null = null
   for (const model of order) {
-    try {
-      return { model, ...(await complete(model, messages)) }
-    } catch (error) {
-      if (!(error instanceof LimitError)) throw error
-      last = error
+    // Two tries per model: a broken tool call is usually right the second time.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return { model, ...(await complete(model, messages)) }
+      } catch (error) {
+        if (error instanceof SlipError) {
+          last = error
+          continue
+        }
+        if (!(error instanceof LimitError)) throw error
+        last = error
+        break
+      }
     }
   }
+  if (last instanceof SlipError) throw new Error('Every model wrote a broken tool call.')
   throw last ?? new LimitError(usage.models.some((m) => m.coolUntil && m.coolUntil.getTime() - Date.now() > 5 * 60_000))
 }
 
