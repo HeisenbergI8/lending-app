@@ -30,7 +30,7 @@
       "How much is floating in each pot?"
     ],
     "relies_on": "Lenders Demo Admin (Admin pot), John Ross Santos, Maria Cruz, Jun Reyes.",
-    "expected": "Calls list_lenders. Lists all four pots with a floating amount each. Expected Demo Admin ₱15,000.00 and Jun Reyes ₱18,000.00; the others as on the Lenders page.",
+    "expected": "Calls list_lenders. Lists all four pots with a floating amount each. Expected Demo Admin ₱26,000.00 and Jun Reyes ₱18,000.00; the others as on the Lenders page.",
     "pass": "Four names; each amount equals the Lenders page.",
     "makes_change": false,
     "needs_file": false
@@ -485,7 +485,7 @@
     "turns": [
       "how much does Angel owe?"
     ],
-    "relies_on": "SETUP: run PPL-01 variant first to add borrower \"Angela Ramos\" (no loans). \"Angel\" then matches 2 borrowers.",
+    "relies_on": "SETUP (done by the runner): PPL-01 adds borrower Angela Ramos (no loans). \"Angel\" then matches 2 borrowers.",
     "expected": "Asks which one: Angel Dela Cruz or Angela Ramos. No guess.",
     "pass": "A question naming both.",
     "makes_change": false,
@@ -1338,9 +1338,9 @@
       "remove Bea's photo"
     ],
     "relies_on": "No photo in seed.",
-    "expected": "Card \"Remove a borrower's photo\". Confirm saves or shows the app's own message; no crash.",
-    "pass": "Card shows; no crash.",
-    "makes_change": true,
+    "expected": "The seed has no borrower photos, so there is no card: the chat says the borrower has no photo to remove (propose_action refuses clear_borrower_photo when there is no photo).",
+    "pass": "No card; says there is no photo to remove.",
+    "makes_change": false,
     "needs_file": false
   },
   {

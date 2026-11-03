@@ -6,7 +6,8 @@ Eval scenarios for Ask Pondex, the chat assistant. The same list is in `chat-sce
 
 - Sign in as the demo account. Run every change on the demo account only.
 - Run `npm run db:seed` first. It wipes and rebuilds the demo account. Run it again between groups that make changes.
-- Note: the seed does not clear pending requests. Remove any left from REQ tests by hand (or with REQ-05).
+- The seed also clears pending requests (fixed 2026-11-04).
+- Scenarios that say "Run after X" need X's change first. The runner (`ai/evals/README` in the morning report) applies those setups exactly, on demo only, after each reset.
 - **D** means the day you ran the seed. Run the plan the same day. D+14 means 14 days after D. Cards show dates like "Nov 18, 2026".
 - Some change scenarios need a file. Use any small screenshot (PNG or JPG).
 - "Card" is the Confirm card under the answer. Nothing is saved until you tap Confirm.
