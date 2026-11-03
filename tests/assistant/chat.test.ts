@@ -96,3 +96,12 @@ describe('the slips the first runs found', () => {
     assert.match(nudgeFor('Okay, noted.', 'add lender Paolo Garcia', []) ?? '', /This is a change/))
   test('a question about paying is not a change', () => assert.equal(nudgeFor('From your rules: full payment only.', 'can borrowers pay in parts?', ['read_rules']), null))
 })
+
+describe('phantom cards and missed changes (run 7)', () => {
+  test('"Here is the ready-to-confirm card" with no card is sent back', () =>
+    assert.match(nudgeFor('Here is the ready-to-confirm card.', 'lyn paid in full today', ['find_borrower']) ?? '', /No card/))
+  test('"pd" and "withdrawal" are change requests', () => {
+    assert.match(nudgeFor('Okay.', 'rico pd today', []) ?? '', /This is a change/)
+    assert.match(nudgeFor('Noted.', 'record jun withdrawal 5k', []) ?? '', /This is a change/)
+  })
+})

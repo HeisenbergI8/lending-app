@@ -594,11 +594,19 @@ async function notSaidByAdmin(
   said: string,
   unchanged: Set<string> = new Set(),
 ): Promise<string | null> {
+  // Funding a pending request: its amount and length were agreed when it was made,
+  // so they count as said.
+  let request: { capital: number; weeks: number } | null = null
+  if (action === 'create_loan' && fields.pendingId) {
+    const row = await db.pendingLoan.findFirst({ where: { id: fields.pendingId, userId }, select: { capitalCentavos: true, termDays: true } })
+    if (row) request = { capital: row.capitalCentavos, weeks: row.termDays / 7 }
+  }
   // A new loan or request needs a length the Admin gave: weeks, days, or a date.
-  if ((action === 'create_loan' || action === 'create_request') && !LENGTH_SAID.test(said)) {
+  if ((action === 'create_loan' || action === 'create_request') && !request && !LENGTH_SAID.test(said)) {
     return 'The Admin did not say how long the loan runs. Ask (for example "4 weeks" or a due date).'
   }
   const amounts = amountsSaid(said).map((n) => Math.round(n * 100))
+  if (request) amounts.push(request.capital)
   const cents = (v: string) => (parsePesos(v).ok ? (parsePesos(v) as { value: number }).value : NaN)
   const field = SAID_AMOUNT[action]
   if (field && fields[field]) {

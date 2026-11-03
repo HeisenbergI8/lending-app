@@ -261,9 +261,9 @@ const ID = /\b(c[a-z0-9]{20,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * answered from memory. Costs nothing when the model behaves.
  */
 /** A request to change something, in the words people use for it. */
-const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pay|record|deposit|withdr[ae]w|rename|extend|convert|label|note|advance|fund|request)\b/i
+const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pd|pay|record|deposit|withdr[ae]w\w*|rename|extend|convert|label|note|advance|fund|request|attach|proof|receipt|starting capital)\b/i
 /** An answer that claims a card exists. */
-const CLAIMS_CARD = /\b(tap confirm|ready to confirm|check it, then tap|confirm (it|the card)|card (is )?ready)\b/i
+const CLAIMS_CARD = /\b(tap confirm|ready[\s-]to[\s-]confirm|check it, then tap|confirm (it|the card)|card (is )?ready|here is the .{0,30}card)\b/i
 
 export function nudgeFor(answer: string, question: string, usedTools: string[], offeredNames: string[] = []): string | null {
   if (!answer.trim()) return 'Your reply was empty. Answer the question, using the tools if you need them.'
@@ -361,6 +361,11 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
           if (answer) messages.push({ role: 'assistant', content: answer })
           messages.push({ role: 'user', content: nudge })
           continue
+        }
+        // Out of nudges and still claiming a card that does not exist: say so plainly
+        // rather than send the Admin looking for a Confirm button.
+        if (CLAIMS_CARD.test(answer)) {
+          return finish('I could not make the card for that. Tell me again what to change, with the names and amounts.', null)
         }
         return answer
           ? finish(withoutIds(answer), null)
