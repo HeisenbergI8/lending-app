@@ -1,3 +1,4 @@
+import { AskPondex } from '@/components/assistant/ask-pondex.tsx'
 import { DesktopSidebar } from '@/components/shell/desktop-sidebar.tsx'
 import { MobileNav } from '@/components/shell/mobile-nav.tsx'
 import { PageTransition } from '@/components/shell/page-transition.tsx'
@@ -36,6 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
 
       <MobileNav username={user.username} isDemo={user.isDemo} />
+      <AskPondex />
     </div>
   )
 }
