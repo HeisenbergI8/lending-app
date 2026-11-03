@@ -192,6 +192,8 @@ async function findBorrower(userId: string, name: string) {
           due: day(loan.dueOn),
           state: loan.state,
           paidOn: day(loan.paidOn),
+          interestPaid: loan.weekly ? 'every week' : 'with the capital at the end',
+          payments: loan.payments.map((p) => ({ date: day(p.paidOn), amount: peso(p.amount), ...(p.week ? { week: p.week } : {}) })),
           funders: loan.funders.map((f) => ({ name: f.name, isAdmin: f.isAdmin, amount: peso(f.principal) })),
         })),
       })),
@@ -264,7 +266,13 @@ async function loanDetail(userId: string, loanId: string) {
       adminCut: peso(f.adminCut),
       lenderRate: bps(f.lenderRateBps),
     })),
-    weeks: loan.weeks.map((w) => ({ week: w.week, due: day(w.dueOn) })),
+    weeks: loan.weeks.map((w) => ({
+      week: w.week,
+      due: day(w.dueOn),
+      interest: peso(w.interest),
+      paidOn: day(w.paidOn),
+      ...(w.withCapital ? { paidWithCapital: true } : {}),
+    })),
     notes: loan.notes.map((n) => ({ written: day(n.createdAt), text: n.body })),
   }
 }
