@@ -7,12 +7,13 @@ import { db } from '../db.ts'
 import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { listDeleted, type DeletedSection } from '../deleted/queries.ts'
 import { listPendingLoans } from '../pending/queries.ts'
-import { ACTIONS, actionSpec, checkProposal, findActions } from './actions.ts'
+import { ACTIONS, actionSpec, checkProposal, findActions, normalizeFields } from './actions.ts'
 import { borrowerPhotoUrls } from '../storage/borrower-photos.ts'
-import { closestNames } from './names.ts'
+import { closestNames, type Named } from './names.ts'
+import { manilaToday } from './today.ts'
 import { describeProposal } from './proposal.ts'
 import { readRules } from './knowledge.ts'
-import { getLoan, interestSummary, listLoans, overdueSummary } from '../loans/queries.ts'
+import { dueThisWeek, getLoan, interestSummary, listLoans, overdueSummary } from '../loans/queries.ts'
 
 /**
  * The tools Ask Pondex can call. EVERY ONE OF THEM ONLY READS.
@@ -47,7 +48,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'get_overview',
     description:
-      "Today's dashboard totals: out on loan, floating, earned, interest, overdue, borrower counts.",
+      "Today's dashboard totals: out on loan, floating, earned, interest, who is overdue, due this week, borrower counts.",
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -74,7 +75,7 @@ export const TOOLS: ToolSpec[] = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Borrower or lender name.' },
-        status: { type: 'string', enum: ['active', 'overdue', 'paid'] },
+        status: { type: 'string', enum: ['active', 'overdue', 'paid', 'week'], description: '"week" = due within the next 7 days.' },
         due_from: { type: 'string', description: 'YYYY-MM-DD, due on or after.' },
         due_to: { type: 'string', description: 'YYYY-MM-DD, due on or before.' },
         amount: { type: 'number', description: 'Exact amount or total in pesos.' },
@@ -118,7 +119,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'propose_action',
     description:
-      'Show the Admin a card to confirm a change. Nothing is saved until they tap Confirm. Give ids from the lookup tools, amounts in pesos, dates as YYYY-MM-DD.',
+      'Show the Admin a card to confirm a change. Nothing is saved until they tap Confirm. borrowerId and lenderId (also in funders) may be the person\'s name; the server finds them. Other ids come from the lookup tools. Amounts in pesos, dates as YYYY-MM-DD or "today"; for a loan, weeks instead of dueOn is fine.',
     parameters: {
       type: 'object',
       properties: {
@@ -150,17 +151,25 @@ function str(args: Record<string, unknown>, key: string): string {
   return typeof value === 'string' ? value.trim().slice(0, 80) : ''
 }
 
+/** The words of a name as typed, without a trailing period or possessive: "Dan's" is Dan. */
 function words(text: string): string[] {
-  return text.split(/\s+/).map((w) => w.replace(/\.$/, '')).filter((w) => w.length > 0)
+  return text
+    .split(/\s+/)
+    .map((w) => w.replace(/\.$/, '').replace(/['’]s$/i, ''))
+    .filter((w) => w.length > 0)
 }
 
 async function getOverview(userId: string) {
-  const [lenders, overdue, interest, people] = await Promise.all([
+  const [lenders, overdue, interest, people, week, late] = await Promise.all([
     listLenders(userId),
     overdueSummary(userId),
     interestSummary(userId),
     borrowerCounts(userId),
+    dueThisWeek(userId),
+    // "Who is overdue" is the next question after "how many", so the names come along.
+    listLoans(userId, { ...NO_FILTER, status: 'overdue' }, { page: 1, skip: 0, take: 25 }),
   ])
+  const overdueWho = late.rows.map((loan) => ({ borrower: loan.borrowerName, owes: peso(loan.total), wasDue: day(loan.dueOn) }))
   const sum = (pick: (l: (typeof lenders)[number]) => number) =>
     peso(lenders.reduce((total, l) => total + pick(l), 0) as Centavos)
 
@@ -170,7 +179,8 @@ async function getOverview(userId: string) {
     floating: sum((l) => l.position.floating),
     earned: sum((l) => l.position.earned),
     interest: { charged: peso(interest.charged), collected: peso(interest.collected), stillOwed: peso(interest.pending) },
-    overdue: { loans: overdue.loans, people: overdue.borrowers, amount: peso(overdue.total) },
+    overdue: { loans: overdue.loans, people: overdue.borrowers, amount: peso(overdue.total), who: overdueWho },
+    dueThisWeek: { amount: peso(week.total), loans: week.loans, people: week.borrowers, from: day(week.from), to: day(week.to) },
     borrowers: { all: people.all, owingNow: people.owing },
   }
 }
@@ -225,6 +235,13 @@ async function findBorrower(userId: string, name: string) {
 
   const people = await Promise.all(matches.map((m) => getBorrower(userId, m.id)))
   const several = matches.length > 1 ? { note: 'Several borrowers match. Unless the question is about all of them, ask which one.' } : {}
+  // "Cruz" can be a borrower AND a lender. Say so, or the lender is invisible.
+  const lenderTwins = await db.lender.findMany({
+    where: { userId, deletedAt: null, AND: terms.map((term) => ({ OR: [{ firstName: { contains: term, ...INSENSITIVE } }, { lastName: { contains: term, ...INSENSITIVE } }] })) },
+    select: { firstName: true, lastName: true },
+    take: 3,
+  })
+  const alsoLenders = lenderTwins.length > 0 ? { alsoLenders: lenderTwins.map((l) => `${l.firstName} ${l.lastName}`) } : {}
   // Notes ride along with each loan. Smaller models rarely go back for get_loan
   // on their own, and "what note is on her loan" is a common question.
   const notes = await db.loanNote.findMany({
@@ -236,6 +253,7 @@ async function findBorrower(userId: string, name: string) {
   return {
     found: true,
     ...several,
+    ...alsoLenders,
     borrowers: people
       .filter((b) => b !== null)
       .map((b) => ({
@@ -273,10 +291,18 @@ async function findLoans(userId: string, args: Record<string, unknown>) {
     amount: amount as Centavos | null,
     from: parseCalendarDate(str(args, 'due_from')),
     to: parseCalendarDate(str(args, 'due_to')),
-    status: ['active', 'overdue', 'paid'].includes(status) ? (status as LoanStatusFilter) : null,
+    status: ['active', 'overdue', 'paid', 'week'].includes(status) ? (status as LoanStatusFilter) : null,
   }
 
   const { rows, totals } = await listLoans(userId, filter, { page: 1, skip: 0, take: 25 })
+  // A typed name that matches no loan is most often a typo: offer the close
+  // borrower and lender names, as find_borrower does, instead of "none".
+  const typed = str(args, 'name')
+  if (rows.length === 0 && typed) {
+    const [borrowers, lenders] = await Promise.all([listBorrowerNames(userId), listLenderNames(userId)])
+    const didYouMean = closestNames(typed, [...borrowers, ...lenders]).map((p) => `${p.firstName} ${p.lastName}`)
+    if (didYouMean.length > 0) return { found: false, reason: `No loans for "${typed}". Ask if they meant one of didYouMean.`, didYouMean }
+  }
   return {
     totals: {
       matching: totals.all,
@@ -460,12 +486,56 @@ function describeActions(what: string) {
   }
 }
 
+/**
+ * The one person a name points at, or null. Used where a model passed a name
+ * (or an id it made up) instead of an id: every typed word must match, or,
+ * failing that, exactly one close spelling. Two candidates is never a guess.
+ * Whatever this picks is shown by name on the card, where the Admin checks it.
+ */
+async function personId(userId: string, kind: 'borrower' | 'lender', value: string): Promise<string | null> {
+  const table = kind === 'borrower' ? db.borrower : db.lender
+  const exact = await (table as typeof db.borrower).findFirst({ where: { id: value, userId }, select: { id: true } })
+  if (exact) return exact.id
+  const terms = words(value.replace(/[^\p{L}\s'.-]/gu, ' '))
+  if (terms.length === 0) return null
+  const people: Named[] = kind === 'borrower' ? await listBorrowerNames(userId) : await listLenderNames(userId)
+  const full = (p: Named) => `${p.firstName} ${p.lastName}`.toLowerCase()
+  const containing = people.filter((p) => terms.every((t) => full(p).includes(t.toLowerCase())))
+  if (containing.length === 1) return containing[0].id
+  if (containing.length > 1) return null
+  const close = closestNames(value, people)
+  return close.length === 1 ? close[0].id : null
+}
+
+async function resolveNames(userId: string, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const out = { ...fields }
+  for (const [key, kind] of [['borrowerId', 'borrower'], ['lenderId', 'lender']] as const) {
+    if (typeof out[key] === 'string' && out[key]) out[key] = (await personId(userId, kind, out[key] as string)) ?? out[key]
+  }
+  return out
+}
+
+async function resolveFunders(userId: string, funders: unknown): Promise<unknown> {
+  if (!Array.isArray(funders)) return funders
+  return Promise.all(
+    funders.map(async (row) => {
+      if (!row || typeof row !== 'object') return row
+      const r = row as Record<string, unknown>
+      // Models also write { lender: "Maria", amount } or { name: ... }.
+      const said = String(r.lenderId ?? r.lender ?? r.name ?? '')
+      return { ...r, lenderId: said ? ((await personId(userId, 'lender', said)) ?? said) : '' }
+    }),
+  )
+}
+
 /** A change for the Admin to confirm. Nothing is saved here. */
 export async function proposeAction(userId: string, args: Record<string, unknown>) {
   const spec = actionSpec(str(args, 'action'))
   if (!spec) return { error: `No action called "${str(args, 'action')}". Use find_action.` }
-  const fields = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
-  const checked = checkProposal(spec, fields, args.funders)
+  const given = args.fields && typeof args.fields === 'object' ? (args.fields as Record<string, unknown>) : {}
+  const fields = await resolveNames(userId, normalizeFields(spec, given, manilaToday()))
+  const funders = await resolveFunders(userId, args.funders)
+  const checked = checkProposal(spec, fields, funders)
   if (!checked.ok) return { error: checked.error }
   // The app only offers "Remove photo" when there is one; removing a photo
   // that is not there fails in storage after Confirm. Say so now instead.

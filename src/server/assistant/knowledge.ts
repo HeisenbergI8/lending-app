@@ -76,6 +76,17 @@ function load(): Section[] {
   return sections
 }
 
+export function scoreSections(all: Section[], question: string): { section: Section; score: number }[] {
+  const asked = [...new Set(tokens(question))]
+  return all
+    .map((section) => ({
+      section,
+      score: asked.reduce((n, w) => n + (section.strong.has(w) ? 3 : 0) + (section.body.has(w) ? 1 : 0), 0),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+}
+
 export function rankSections(all: Section[], question: string): Section[] {
   const asked = [...new Set(tokens(question))]
   const scored = all

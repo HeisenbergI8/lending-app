@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { manilaToday, trimHistory } from '../../src/server/assistant/chat.ts'
+import { manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -20,4 +20,22 @@ describe('the chat loop', () => {
   })
 
   test('a short chat is sent whole', () => assert.deepEqual(trimHistory([1, 2, 3], 14), [1, 2, 3]))
+})
+
+describe('nudges for smaller models', () => {
+  test('an empty reply is sent back once', () => assert.match(nudgeFor('', 'how much does bea owe', []) ?? '', /empty/))
+  test('a promise to look is sent back', () => assert.match(nudgeFor('Let me check that for you.', 'how much does bea owe', ['find_borrower']) ?? '', /lookup now/))
+  test('a rules question answered without read_rules is sent back', () =>
+    assert.match(nudgeFor('Good means never late.', 'What makes a borrower Good, Okay or Bad?', []) ?? '', /read_rules/))
+  test('a rules question that used read_rules is left alone', () =>
+    assert.equal(nudgeFor('From your rules: Good is never late.', 'What makes a borrower Good?', ['read_rules']), null))
+  test('a plain data answer is left alone', () => assert.equal(nudgeFor('Out on loan is ₱95,000.00.', 'How much is out on loan right now?', ['get_overview']), null))
+})
+
+describe('ids never reach the Admin', () => {
+  test('a cuid and a uuid are removed', () => {
+    assert.equal(withoutIds('Loan cmw0yq3cm0010odoobg23mycx was not found.'), 'Loan was not found.')
+    assert.equal(withoutIds('Loan (eb4f7578-e29d-45e5-a2ea-188994cb4be3) is paid.'), 'Loan is paid.')
+  })
+  test('ordinary words and amounts stay', () => assert.equal(withoutIds('Rico owes ₱25,600.00.'), 'Rico owes ₱25,600.00.'))
 })

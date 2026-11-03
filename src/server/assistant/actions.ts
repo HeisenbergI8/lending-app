@@ -1,5 +1,6 @@
 import { parsePesos } from '../../lib/money/centavos.ts'
 import { parseCalendarDate } from '../../lib/money/weeks.ts'
+import { addCalendarDays } from './today.ts'
 
 /**
  * Every change Ask Pondex can PROPOSE. It never makes one: the Admin taps
@@ -44,8 +45,9 @@ const LOAN_FIELDS: ActionField[] = [
   { name: 'borrowerFirstName', kind: 'text' },
   { name: 'borrowerLastName', kind: 'text' },
   { name: 'capital', kind: 'pesos', required: true },
-  { name: 'startOn', kind: 'date', required: true, about: `${DATE}. Usually today.` },
-  { name: 'dueOn', kind: 'date', required: true, about: `${DATE}. Whole weeks after startOn on a weekly-rate loan.` },
+  { name: 'startOn', kind: 'date', required: true, about: `${DATE}, or "today".` },
+  { name: 'dueOn', kind: 'date', required: true, about: `${DATE}. Or leave it out and give weeks; the app works out the date.` },
+  { name: 'weeks', kind: 'number', about: 'How many weeks the loan runs, when the Admin said "4 weeks" instead of a date.' },
   { name: 'interestBasis', kind: 'choice', values: ['WEEKLY_RATE', 'FIXED_AMOUNT'], about: 'Default WEEKLY_RATE.' },
   { name: 'borrowerRate', kind: 'percent', about: 'Per week, default 7.' },
   { name: 'adminCut', kind: 'percent', about: 'Per week, default 2.' },
@@ -148,7 +150,7 @@ export const ACTIONS: ActionSpec[] = [
     title: "Set a borrower's label",
     about: 'Empty label clears it.',
     fields: [id('borrowerId'), { name: 'label', kind: 'choice', values: ['GOOD', 'OKAY', 'BAD', ''] }],
-    words: 'label rating good okay bad rate borrower',
+    words: 'label rating good okay bad rate borrower mark clear remove tag',
   },
   {
     name: 'delete_borrower',
@@ -233,14 +235,23 @@ const BY_NAME = new Map(ACTIONS.map((a) => [a.name, a]))
 export const actionSpec = (name: string) => BY_NAME.get(name) ?? null
 
 /** The actions whose name, title or words share the most words with what was asked. */
-export function findActions(what: string, limit = 3): ActionSpec[] {
-  const asked = what.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2)
-  return ACTIONS.map((a) => {
-    const hay = `${a.name.replace(/_/g, ' ')} ${a.title} ${a.words}`.toLowerCase()
-    return { a, score: asked.filter((w) => hay.includes(w)).length }
+const wordsOf = (text: string) => new Set(text.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2))
+
+/**
+ * The actions whose name, title or words share the most WHOLE words with what
+ * was asked. Whole words, because a substring match let "mark" find "remark"
+ * and crowd the right action out. More matched words wins; on a tie, the
+ * action whose name or title holds more of them.
+ */
+export function findActions(what: string, limit = 5): ActionSpec[] {
+  const asked = [...wordsOf(what)]
+  return ACTIONS.map((a, index) => {
+    const named = wordsOf(`${a.name.replace(/_/g, ' ')} ${a.title}`)
+    const all = new Set([...named, ...wordsOf(a.words)])
+    return { a, index, score: asked.filter((w) => all.has(w)).length, named: asked.filter((w) => named.has(w)).length }
   })
     .filter((x) => x.score > 0)
-    .sort((x, y) => y.score - x.score)
+    .sort((x, y) => y.score - x.score || y.named - x.named || x.index - y.index)
     .slice(0, limit)
     .map((x) => x.a)
 }
@@ -292,6 +303,29 @@ function conditionalMissing(spec: ActionSpec, clean: Record<string, string>, fun
 export function fileRequired(spec: ActionSpec, fields: Record<string, string>): boolean {
   if (!spec.files) return false
   return spec.files.required || (spec.name === 'extend_loan' && fields.paidNow === 'yes')
+}
+
+/**
+ * Turn what people say into what the forms take, before anything is checked:
+ * "today" and "tomorrow" in a date field, and "4 weeks" into a due date when
+ * no date was given. Counting weeks on a calendar is where smaller models
+ * slip, so the server does it.
+ */
+export function normalizeFields(spec: ActionSpec, fields: Record<string, unknown>, today: string): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...fields }
+  for (const field of spec.fields) {
+    if (field.kind !== 'date' || typeof out[field.name] !== 'string') continue
+    const said = (out[field.name] as string).trim().toLowerCase()
+    if (said === 'today' || said === 'now') out[field.name] = today
+    else if (said === 'tomorrow') out[field.name] = addCalendarDays(today, 1)
+    else if (said === 'yesterday') out[field.name] = addCalendarDays(today, -1)
+  }
+  const weeks = Number(out.weeks)
+  const start = typeof out.startOn === 'string' && parseCalendarDate(out.startOn) ? out.startOn : null
+  if ((spec.name === 'create_loan' || spec.name === 'update_loan') && !out.dueOn && start && Number.isInteger(weeks) && weeks > 0) {
+    out.dueOn = addCalendarDays(start, weeks * 7)
+  }
+  return out
 }
 
 /** Check a proposal against its spec. Returns what is missing or wrong so the model can ask. */

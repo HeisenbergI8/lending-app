@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { ACTIONS, actionSpec, checkProposal, fileRequired, findActions, toFormData } from '../../src/server/assistant/actions.ts'
+import { ACTIONS, actionSpec, checkProposal, fileRequired, findActions, normalizeFields, toFormData } from '../../src/server/assistant/actions.ts'
 import { parseRefusal } from '../../src/server/assistant/usage.ts'
 
 /**
@@ -159,4 +159,26 @@ describe('overnight fixes (2026-11-04)', () => {
     const result = checkProposal(loan, { borrowerId: 'b', capital: '20000', startOn: '2026-11-04', dueOn: '2026-11-07', interestBasis: 'FIXED_AMOUNT' }, [{ lenderId: 'f', amount: '20000' }])
     assert.deepEqual(result, { ok: false, error: 'Missing: fixedInterest, fixedLenderShare. Ask the Admin.' })
   })
+})
+
+describe('the server does the calendar, not the model', () => {
+  const loan = actionSpec('create_loan')!
+  test('"today" becomes the date, and 4 weeks becomes the due date', () => {
+    assert.deepEqual(normalizeFields(loan, { startOn: 'today', weeks: '4' }, '2026-11-04'), { startOn: '2026-11-04', weeks: '4', dueOn: '2026-12-02' })
+  })
+  test('a due date given is kept', () => {
+    assert.equal(normalizeFields(loan, { startOn: '2026-11-04', dueOn: '2026-11-18', weeks: '4' }, '2026-11-04').dueOn, '2026-11-18')
+  })
+  test('weeks across a month end', () => {
+    assert.equal(normalizeFields(loan, { startOn: '2026-11-28', weeks: '1' }, '2026-11-04').dueOn, '2026-12-05')
+  })
+  test('tomorrow in another date field', () => {
+    assert.equal(normalizeFields(actionSpec('mark_paid')!, { paidOn: 'Tomorrow' }, '2026-11-30').paidOn, '2026-12-01')
+  })
+})
+
+describe('find_action matches whole words', () => {
+  test('"mark as good" finds the label, not a note ("remark")', () => assert.equal(findActions('mark Rico as good')[0]?.name, 'set_label'))
+  test('"remove label" finds the label', () => assert.ok(findActions('remove label').some((a) => a.name === 'set_label')))
+  test('"mark paid" still finds mark_paid first', () => assert.equal(findActions('mark paid')[0]?.name, 'mark_paid'))
 })

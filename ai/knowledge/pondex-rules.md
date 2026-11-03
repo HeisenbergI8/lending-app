@@ -121,7 +121,7 @@ Also called: split, several lenders, funders, who funded, whose money
   the Admin's own money.
 
 ## Floating, out on loan and earned
-Also called: dashboard, pot, idle cash, available to lend, balance, money words
+Also called: dashboard, pot, idle cash, available to lend, balance, money words, due this week
 
 - **Out on loan:** capital in borrowers' hands on loans not yet paid.
 - **Floating:** a lender's idle cash, ready to lend. Money in, minus money out, minus what is out on
@@ -132,6 +132,8 @@ Also called: dashboard, pot, idle cash, available to lend, balance, money words
 - **Total interest:** all interest ever charged on loans on record, split into "back" (collected)
   and "still out" (not collected yet).
 - **Overdue tile:** how many overdue loans and people, and how much they owe.
+- **Due this week:** money owed in the next 7 days, from today: how much, on how many loans, by how
+  many people.
 
 ## When a loan is repaid
 Also called: repayment, money comes back, returns to floating
@@ -216,7 +218,8 @@ Also called: reminder, remind, nudge, due soon
 ---
 
 ## The Admin's own lending rules
-Also called: policy, limit, maximum, second loan, two loans, how long, term, length, weeks,
+Also called: policy, limit, maximum, second loan, two loans, 2 loans, same time, at once, how long, term,
+length, weeks,
 when overdue, funding decision, who decides, label rules, good, okay, bad
 
 Written by the Admin on 2026-11-03. The app does not enforce these; they explain how the Admin
