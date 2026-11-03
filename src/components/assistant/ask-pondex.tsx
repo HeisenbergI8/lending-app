@@ -149,7 +149,7 @@ export function AskPondex() {
         >
           <div className={cn('flex min-h-0 w-full flex-1 flex-col', full && 'md:mx-auto md:max-w-3xl')}>
             <header className="border-border/70 flex items-center gap-3 border-b py-3 pr-2 pl-4">
-              <button type="button" onClick={poke} aria-label="Say hi to Pondex" className="rounded-2xl">
+              <button type="button" onClick={poke} aria-label="Say hi to Pondex" className="cursor-pointer rounded-2xl">
                 <PondexMascot mood={mood} size={52} />
               </button>
               <div className="min-w-0 flex-1">
@@ -179,7 +179,7 @@ export function AskPondex() {
             <div ref={list} aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5">
               {empty && (
                 <div className="m-auto flex max-w-md flex-col items-center gap-3 text-center">
-                  <button type="button" onClick={poke} aria-label="Say hi to Pondex" className="rounded-3xl">
+                  <button type="button" onClick={poke} aria-label="Say hi to Pondex" className="cursor-pointer rounded-3xl">
                     <PondexMascot mood={poked ? 'happy' : 'idle'} size={160} />
                   </button>
                   <h2 className="text-xl font-semibold">Hi, I’m Pondex.</h2>
@@ -294,7 +294,7 @@ export function AskPondex() {
         )}
       >
         {!open && (
-          <div className="animate-ask-bubble bg-card border-border hidden rounded-[16px_16px_4px_16px] border px-3.5 py-2.5 text-sm whitespace-nowrap shadow-lg sm:block">
+          <div className="animate-ask-bubble bg-brand text-brand-foreground shadow-brand/30 hidden rounded-[16px_16px_4px_16px] px-3.5 py-2.5 text-sm font-medium whitespace-nowrap shadow-xl sm:block">
             Hi! Ask me about your loans.
           </div>
         )}
@@ -303,7 +303,7 @@ export function AskPondex() {
           onClick={toggleOpen}
           aria-label={open ? 'Close Ask Pondex' : 'Open Ask Pondex'}
           aria-expanded={open}
-          className="rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
+          className="cursor-pointer rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
         >
           <PondexMascot mood={mood} size={84} />
         </button>
