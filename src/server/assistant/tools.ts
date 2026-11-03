@@ -53,7 +53,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'find_borrower',
     description:
-      'A borrower by name: label, track record, still owed, and every loan with funders and each payment made. found: false if nobody matches.',
+      'A borrower by name: label, track record, still owed, and every loan with funders, each payment made and notes. found: false if nobody matches.',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string', description: 'As written, e.g. "Mitch G".' } },
@@ -172,6 +172,14 @@ async function findBorrower(userId: string, name: string) {
   }
 
   const people = await Promise.all(matches.map((m) => getBorrower(userId, m.id)))
+  // Notes ride along with each loan. Smaller models rarely go back for get_loan
+  // on their own, and "what note is on her loan" is a common question.
+  const notes = await db.loanNote.findMany({
+    where: { userId, loanId: { in: people.flatMap((p) => p?.loans.map((l) => l.id) ?? []) } },
+    orderBy: { createdAt: 'asc' },
+    select: { loanId: true, body: true },
+  })
+  const notesOf = (loanId: string) => notes.filter((n) => n.loanId === loanId).map((n) => n.body)
   return {
     found: true,
     borrowers: people
@@ -195,6 +203,7 @@ async function findBorrower(userId: string, name: string) {
           interestPaid: loan.weekly ? 'every week' : 'with the capital at the end',
           payments: loan.payments.map((p) => ({ date: day(p.paidOn), amount: peso(p.amount), ...(p.week ? { week: p.week } : {}) })),
           funders: loan.funders.map((f) => ({ name: f.name, isAdmin: f.isAdmin, amount: peso(f.principal) })),
+          notes: notesOf(loan.id),
         })),
       })),
   }
