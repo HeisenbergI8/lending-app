@@ -164,7 +164,7 @@ describe('overnight fixes (2026-11-04)', () => {
 describe('the server does the calendar, not the model', () => {
   const loan = actionSpec('create_loan')!
   test('"today" becomes the date, and 4 weeks becomes the due date', () => {
-    assert.deepEqual(normalizeFields(loan, { startOn: 'today', weeks: '4' }, '2026-11-04'), { startOn: '2026-11-04', weeks: '4', dueOn: '2026-12-02' })
+    assert.deepEqual(normalizeFields(loan, { startOn: 'today', weeks: '4' }, '2026-11-04'), { startOn: '2026-11-04', dueOn: '2026-12-02' })
   })
   test('weeks win over a due date the model counted wrong', () => {
     assert.equal(normalizeFields(loan, { startOn: '2026-11-04', dueOn: '2026-11-15', weeks: '2' }, '2026-11-04').dueOn, '2026-11-18')

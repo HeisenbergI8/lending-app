@@ -361,6 +361,8 @@ export function normalizeFields(spec: ActionSpec, fields: Record<string, unknown
   // worked out itself: counting weeks is the slip this exists to prevent.
   if ((spec.name === 'create_loan' || spec.name === 'update_loan') && start && Number.isInteger(weeks) && weeks > 0) {
     out.dueOn = addCalendarDays(start, weeks * 7)
+    // Said once, as the due date: a separate "Weeks" line on the card would repeat it.
+    delete out.weeks
   }
   return out
 }

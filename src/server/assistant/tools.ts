@@ -143,6 +143,11 @@ export const TOOLS: ToolSpec[] = [
 ]
 
 const peso = (amount: Centavos) => formatPesos(amount)
+/** Whole days from a stored date to today in Manila. */
+const daysSince = (date: Date) => {
+  const [y, m, d] = manilaToday().split('-').map(Number)
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())) / 86_400_000)
+}
 const day = (date: Date | null) => (date ? toDateInput(date) : null)
 const INSENSITIVE = { mode: 'insensitive' as const }
 
@@ -169,7 +174,7 @@ async function getOverview(userId: string) {
     // "Who is overdue" is the next question after "how many", so the names come along.
     listLoans(userId, { ...NO_FILTER, status: 'overdue' }, { page: 1, skip: 0, take: 25 }),
   ])
-  const overdueWho = late.rows.map((loan) => ({ borrower: loan.borrowerName, owes: peso(loan.total), wasDue: day(loan.dueOn) }))
+  const overdueWho = late.rows.map((loan) => ({ borrower: loan.borrowerName, owes: peso(loan.total), wasDue: day(loan.dueOn), daysLate: daysSince(loan.dueOn) }))
   const sum = (pick: (l: (typeof lenders)[number]) => number) =>
     peso(lenders.reduce((total, l) => total + pick(l), 0) as Centavos)
 
@@ -349,6 +354,8 @@ async function findLoans(userId: string, args: Record<string, unknown>) {
       totalToRepay: peso(loan.total),
       nextDue: day(loan.dueOn),
       nextDueIsAWeeklyPayment: loan.dueIsWeekly,
+      // Worked out here: counting days on a calendar is where models slip.
+      ...(loan.state === 'overdue' ? { daysLate: daysSince(loan.dueOn) } : {}),
       state: loan.state,
       funders: loan.funders.map((f) => ({ name: f.name, amount: peso(f.principal) })),
       latestNote: loan.latestNote?.body ?? null,
