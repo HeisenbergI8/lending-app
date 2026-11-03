@@ -84,6 +84,19 @@ export function models(): string[] {
   return list.length > 0 ? list : DEFAULT_MODELS
 }
 
+/** Longest message kept. A real question is a sentence; this stops pasted essays costing tokens. */
+export const MAX_CHARS = 600
+
+/**
+ * A message cut to MAX_CHARS, keeping its START and its END. People paste
+ * context first and ask last, so cutting only the end threw the question away.
+ */
+export function clip(text: string, max = MAX_CHARS): string {
+  if (text.length <= max) return text
+  const head = Math.floor(max / 4)
+  return `${text.slice(0, head)} … ${text.slice(-(max - head - 3))}`
+}
+
 /** The last turns, plus the first one when it would otherwise be cut. */
 export function trimHistory<T>(turns: T[], max = MAX_HISTORY): T[] {
   return turns.length <= max ? turns : [turns[0], ...turns.slice(-(max - 1))]

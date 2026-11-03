@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { clip, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -38,4 +38,15 @@ describe('ids never reach the Admin', () => {
     assert.equal(withoutIds('Loan (eb4f7578-e29d-45e5-a2ea-188994cb4be3) is paid.'), 'Loan is paid.')
   })
   test('ordinary words and amounts stay', () => assert.equal(withoutIds('Rico owes ₱25,600.00.'), 'Rico owes ₱25,600.00.'))
+})
+
+describe('long messages', () => {
+  test('a long message keeps its start and its end, where the question is', () => {
+    const text = 'Context. '.repeat(100) + 'How much is out on loan right now?'
+    const kept = clip(text, 600)
+    assert.ok(kept.length <= 600)
+    assert.ok(kept.startsWith('Context.'))
+    assert.ok(kept.endsWith('How much is out on loan right now?'))
+  })
+  test('a short message is untouched', () => assert.equal(clip('hi', 600), 'hi'))
 })

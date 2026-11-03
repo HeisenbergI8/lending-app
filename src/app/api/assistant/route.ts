@@ -1,4 +1,4 @@
-import { ask, type ChatTurn, currentUsage } from '@/server/assistant/chat.ts'
+import { ask, type ChatTurn, clip, currentUsage } from '@/server/assistant/chat.ts'
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /**
@@ -13,9 +13,6 @@ import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /** A question can wait out the free plan's per-minute limit, twice. */
 export const maxDuration = 60
-
-/** Longest question accepted. A real one is a sentence; this stops pasted essays costing tokens. */
-const MAX_CHARS = 600
 
 function isTurn(value: unknown): value is ChatTurn {
   if (!value || typeof value !== 'object') return false
@@ -39,7 +36,7 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 })
   }
 
-  const history = turns.map((t) => ({ role: t.role, text: t.text.slice(0, MAX_CHARS) }))
+  const history = turns.map((t) => ({ role: t.role, text: clip(t.text) }))
   if (history.at(-1)?.role !== 'user') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 })
 
   return Response.json(await ask(user.id, history))
