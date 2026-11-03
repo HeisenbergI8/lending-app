@@ -147,7 +147,7 @@ guessing.
 - **A second loan:** yes, a borrower can have two active loans at the same time.
 - **Good, Okay or Bad label:**
   - Good: never late, and pays in advance.
-  - Okay: late once or twice.
+  - Okay: late once or twice, or never late but does not pay in advance.
   - Bad: late more than 2 times.
 - **Usual loan length:** 4 weeks.
 - **When a loan is overdue:** nothing. No penalty and no extra action.
