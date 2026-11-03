@@ -146,9 +146,9 @@ guessing.
 - **Most one borrower can borrow:** no limit.
 - **A second loan:** yes, a borrower can have two active loans at the same time.
 - **Good, Okay or Bad label:**
-  - Good: never late, and pays in advance.
-  - Okay: late once or twice, or never late but does not pay in advance.
-  - Bad: late more than 2 times.
+  - Good: never late.
+  - Okay: late once.
+  - Bad: late or overdue 2 or more times.
 - **Usual loan length:** 4 weeks.
 - **When a loan is overdue:** nothing. No penalty and no extra action.
 - **Who decides whether a pending request gets funded:** the Admin, when there is floating money
