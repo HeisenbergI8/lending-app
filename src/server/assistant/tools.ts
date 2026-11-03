@@ -31,7 +31,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'read_rules',
     description:
-      "Look up how Pondex works and the Admin's own lending rules: words like floating or earned, how interest is worked out, loan states, weekly-interest loans, splits, deleting, the Good/Okay/Bad labels, usual loan length, what happens when overdue. Returns the best matching sections.",
+      "Look up how Pondex works and the Admin's own lending rules: what a word means (floating, earned, overdue, late), how interest is worked out, payments, weekly-interest loans, splits, advances, starting capital, pending requests, labels, reports, deleting, and the Admin's rules (limits, second loans, usual length, label rules). Returns the best matching sections with their source, or found: false.",
     parameters: {
       type: 'object',
       properties: { question: { type: 'string', description: 'What to look up, in a few words, e.g. "good okay bad label".' } },

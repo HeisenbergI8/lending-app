@@ -1,154 +1,211 @@
 # Pondex: how the lending works
 
-The knowledge file Ask Pondex reads before answering. It explains the words and rules of the app.
-It holds NO live numbers: amounts, balances, dates and names always come from the database tools,
-never from this file.
+The knowledge file Ask Pondex looks up. It explains the words and rules of the app.
+It holds NO live numbers: amounts, balances, dates and names always come from the database tools.
+The worked examples below are examples, never facts about a real loan.
 
-Sources: `docs/FEATURES.md` and the comments in `prisma/schema.prisma`. If this file and those
-disagree, those are right; update this file.
+Sources: `docs/FEATURES.md`, the comments in `prisma/schema.prisma` and `src/lib/track-record.ts`.
+If this file and those disagree, those are right; update this file.
 
-Each section stands on its own, so it can be searched and quoted alone.
+How this file is written (so retrieval keeps working):
+- One topic per `## ` section. Each section stands on its own and states each fact once.
+- The `Also called:` line lists the words people use for the topic. Retrieval matches on it.
+- Keep sections short. Add a new section rather than growing an old one past about 10 lines.
 
 ---
 
 ## Who is who
+Also called: admin, lender, borrower, user, roles, login
 
 - **Admin:** the person running Pondex. Records every loan, payment and money movement. The only
-  user who signs in.
-- **Lender:** someone whose money funds loans. The Admin is also a lender, with their own pot.
-- **Borrower:** someone who borrows. Pondex stores first and last name only.
-- **Pending loan (request):** someone who has asked to borrow, before any money is behind it. Not a
-  borrower yet. It becomes a borrower and a loan the moment the loan is actually made.
+  person who signs in.
+- **Lender:** someone whose money funds loans. A record only; lenders never sign in.
+- **Admin's own pot:** the Admin is also a lender, listed first among the lenders.
+- **Borrower:** someone who borrows. A record only; borrowers never sign in or see the app.
 
-## What Pondex does NOT store
+## What Pondex does not store
+Also called: phone, number, contact, address, email, ID, personal details, privacy
 
-- No phone numbers, addresses, photos of IDs, or any borrower or lender detail beyond first and
-  last name (a borrower photo may be set by the Admin, nothing else).
-- So a question asking for a phone number or address has no answer in Pondex. Say it is not stored.
+- Borrowers and lenders: first and last name only (a borrower may also have a photo).
+- No phone numbers, addresses, emails or ID numbers. A question asking for one has no answer in
+  Pondex: say it is not stored.
 
-## Interest: the usual rates
+## Usual interest rates
+Also called: rate, percent, 7%, 5%, 2%, admin cut, lender share
 
-| Who | Usual rate | Meaning |
-| --- | --- | --- |
-| Borrower pays | 7% per week | the lender's share plus the Admin's cut |
-| Lender earns | 5% per week | on their own money in the loan |
-| Admin's cut | 2% per week | set per loan; 2% is only the usual |
+| Who | Usual rate per week |
+| --- | --- |
+| Borrower pays | 7% (lender's share plus the Admin's cut) |
+| Lender earns | 5% on their own money in the loan |
+| Admin's cut | 2% on each lender's money in the loan |
 
-- These are the usual numbers, not fixed ones. Each loan stores its own rates. For a specific
-  loan, always read that loan's rates from the database.
-- When the Admin funds a loan with their own money, the Admin earns the full borrower rate and
-  takes no separate cut.
+- These are only the usual rates. Each loan stores its own, so for a real loan read them from the
+  database.
+- Money from the Admin's own pot earns the full borrower rate. There is no separate cut on it.
 
 ## How interest is worked out
+Also called: formula, compute, calculate, total, simple interest
 
-- Simple interest, never compounding, always on the original capital.
-- `interest = capital x weekly rate x weeks`
-- `total to repay = capital + interest`
-- `weeks = (due date - start date) / 7`, and on a weekly-rate loan it must be a whole number.
-- Example: ₱30,000 at 7% for 4 weeks = ₱8,400 interest, ₱38,400 total.
+- Simple interest on the original capital. Never compounding.
+- `interest = capital x weekly rate x weeks`, and `total to repay = capital + interest`.
+- `weeks = (due date - start date) / 7`. On a weekly-rate loan this must be a whole number, or the
+  app refuses to save it.
+- Example: ₱30,000 at 7% for 4 weeks is ₱8,400 interest, ₱38,400 total.
+- "Amount" and "capital" mean the same thing: the money handed to the borrower.
 
 ## Fixed-amount loans
+Also called: fixed interest, flat amount, days, short loan
 
-- For a loan no weekly rate fits (for example 3 days, or an amount agreed in conversation).
-- The Admin types the interest amount directly. There is no rate, and the term can be any number
-  of days.
+- For a loan no weekly rate fits, such as 3 days or an amount agreed in conversation.
+- The Admin types the interest directly. There is no rate and the term can be any number of days.
 
 ## A loan's total never changes
+Also called: frozen, late fee, penalty, early payment, discount, rebate, extension, rollover
 
 - Interest and the total are worked out once, the day the loan is made, and stored.
-- Nothing recalculates them later. Changing a usual rate never changes what an existing borrower owes.
-- No late fees, no extra interest for paying late, and no discount for paying early.
-
-## Loan states
-
-- **Active:** made, not paid yet.
-- **Overdue:** still active, and the due date has passed. It is not a separate saved state; it is
-  worked out from today's date. The app treats 1 to 2 days past due as late.
-- **Paid:** fully paid. Moves to the borrower's history and stays there forever.
+- Changing a usual rate never changes an existing loan.
+- No late fees, no extra interest for paying late, no discount for paying early.
 - Loans are never extended and never rolled into a new loan.
 
-## Paying a loan
+## Loan states
+Also called: status, active, overdue, paid, late, due
 
-- Full payment only: the whole total in one payment, on the due date. No partial payments.
+- **Active:** made, not fully paid yet.
+- **Overdue:** active, and the next money owed was due before today. Worked out from today's date,
+  never saved.
+- **Paid:** fully paid. Stays in the borrower's history forever.
+- **Late:** a paid loan whose payment date was after its due date. Paying on the due date is on time.
+
+## Paying a loan
+Also called: pay, payment, repay, partial, pay in parts, installment, mark as paid, proof, GCash,
+screenshot
+
+- Full payment only: the whole total in one payment. No partial payments and no installments.
 - The one exception is a weekly-interest loan (next section).
-- Proof of payment (for example a GCash screenshot) is optional but flagged: a paid loan without
-  proof shows a "no proof" warning until a file is added.
+- Proof of payment is optional. A paid loan with no file shows a "no proof" warning until one is
+  added. One payment can have several files.
 
 ## Weekly-interest loans
+Also called: weekly, every week, schedule, interest collected weekly, convert
 
-- Same interest as a normal loan. Only the timing changes: the interest is collected every week,
-  and the capital comes back in one payment at the end.
-- One payment per week, the first one week after the start date. The last week's interest is paid
-  together with the capital on the due date.
-- One week at a time: no paying two weeks at once, no paying ahead.
-- A missed week makes the loan overdue. It stays owed, and the next week piles on top. Once every
-  due week is paid, the loan is active again.
-- On the loans list, the date shown is the next unpaid week, not the final due date.
-- Example: ₱60,000 at 7% for 20 weeks = ₱4,200 a week (₱3,000 to the lender, ₱1,200 to the Admin),
-  ₱84,000 interest in total.
+- Same interest as a normal loan. Only the timing changes: interest is paid every week, and the
+  capital comes back in one payment on the due date.
+- The first week is due one week after the start date. The last week's interest is paid with the
+  capital.
+- One week at a time: no paying two weeks at once and no paying ahead.
+- A missed week makes the loan overdue until every due week is paid.
+- On the loans list, the date shown is the next unpaid week, not the capital due date.
+- An existing loan can be converted to weekly collection. Converting changes no dates or amounts.
+- Example: ₱60,000 at 7% for 20 weeks is ₱4,200 a week (₱3,000 to the lender, ₱1,200 to the Admin).
 
 ## Splitting one loan between lenders
+Also called: split, several lenders, funders, who funded, whose money
 
-- One loan can be funded by several lenders. Each lender's part is recorded separately.
+- One loan can be funded by several lenders, and the Admin's own pot can be one of them.
 - The parts always add up exactly to the loan's capital.
-- Each lender earns their rate on their own part. The Admin's cut is taken on each part not funded
-  by the Admin.
+- Each lender earns their rate on their own part. The Admin's cut is taken on each part that is not
+  the Admin's own money.
 
-## Money words on the dashboard
+## Floating, out on loan and earned
+Also called: dashboard, pot, idle cash, available to lend, balance, money words
 
-- **Out on loan:** capital currently in borrowers' hands on loans not yet paid.
-- **Floating:** a lender's idle cash, ready to lend. Money in, minus money out, minus what is out
-  on loan, plus what has come back.
-- **Earned:** interest a lender has actually collected. It grows only when money is collected,
-  never before.
-- **Interest owed:** interest on unpaid loans that has not come in yet. "Back" is interest already
-  collected; "Total" is both together.
-- **Due this week:** money owed in the next 7 days, with how many loans and people.
-- **Pots:** one card per lender showing Floating, Out on loan and Earned.
-- **Starting capital:** what a lender put in from outside to begin with. Typed by the Admin, not
-  worked out, and not part of Floating or any report.
+- **Out on loan:** capital in borrowers' hands on loans not yet paid.
+- **Floating:** a lender's idle cash, ready to lend. Money in, minus money out, minus what is out on
+  loan, plus what has come back. Worked out every time, never typed. If it shows below zero, more is
+  out on loan than the money recorded as put in.
+- **Earned:** interest actually collected. It grows only when money comes in.
+- **Admin earnings:** the Admin's cut on other lenders' money plus what the Admin's own money earned.
+- **Total interest:** all interest ever charged on loans on record, split into "back" (collected)
+  and "still out" (not collected yet).
+- **Overdue tile:** how many overdue loans and people, and how much they owe.
 
 ## When a loan is repaid
+Also called: repayment, money comes back, returns to floating
 
-- The lender's capital and their earnings go straight back into their Floating.
-- The Admin's cut goes into the Admin's earnings.
+- Each lender's capital and earnings go straight back into their Floating, ready to lend again.
+- The Admin's cut goes to the Admin's earnings.
 
-## Borrower track record
+## Starting capital
+Also called: initial capital, stake, put in at the start, own money
 
-- Shown as, for example, `5 loans · 5 paid on time · 0 late`, counted from real payments.
-- The Admin can add their own label on top: Good, Okay or Bad.
-- A rating never blocks a loan. Pondex gives no warning before lending to a badly rated borrower.
+- What a lender put in from outside to begin with. Typed by the Admin, never worked out.
+- It is in no other figure: not Floating, not any report.
+- Pot total minus starting capital is what the lending has made that person.
+- Blank means the Admin has not set it, not ₱0.
 
-## Notes on a loan
+## Earned over a period
+Also called: this month, last month, between dates, monthly earnings, date range
+
+- On a lender's page the Admin picks two dates and sees what that pot earned between them.
+- Each loan's interest is spread across the days it ran, so a loan crossing two months counts in
+  both. It is what the money earned, not when cash arrived.
+- Ask Pondex cannot work this out. Point the Admin to the lender's page or a report.
+
+## Advances against a loan
+Also called: advance, draw early, take out before repayment
+
+- The Admin can take money out of the Admin's own pot early, against a loan that has not been
+  repaid yet.
+- The most that can be drawn is what that loan will return to the Admin's pot, minus what has
+  already been drawn on it.
+
+## Pending loan requests
+Also called: request, pending, waiting list, not funded yet
+
+- Someone who has asked to borrow, before any money is behind it. Not a borrower yet.
+- Its figures are only estimates and change if the rate changes.
+- When it is funded it becomes a real loan, and the request is removed.
+
+## Borrower track record and label
+Also called: rating, record, history, reliable, trust, good, okay, bad, label
+
+- The track record is counted by the app from real loans, for example
+  `5 loans · 5 paid on time · 0 paid late · 1 overdue now`.
+- The label (Good, Okay or Bad) is chosen by the Admin and stored. The app never sets it.
+- A label never blocks a loan, and the app gives no warning before lending to anyone.
+
+## Loan notes
+Also called: note, remark, comment
 
 - The Admin's own remarks on a loan: who was chased, what was agreed, why a date slipped.
-- Notes are never amounts; nothing adds them up. Treat a note as the Admin's words, not as a fact
-  checked by the app.
+- A note is never an amount and is never added up. Treat it as the Admin's words, not a checked fact.
+
+## Reports and backup
+Also called: report, statement, PDF, Excel, backup, export, download
+
+- Four PDF reports for any date range: overall summary, per lender, per borrower, and a per-borrower
+  full file with proof.
+- One Excel backup of the whole loan book.
+- They are saved to the device. Pondex never sends anything; the Admin shares them by hand.
 
 ## Deleting
+Also called: delete, remove, restore, undo, recently deleted, trash
 
-- A deleted record can be restored for 30 days from Recently Deleted. After that it is gone for good.
-- A deleted loan note is gone at once; notes are not kept in Recently Deleted.
+- A deleted record can be restored from Recently Deleted for 30 days, then it is gone for good.
+- A deleted loan note is gone at once.
+- Deleted loans are left out of every figure and report.
 
 ## What Pondex does not do
+Also called: not supported, missing feature, reminders, messages, SMS
 
-- Borrower or lender logins, partial payments, installment plans, early payoff, late penalties,
+- No borrower or lender logins, partial payments, installments, early payoff, late penalties,
   extensions, rollovers, compounding interest, reminders, or messages to borrowers.
+- Peso only. No other currency.
 
 ---
 
 ## The Admin's own lending rules
+Also called: policy, limit, maximum, second loan, two loans, how long, term, length, weeks,
+when overdue, funding decision, who decides, label rules, good, okay, bad
 
-The Admin's personal rules, written by the Admin on 2026-11-03. The app does not enforce them; they
-explain how the Admin decides. Anything not listed here is not written down yet: say so instead of
-guessing.
+Written by the Admin on 2026-11-03. The app does not enforce these; they explain how the Admin
+decides. Anything not listed here is not written down yet: say so instead of guessing.
 
 - **Most one borrower can borrow:** no limit.
 - **A second loan:** yes, a borrower can have two active loans at the same time.
-- **Good, Okay or Bad label:**
-  - Good: never late.
-  - Okay: late once.
-  - Bad: late or overdue 2 or more times.
+- **Good, Okay or Bad label:** count the borrower's paid-late loans plus loans overdue now.
+  Good is 0. Okay is 1. Bad is 2 or more. The label shown in the app is the one the Admin saved; if
+  it differs from what this rule gives, say both.
 - **Usual loan length:** 4 weeks.
 - **When a loan is overdue:** nothing. No penalty and no extra action.
 - **Who decides whether a pending request gets funded:** the Admin, when there is floating money
