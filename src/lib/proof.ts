@@ -64,6 +64,34 @@ export function extensionFor(mimeType: string): string {
   return EXTENSIONS[mimeType] ?? 'bin'
 }
 
+/**
+ * Does the file's content start the way its type says it should?
+ *
+ * The browser's type is only what the file's NAME suggests: a text file renamed
+ * "receipt.png" arrives as image/png. Every accepted format starts with a fixed
+ * signature, so the first bytes settle it. HEIC and HEIF share the ISO box
+ * header, "ftyp" four bytes in, whatever the brand after it.
+ */
+export function proofContentMatches(mimeType: string, head: Uint8Array): boolean {
+  const at = (offset: number, ...bytes: number[]) => bytes.every((b, i) => head[offset + i] === b)
+  const text = (offset: number, value: string) => at(offset, ...[...value].map((c) => c.charCodeAt(0)))
+  switch (mimeType) {
+    case 'image/jpeg':
+      return at(0, 0xff, 0xd8, 0xff)
+    case 'image/png':
+      return at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+    case 'image/webp':
+      return text(0, 'RIFF') && text(8, 'WEBP')
+    case 'image/heic':
+    case 'image/heif':
+      return text(4, 'ftyp')
+    case 'application/pdf':
+      return text(0, '%PDF')
+    default:
+      return false
+  }
+}
+
 export type ProofCandidate = { name: string; type: string; size: number }
 
 /** Is this file usable as proof, or what is wrong with it. */

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
-import { proofStoragePath } from '../../lib/proof.ts'
-import { putProof, removeProof } from '../storage/proof-bucket.ts'
+import { proofContentMatches, proofStoragePath } from '../../lib/proof.ts'
+import { StorageUnavailable, putProof, removeProof } from '../storage/proof-bucket.ts'
 
 /**
  * Getting proof files into the bucket, for every kind of payment.
@@ -25,13 +25,28 @@ export type Upload = { fileId: string; path: string; mimeType: string; sizeBytes
  * is not there. Anything already uploaded when a later file fails is removed, so
  * a retry does not silently leave orphans behind in a bucket nobody looks at.
  */
+/**
+ * A file whose content is not the image or PDF its name claims. A kind of
+ * StorageUnavailable on purpose: every caller already turns that into
+ * "Nothing was saved. <reason>", so this refusal reads the same everywhere
+ * without touching each action.
+ */
+export class NotRealProof extends StorageUnavailable {}
+
 export async function uploadAll(userId: string, folder: string, files: File[]): Promise<Upload[]> {
+  // Every file is checked before ANY is stored, so a bad one leaves nothing behind.
+  const contents = await Promise.all(files.map((file) => file.arrayBuffer()))
+  files.forEach((file, i) => {
+    if (!proofContentMatches(file.type, new Uint8Array(contents[i], 0, Math.min(16, contents[i].byteLength)))) {
+      throw new NotRealProof(`"${file.name}" is not really an image or a PDF. Choose the screenshot itself.`)
+    }
+  })
   const done: Upload[] = []
   try {
-    for (const file of files) {
+    for (const [i, file] of files.entries()) {
       const fileId = randomUUID()
       const path = proofStoragePath(userId, folder, fileId, file.type)
-      await putProof(path, await file.arrayBuffer(), file.type)
+      await putProof(path, contents[i], file.type)
       done.push({ fileId, path, mimeType: file.type, sizeBytes: file.size })
     }
     return done
