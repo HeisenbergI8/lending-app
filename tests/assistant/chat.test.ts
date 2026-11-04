@@ -165,3 +165,15 @@ describe('a change typed with a slip of the thumb is still a change', () => {
     assert.equal(isChangeRequest('total of all loans'), false)
   })
 })
+
+describe('the Admin is never asked for an id (seen on the testing link, 2026-11-04)', () => {
+  test('"I need the borrower\'s ID" is sent back with how to use the name instead', () => {
+    assert.match(nudgeFor('I need the borrower’s ID to set the label.', 'make Angel Arellano Bad borrowe', ['find_action']) ?? '', /never ask the Admin for an id/i)
+  })
+  test('saying no IDs are stored is still a fine answer', () => {
+    assert.equal(nudgeFor('No phone numbers, addresses or IDs are stored in Pondex.', 'what is her phone number', ['find_borrower']), null)
+  })
+  test('answers are tidied: dates spelled out, a sentence said twice said once', () => {
+    assert.equal(withoutIds('Due 2026-11-26.Due 2026-11-26.'), 'Due November 26, 2026.')
+  })
+})

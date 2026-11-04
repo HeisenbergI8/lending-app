@@ -26,6 +26,7 @@ export type QuickKind =
   | 'borrowerCount'
   | 'pending'
   | 'labelRule'
+  | 'nextDue'
 
 export type Quick = { kind: QuickKind; tool: string; args: Record<string, unknown> }
 
@@ -56,6 +57,8 @@ const PATTERNS: [QuickKind, string, RegExp][] = [
   ['owesMost', 'get_overview', /^(who (owes|owe) (me |us )?(the )?most|who('s| is) (my |the )?(biggest|top|largest) borrower)$/],
   ['borrowerCount', 'get_overview', /^how many borrowers( do (i|we) have)?$/],
   ['pending', 'list_pending', /^((any |show |list )?(the )?(pending|waiting) (loan )?requests|(how many|what|which) (loan )?requests are (pending|waiting)|who('s| is) waiting for a loan)$/],
+  // Seen on the testing link: the AI named a lender as "the nearest due". The list sorted by due date answers it exactly.
+  ['nextDue', 'find_loans', /^(who('s| is)( the)? (next|nearest|soonest) (due|to pay)( on (my )?borrowers)?|who('s| is) due (next|soonest|first)|who pays next|(the )?(next|nearest) due( date| loan| borrower)?|which loan is due (next|soonest|first)|when is the next (payment|due date))$/],
   ['labelRule', 'read_rules', /^(what makes (a )?(borrower )?good (okay|ok) (or|and) bad|how (are|is) (the |a )?(borrower )?labels? (chosen|decided|worked out|set)|what (are|is) the (good (okay|ok) (or|and) bad|label) rules?)$/],
 ]
 
@@ -64,7 +67,7 @@ export function matchQuick(question: string): Quick | null {
   const q = normalize(question)
   if (!q || q.length > 80) return null
   for (const [kind, tool, pattern] of PATTERNS) {
-    if (pattern.test(q)) return { kind, tool, args: kind === 'labelRule' ? { question: 'good okay bad label' } : {} }
+    if (pattern.test(q)) return { kind, tool, args: kind === 'labelRule' ? { question: 'good okay bad label' } : kind === 'nextDue' ? { status: 'active' } : {} }
   }
   return null
 }
@@ -82,6 +85,7 @@ type Overview = {
 }
 type Pot = { name: string; floating: string }
 type Pending = { name: string; amount: string; start: string | null }
+type LoanRow = { borrower: string; amount: string; totalToRepay: string; nextDue: string | null; nextDueIsAWeeklyPayment?: boolean }
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 const date = (iso: string | null) => (iso ? spellDate(iso) : '')
@@ -130,6 +134,17 @@ export function sayQuick(kind: QuickKind, result: unknown): string | null {
       const rows = result as Pending[]
       if (rows.length === 0) return 'There are no pending loan requests.'
       return `**${count(rows.length, 'pending request')}**:\n${rows.map((r) => `- ${r.name}: ${r.amount}${r.start ? `, from ${date(r.start)}` : ''}`).join('\n')}`
+    }
+    case 'nextDue': {
+      // Active loans not yet due, sorted by the next due date: the first date is the nearest.
+      const loans = ((result as { loans?: LoanRow[] }).loans ?? []).filter((l) => l.nextDue)
+      if (loans.length === 0) return 'No loan is coming due. Every unpaid loan is already overdue or there are none.'
+      const first = loans[0].nextDue
+      const due = loans.filter((l) => l.nextDue === first)
+      const what = (l: LoanRow) => `${l.nextDueIsAWeeklyPayment ? 'weekly payment on a ' : ''}${l.amount} loan, ${l.totalToRepay} to repay`
+      return due.length === 1
+        ? `**${due[0].borrower}** is due next, on ${date(first)}.\n- Loan: ${what(due[0])}`
+        : `**${count(due.length, 'borrower')}** are due next, on ${date(first)}.\n${due.map((l) => `- ${l.borrower}: ${what(l)}`).join('\n')}`
     }
     case 'labelRule':
       return [

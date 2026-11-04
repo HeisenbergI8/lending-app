@@ -557,6 +557,17 @@ async function recentlyDeleted(userId: string) {
   }
 }
 
+/**
+ * An id field in plain words. Seen on the testing link: "borrowerId: id" made the model
+ * ask the Admin for Angel's ID, which the Admin never sees. A person's name is enough.
+ */
+function idHint(name: string, kind: string): string {
+  if (kind !== 'id') return kind
+  return /^(borrower|lender)Id$/.test(name)
+    ? "the person's name as the Admin said it (the server finds them)"
+    : 'id from a lookup (find_borrower, find_loans, get_loan); never ask the Admin for it'
+}
+
 /** The fields of the actions that fit what the Admin wants to do. */
 function describeActions(what: string) {
   const found = findActions(what)
@@ -564,7 +575,7 @@ function describeActions(what: string) {
     actions: found.map((a) => ({
       action: a.name,
       what: a.title + (a.about ? `. ${a.about}` : ''),
-      fields: a.fields.map((f) => `${f.name}${f.required ? '*' : ''}: ${f.kind}${f.values ? ` (${f.values.join('|')})` : ''}${f.about ? ` - ${f.about}` : ''}`),
+      fields: a.fields.map((f) => `${f.name}${f.required ? '*' : ''}: ${idHint(f.name, f.kind)}${f.values ? ` (${f.values.join('|')})` : ''}${f.about ? ` - ${f.about}` : ''}`),
       ...(a.funders ? { funders: '* list of { lenderId, amount }' } : {}),
       ...(a.files ? { file: `${a.files.label}; the Admin attaches it on the card` } : {}),
     })),

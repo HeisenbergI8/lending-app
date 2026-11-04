@@ -5,6 +5,7 @@ import { runTool, TOOLS } from './tools.ts'
 import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.ts'
 import { matchQuick, sayQuick } from '../../lib/quick-answers.ts'
 import { spellDatesIn } from '../../lib/dates.ts'
+import { tidyAnswer } from '../../lib/answer-tidy.ts'
 
 export { manilaToday }
 import { parseRefusal, readGroqHeaders, recordCall, recordHeaders, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
@@ -177,7 +178,7 @@ ${mode === 'change' ? CHANGE_RULES : 'Changes: to add, edit, pay, delete or rest
 Style: plain short English, easy to scan.
 - First line: the answer itself, in one sentence.
 - More than one fact: one per line after it, as "- Label: value" (e.g. "- Due: November 26, 2026").
-- No tables or headings. Pesos as ₱12,345.00, dates as November 01, 2026. Never show ids.`
+- No tables or headings. Pesos as ₱12,345.00, dates as November 01, 2026. Never show or ask for ids; the Admin never sees them.`
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -315,6 +316,8 @@ const ID = /\b(c[a-z0-9]{20,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  */
 /** A request to change something, in the words people use for it. */
 const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pd|pay|record|deposit\w*|withdr[ae]w\w*|pahiram|pautang|hulog|rename|extend|convert|label|note|advance|fund|request|attach|proof|receipt|starting capital|make|fix|should be|change|borrow|wants|set|update|edit)\b/i
+/** An answer asking the Admin for an id, which the Admin never sees. */
+const ASKS_FOR_ID = /\b(need|provide|give|send|share|tell me|what is|what's|which)\b[^.?!]{0,40}\b(ids?|identifier)\b/i
 /** An answer that claims a card exists. */
 const CLAIMS_CARD = /\b(tap confirm|ready[\s-]to[\s-]confirm|check it, then tap|confirm (it|the card)|card (is )?ready|here is the .{0,30}card|review and confirm|confirm the changes?|(is|are) (now )?prepared|proposed action)\b/i
 
@@ -335,6 +338,10 @@ export function nudgeFor(answer: string, question: string, usedTools: string[], 
   // A proposal that worked ends the turn before this point, so any answer here has no card.
   if (CLAIMS_CARD.test(answer)) {
     return 'No card was made yet. Call propose_action for the change, or ask the Admin for what is missing.'
+  }
+  // The Admin never sees ids, so asking for one is a dead end. The name is enough.
+  if (ASKS_FOR_ID.test(answer)) {
+    return 'Never ask the Admin for an id; they never see ids. Pass the person\'s name as borrowerId or lenderId (the server finds them), or look the id up with find_borrower or find_loans, then call propose_action.'
   }
   // "Did you mean X?" may only offer names a lookup returned.
   const offered = /did you mean\s+["“]?([^"”?]+)/i.exec(answer)?.[1]?.trim().toLowerCase()
@@ -382,7 +389,8 @@ export function dropUnasked(args: Record<string, unknown>, saidByAdmin: string):
 /** Ids removed from what the Admin reads. */
 export function withoutIds(answer: string): string {
   // Dates spelled out on the way: "2026-11-26" is how the tools store a day, not how a person reads one.
-  return spellDatesIn(answer.replace(ID, '').replace(/\(\s*\)/g, '').replace(/ {2,}/g, ' ').trim())
+  // And the small slips a model makes: a missing space after a stop, a sentence said twice.
+  return tidyAnswer(spellDatesIn(answer.replace(ID, '').replace(/\(\s*\)/g, '').replace(/ {2,}/g, ' ').trim()))
 }
 
 /** Nulls dropped: an absent field says the same thing for fewer tokens. */
@@ -467,7 +475,7 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
         }
         // Out of nudges and still claiming a card that does not exist: say so plainly
         // rather than send the Admin looking for a Confirm button.
-        if (CLAIMS_CARD.test(answer)) {
+        if (CLAIMS_CARD.test(answer) || ASKS_FOR_ID.test(answer)) {
           return finish('I could not make the card for that. Tell me again what to change, with the names and amounts.', null)
         }
         return answer

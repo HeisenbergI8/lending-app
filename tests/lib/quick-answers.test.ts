@@ -22,6 +22,8 @@ describe('instant answers: which questions the server takes', () => {
     assert.equal(kind('who owes the most'), 'owesMost')
     assert.equal(kind('how many borrowers do I have'), 'borrowerCount')
     assert.equal(kind('any pending requests?'), 'pending')
+    assert.equal(kind('who is the nearest due on borrowers?'), 'nextDue')
+    assert.equal(kind("who's due next"), 'nextDue')
   })
   test('anything more goes to the AI, never a wrong instant answer', () => {
     for (const q of [
@@ -54,5 +56,9 @@ describe('instant answers: the words', () => {
   })
   test('who owes the most', () => assert.equal(sayQuick('owesMost', overview), '**Angel Dela Cruz** owes the most right now: ₱38,400.00.\n- Next: Rico Mendoza, ₱20,000.00'))
   test('each pot', () => assert.equal(sayQuick('floatingEach', [{ name: 'Maria Cruz', floating: '₱45,000.00' }]), 'Floating in each pot:\n- Maria Cruz: ₱45,000.00'))
+  test('who is due next, from the list sorted by due date', () => {
+    const loans = { loans: [{ borrower: 'Julia Dimaano', amount: '₱10,000.00', totalToRepay: '₱12,800.00', nextDue: '2026-11-04' }, { borrower: 'Rico Mendoza', amount: '₱20,000.00', totalToRepay: '₱25,600.00', nextDue: '2026-11-18' }] }
+    assert.equal(sayQuick('nextDue', loans), '**Julia Dimaano** is due next, on November 04, 2026.\n- Loan: ₱10,000.00 loan, ₱12,800.00 to repay')
+  })
   test('a failed lookup hands the question to the AI', () => assert.equal(sayQuick('outOnLoan', { error: 'That lookup failed.' }), null))
 })
