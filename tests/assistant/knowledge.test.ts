@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { parseSections, rankSections } from '../../src/server/assistant/knowledge.ts'
 
 /**
- * Retrieval over the Ask Pondex rules file, checked without the AI.
+ * Retrieval over the Dex-E rules file, checked without the AI.
  *
  * Run on every edit to ai/knowledge/pondex-rules.md: a reworded heading or a
  * dropped alias can quietly stop a question finding its section, and the model

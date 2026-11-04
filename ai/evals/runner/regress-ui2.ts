@@ -7,18 +7,18 @@ const jun = (await db.lender.findFirst({ where: { userId: demo.id, firstName: 'J
 const s = await demoSession(); const p = s.page
 const res: [string, boolean, string][] = []
 const ok = (n: string, pass: boolean, d = '') => res.push([n, pass, d])
-const section = () => p.locator('section[aria-label="Ask Pondex"]')
+const section = () => p.locator('section[aria-label="Dex-E"]')
 let next: any = null
 await p.route('**/api/assistant', async (route) => {
   if (route.request().method() === 'GET') return route.fulfill({ json: { status: 'ready', inUse: 'openai/gpt-oss-120b', questionsLeft: 50, coolUntil: null, models: [] } })
   return route.fulfill({ json: { ok: true, answer: 'Here is the change. Check it, then tap Confirm.', tools: [], model: 'x', tokens: 0, usage: { status: 'ready', inUse: 'openai/gpt-oss-120b', questionsLeft: 50, coolUntil: null, models: [] }, proposal: next } })
 })
 const askFor = async (proposal: any) => { next = proposal; await p.fill('#ask-pondex-input', 'x'); await p.keyboard.press('Enter'); await p.waitForTimeout(2500) }
-await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
+await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(1500)
 
 // CARD-03: the app's own refusal shows on the card.
 await askFor({ action: 'create_loan', title: 'Make a new loan', fields: { borrowerId: lyn.id, capital: '30000', startOn: '2026-11-04', dueOn: '2026-12-02' }, funders: [{ lenderId: jun.id, amount: '30000' }], files: { required: true, label: 'Screenshot of the money being sent' }, lines: [{ label: 'Amount', value: '₱30,000.00' }] })
-await p.locator('section[aria-label="Ask Pondex"] input[type=file]').last().setInputFiles({ name: 'sent.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8ffff3f0005fe02fe0dc8a1d70000000049454e44ae426082', 'hex') })
+await p.locator('section[aria-label="Dex-E"] input[type=file]').last().setInputFiles({ name: 'sent.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8ffff3f0005fe02fe0dc8a1d70000000049454e44ae426082', 'hex') })
 await p.getByRole('button', { name: 'Confirm' }).last().click(); await p.waitForTimeout(4000)
 const refusal = await section().getByText(/Not enough floating funds/).count()
 ok('CARD-03 app refusal shown on the card, Not saved', refusal > 0 && (await section().getByText('Not saved', { exact: true }).count()) > 0)
@@ -26,7 +26,7 @@ ok('CARD-03 app refusal shown on the card, Not saved', refusal > 0 && (await sec
 // CARD-09: a text file named .png is refused by the app, nothing saved.
 await askFor({ action: 'add_loan_proof', title: 'Add proof the loan money was sent', fields: { loanId: (await db.loan.findFirst({ where: { userId: demo.id, borrowerId: lyn.id, status: 'ACTIVE' } }))!.id }, funders: [], files: { required: true, label: 'Screenshot' }, lines: [{ label: 'Loan', value: 'Lyn' }] })
 const before = await db.loanProof.count({ where: { userId: demo.id } })
-await p.locator('section[aria-label="Ask Pondex"] input[type=file]').last().setInputFiles({ name: 'fake.png', mimeType: 'image/png', buffer: Buffer.from('this is not an image') })
+await p.locator('section[aria-label="Dex-E"] input[type=file]').last().setInputFiles({ name: 'fake.png', mimeType: 'image/png', buffer: Buffer.from('this is not an image') })
 await p.getByRole('button', { name: 'Confirm' }).last().click(); await p.waitForTimeout(4000)
 const after = await db.loanProof.count({ where: { userId: demo.id } })
 const lastCard = await section().locator('div.animate-ask-rise').last().innerText()

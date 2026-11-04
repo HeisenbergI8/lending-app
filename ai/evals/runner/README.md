@@ -1,6 +1,6 @@
-# Ask Pondex eval runner
+# Dex-E eval runner
 
-Scripts that test Ask Pondex end to end on the **demo account only**. Every script that confirms a
+Scripts that test Dex-E end to end on the **demo account only**. Every script that confirms a
 change checks first that it is signed in as the demo account (`isDemo`) and stops if not.
 
 Before running:

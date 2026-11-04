@@ -16,7 +16,7 @@ import { readRules } from './knowledge.ts'
 import { dueThisWeek, getLoan, interestSummary, listLoans, overdueSummary } from '../loans/queries.ts'
 
 /**
- * The tools Ask Pondex can call. EVERY ONE OF THEM ONLY READS.
+ * The tools Dex-E can call. EVERY ONE OF THEM ONLY READS.
  *
  * Each one is a thin wrapper over a query the screens already use, so the chat
  * and the screens cannot disagree about a number. Nothing here writes, and none

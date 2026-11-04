@@ -5,7 +5,7 @@ import { ACTIONS, actionSpec, checkProposal, fileRequired, findActions, normaliz
 import { parseRefusal } from '../../src/server/assistant/usage.ts'
 
 /**
- * The parts of Ask Pondex's changes that decide what reaches a server action:
+ * The parts of Dex-E's changes that decide what reaches a server action:
  * which action a request finds, what a proposal must carry before a card is
  * shown, and the FormData the card posts. The server action itself is the
  * app's own and is tested where it lives.

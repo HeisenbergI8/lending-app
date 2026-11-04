@@ -9,7 +9,7 @@ import { ActionCard, type CardStatus, type ProposalView } from './action-card.ts
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 
 /**
- * Ask Pondex: the chat that lives on every signed-in screen.
+ * Dex-E: the chat that lives on every signed-in screen.
  *
  * Each question goes to /api/assistant with the conversation so far. The
  * server picks which lookups to run and sends back one answer, which is then
@@ -234,7 +234,7 @@ export function AskPondex() {
 
       {open && (
         <section
-          aria-label="Ask Pondex"
+          aria-label="Dex-E"
           className={cn(
             'animate-ask-open bg-card text-card-foreground fixed inset-0 z-50 flex flex-col overflow-hidden transition-all duration-300',
             'md:border-border md:origin-bottom-right md:rounded-3xl md:border md:shadow-2xl',
@@ -246,11 +246,11 @@ export function AskPondex() {
         >
           <div className={cn('flex min-h-0 w-full flex-1 flex-col', full && 'md:mx-auto md:max-w-3xl')}>
             <header className="border-border/70 flex items-center gap-3 border-b py-3 pr-2 pl-4">
-              <button type="button" onClick={poke} aria-label="Say hi to Pondex" className="cursor-pointer rounded-2xl">
+              <button type="button" onClick={poke} aria-label="Say hi to Dex-E" className="cursor-pointer rounded-2xl">
                 <PondexMascot mood={mood} size={52} />
               </button>
               <div className="min-w-0 flex-1">
-                <p className="text-base font-semibold">Pondex</p>
+                <p className="text-base font-semibold">Dex-E</p>
                 <button
                   type="button"
                   onClick={() => {
@@ -319,10 +319,10 @@ export function AskPondex() {
             <div ref={list} aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5">
               {empty && (
                 <div className="m-auto flex max-w-md flex-col items-center gap-3 text-center">
-                  <button type="button" onClick={poke} aria-label="Say hi to Pondex" className="cursor-pointer rounded-3xl">
+                  <button type="button" onClick={poke} aria-label="Say hi to Dex-E" className="cursor-pointer rounded-3xl">
                     <PondexMascot mood={poked ? 'happy' : 'idle'} size={160} />
                   </button>
-                  <h2 className="text-xl font-semibold">Hi, I’m Pondex.</h2>
+                  <h2 className="text-xl font-semibold">Hi, I’m Dex-E.</h2>
                   <p className="text-muted-foreground text-sm leading-relaxed">
                     I read your loans, payments and notes, and answer in plain words. I can also add, edit or pay
                     things, but only after you tap Confirm.
@@ -392,12 +392,12 @@ export function AskPondex() {
                   <p className="min-w-0 flex-1 text-sm leading-snug">
                     {usage?.status === 'out' ? (
                       <>
-                        Pondex used up today&apos;s free AI. Back at{' '}
+                        Dex-E used up today&apos;s free AI. Back at{' '}
                         <span className="text-brand font-semibold tabular-nums">{manilaTime(new Date(usage.coolUntil!))}</span>.
                       </>
                     ) : (
                       <>
-                        Pondex is busy (free plan, per minute). Ready again in{' '}
+                        Dex-E is busy (free plan, per minute). Ready again in{' '}
                         <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>.
                       </>
                     )}
@@ -426,13 +426,13 @@ export function AskPondex() {
                 className="border-border focus-within:border-brand focus-within:ring-brand/20 flex items-center gap-2 rounded-2xl border py-1.5 pr-1.5 pl-4 focus-within:ring-3"
               >
                 <label htmlFor="ask-pondex-input" className="sr-only">
-                  Ask Pondex a question
+                  Ask Dex-E a question
                 </label>
                 <input
                   id="ask-pondex-input"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder={resting ? (usage?.status === 'out' ? `Pondex is resting. Back at ${manilaTime(new Date(usage.coolUntil!))}.` : 'Pondex is busy. Try again shortly.') : 'Ask, or say what to change…'}
+                  placeholder={resting ? (usage?.status === 'out' ? `Dex-E is resting. Back at ${manilaTime(new Date(usage.coolUntil!))}.` : 'Dex-E is busy. Try again shortly.') : 'Ask, or say what to change…'}
                   disabled={resting}
                   autoComplete="off"
                   className="min-w-0 flex-1 bg-transparent py-2.5 text-base outline-none md:text-sm"
@@ -447,7 +447,7 @@ export function AskPondex() {
                 </button>
               </form>
               <p className="text-muted-foreground text-center text-[11px]">
-                Pondex never changes anything until you tap Confirm. Check important numbers in the app.
+                Dex-E never changes anything until you tap Confirm. Check important numbers in the app.
               </p>
             </div>
           </div>
@@ -470,7 +470,7 @@ export function AskPondex() {
         <button
           type="button"
           onClick={toggleOpen}
-          aria-label={open ? 'Close Ask Pondex' : 'Open Ask Pondex'}
+          aria-label={open ? 'Close Dex-E' : 'Open Dex-E'}
           aria-expanded={open}
           className="cursor-pointer rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
         >

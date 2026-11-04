@@ -1,6 +1,6 @@
 # Pondex: how the lending works
 
-The knowledge file Ask Pondex looks up. It explains the words and rules of the app.
+The knowledge file Dex-E (the chat helper) looks up. It explains the words and rules of the app.
 It holds NO live numbers: amounts, balances, dates and names always come from the database tools.
 The worked examples below are examples, never facts about a real loan.
 
@@ -155,7 +155,7 @@ Also called: this month, last month, between dates, monthly earnings, date range
 - On a lender's page the Admin picks two dates and sees what that pot earned between them.
 - Each loan's interest is spread across the days it ran, so a loan crossing two months counts in
   both. It is what the money earned, not when cash arrived.
-- Ask Pondex cannot work this out. Point the Admin to the lender's page or a report.
+- Dex-E cannot work this out. Point the Admin to the lender's page or a report.
 
 ## Advances against a loan
 Also called: advance, draw early, take out before repayment

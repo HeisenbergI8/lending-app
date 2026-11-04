@@ -5,7 +5,7 @@ import { Check, Loader2, Paperclip, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * A change Ask Pondex has proposed, waiting for the Admin.
+ * A change Dex-E has proposed, waiting for the Admin.
  *
  * Nothing has been saved when this appears. Confirm posts the proposal to
  * /api/assistant/act, which runs the app's own server action for it; the

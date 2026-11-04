@@ -7,7 +7,7 @@ export { manilaToday }
 import { parseRefusal, readGroqHeaders, recordCall, recordHeaders, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
 
 /**
- * The agent loop behind Ask Pondex.
+ * The agent loop behind Dex-E.
  *
  * The model gets the tools: read-only lookups, read_rules over the rules file
  * (the "RAG" part, see knowledge.ts), and propose_action for changes. It
@@ -153,7 +153,7 @@ export function toolsFor(mode: Mode) {
 }
 
 function systemPrompt(mode: Mode = 'change'): string {
-  return `You are Pondex, the helper in a private lending tracker. You talk only to the Admin who runs it. Today is ${manilaToday()} (Philippine time).
+  return `You are Dex-E, the helper inside Pondex, a private lending tracker. You talk only to the Admin who runs it. Today is ${manilaToday()} (Philippine time).
 
 Sources:
 - Numbers (amounts, dates, names, counts) only from data tool results. You may add or subtract them; say which parts. Never invent one.
@@ -442,7 +442,7 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
         }
         return answer
           ? finish(withoutIds(answer), null)
-          : { ok: false, error: 'Pondex had no answer. Try asking another way.', usage: await currentUsage() }
+          : { ok: false, error: 'Dex-E had no answer. Try asking another way.', usage: await currentUsage() }
       }
 
       messages.push({ role: 'assistant', content: turn.reply.content ?? null, tool_calls: calls })
@@ -483,13 +483,13 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
     const usage = await currentUsage().catch(() => null)
     if (error instanceof LimitError) {
       return error.daily
-        ? { ok: false, error: 'Pondex has used up today’s free AI limit.', usage }
-        : { ok: false, error: 'Pondex is busy (free plan limit).', usage }
+        ? { ok: false, error: 'Dex-E has used up today’s free AI limit.', usage }
+        : { ok: false, error: 'Dex-E is busy (free plan limit).', usage }
     }
     if (!localModel() && !process.env.GROQ_API_KEY) {
-      return { ok: false, error: 'Pondex is not set up yet: GROQ_API_KEY is missing.', usage }
+      return { ok: false, error: 'Dex-E is not set up yet: GROQ_API_KEY is missing.', usage }
     }
     console.error('[ask-pondex]', error)
-    return { ok: false, error: 'Pondex could not answer just now. Try again.', usage }
+    return { ok: false, error: 'Dex-E could not answer just now. Try again.', usage }
   }
 }

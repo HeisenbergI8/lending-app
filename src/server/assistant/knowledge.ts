@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 /**
- * The retrieval half of Ask Pondex: find the parts of the rules file that fit a
+ * The retrieval half of Dex-E: find the parts of the rules file that fit a
  * question, instead of sending the whole file with every question.
  *
  * The free Groq plan allows about 8,000 tokens a minute, and the whole file is

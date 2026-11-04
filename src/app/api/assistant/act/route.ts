@@ -3,7 +3,7 @@ import { actionSpec, checkProposal, fileRequired, toFormData } from '@/server/as
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /**
- * Ask Pondex: the Admin tapped Confirm on a card.
+ * Dex-E: the Admin tapped Confirm on a card.
  *
  * Only the Admin's own click reaches this route; the model has no tool that
  * calls it. What it does is exactly what the app's form for the same thing

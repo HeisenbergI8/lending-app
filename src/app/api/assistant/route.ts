@@ -2,7 +2,7 @@ import { ask, type ChatTurn, clip, currentUsage } from '@/server/assistant/chat.
 import { getCurrentUser } from '@/server/auth/guard.ts'
 
 /**
- * Ask Pondex: the chat's endpoint.
+ * Dex-E: the chat's endpoint.
  *
  * POST: the browser sends the conversation so far; the answer comes back as
  * JSON, with a card to confirm when the answer is a change. GET: how many

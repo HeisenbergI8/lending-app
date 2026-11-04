@@ -4,7 +4,7 @@ import { CHANGE_VERBS, fixChangeVerb } from './names.ts'
 import { addCalendarDays } from './today.ts'
 
 /**
- * Every change Ask Pondex can PROPOSE. It never makes one: the Admin taps
+ * Every change Dex-E can PROPOSE. It never makes one: the Admin taps
  * Confirm on a card, and the card runs the same server action the app's own
  * form runs, with the same checks. A refusal comes back as the form's own
  * sentence ("Fidel only has ₱6,500.00 floating"), which the chat shows as is.

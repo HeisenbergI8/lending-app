@@ -1,5 +1,5 @@
 /**
- * What the Ask Pondex header says about the free Groq allowance, from Groq's
+ * What the Dex-E header says about the free Groq allowance, from Groq's
  * own figures wherever Groq gives one.
  *
  * Exact, from the headers of every answer: which model answered, requests left
@@ -203,7 +203,7 @@ export function modelLines(
   })
 }
 
-/** The line under "Pondex" in the chat header. Dates may arrive as strings from JSON. */
+/** The line under "Dex-E" in the chat header. Dates may arrive as strings from JSON. */
 export function statusLine(usage: { status: Status; inUse: string | null; coolUntil: Date | string | null }, now: number): string {
   const until = usage.coolUntil ? new Date(usage.coolUntil) : null
   switch (usage.status) {

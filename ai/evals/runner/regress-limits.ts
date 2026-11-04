@@ -6,7 +6,7 @@ if (!demo.isDemo) throw new Error('SAFETY STOP')
 const res: [string, boolean, string][] = []
 const ok = (n: string, pass: boolean, d = '') => res.push([n, pass, d])
 const s = await demoSession(); const p = s.page
-const section = () => p.locator('section[aria-label="Ask Pondex"]')
+const section = () => p.locator('section[aria-label="Dex-E"]')
 
 // CARD-06: a card whose file is optional can be confirmed without one.
 const rico = (await db.loan.findFirst({ where: { userId: demo.id, status: 'ACTIVE', borrower: { firstName: 'Rico' } } }))!
@@ -16,7 +16,7 @@ await p.route('**/api/assistant', async (route: any) => {
   return route.fulfill({ json: { ok: true, answer: 'Here is the change. Check it, then tap Confirm.', tools: [], model: 'x', tokens: 0, usage,
     proposal: { action: 'add_note', title: 'Add a note', fields: { loanId: rico.id, body: 'optional-file check' }, funders: [], files: { required: false, label: 'Proof (optional)' }, lines: [{ label: 'Note', value: 'optional-file check' }] } } })
 })
-await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
+await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(1500)
 await p.fill('#ask-pondex-input', 'x'); await p.keyboard.press('Enter'); await p.waitForTimeout(2500)
 const confirm = p.getByRole('button', { name: 'Confirm' }).last()
 ok('CARD-06 optional file: Confirm enabled with no file', await confirm.isEnabled(), await confirm.innerText())
@@ -29,7 +29,7 @@ try {
   const after = (await usageSummary([A])).questionsLeft
   ok('LIM-04 questions left goes down after questions', after < before, `${before} -> ${after}`)
   usage = await usageSummary([A])
-  await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
+  await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(1500)
   const header = await section().locator('header').innerText()
   ok('LIM-04 header shows the status from the server', header.includes('Ready'), header.replace(/\n/g, ' '))
 } finally {

@@ -29,7 +29,7 @@ import { createPendingLoan, deletePendingLoan } from '../pending/actions.ts'
 import { type ActionSpec } from './actions.ts'
 
 /**
- * The server action behind each entry in the Ask Pondex catalog: the same
+ * The server action behind each entry in the Dex-E catalog: the same
  * function the app's own form posts to. Kept apart from actions.ts because
  * these import Next's server-only modules, which the tests cannot load.
  */

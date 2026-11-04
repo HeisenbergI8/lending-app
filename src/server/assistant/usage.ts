@@ -4,7 +4,7 @@ import { type GroqHeaders, type ModelRow, type UsageSummary, summarize } from '.
 export { parseDuration, readGroqHeaders, type UsageSummary } from '../../lib/assistant-status.ts'
 
 /**
- * How much of the free Groq allowance Ask Pondex has left, and when a tired
+ * How much of the free Groq allowance Dex-E has left, and when a tired
  * model can be used again.
  *
  * Groq reports per-minute figures in its headers but not the daily token count,

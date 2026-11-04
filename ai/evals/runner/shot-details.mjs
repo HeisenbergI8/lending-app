@@ -9,7 +9,7 @@ const usage = { status: 'backup', inUse: 'qwen/qwen3.8-27b', questionsLeft: 30, 
 ] }
 await p.route('**/api/assistant', (route) => route.fulfill({ json: usage }))
 await p.setViewportSize({ width: 1280, height: 760 })
-await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
+await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(1500)
 await p.getByRole('button', { name: /^Ready/ }).click(); await p.waitForTimeout(600)
-await p.locator('section[aria-label="Ask Pondex"]').screenshot({ path: process.argv[2] })
+await p.locator('section[aria-label="Dex-E"]').screenshot({ path: process.argv[2] })
 await s.browser.close()
