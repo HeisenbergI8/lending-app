@@ -30,7 +30,11 @@
 | 13. Loans: extend, notes, etc. | 20 | 0 | 20 |
 | 14. Checks | 12 | 0 | 12 |
 | 15. Off-topic and tricks (O-06 changed row included) | 9 | 0 | 9 |
-| **Total** | **186** | **1** | **187** |
+| **Total, first run (c244047)** | **186** | **1** | **187** |
+| **Total after fix (5c96278)** | **187** | **0** | **187** |
+
+After the fix (5c96278), F-03 passes and the RP-07, RP-11, RP-12, RP-17, RP-18 and RP-24 wording notes are fixed.
+See "Retest after fix (5c96278)" at the end.
 
 ## Failures
 
@@ -258,3 +262,24 @@ All card dates are now spelled out (e.g. "November 25, 2026").
 | O-07 | Who is overdue and owes the most? | → AI | test-mode reply | PASS |
 | O-08 | good morning | → AI | test-mode reply | PASS |
 | O-09 | thanks! | → AI | test-mode reply | PASS |
+
+## Retest after fix (5c96278)
+
+Build check: the first try (9:26 PM) still showed the old "Agreed on loans started then", so I waited. After the
+other session said 5c96278 was live, `admin cut in October?` showed "Cut on loans made", so the new build was in.
+Demo account checked before and after, every request `serverOnly: true`, every model `server`, nothing confirmed.
+
+| ID | Prompt | What it showed | Result |
+|---|---|---|---|
+| F-03 | fix Maria's money entry to 6k | ASK "Which entry?" [Withdrawal · ₱15,000.00 · October 05, 2026 / Deposit · ₱80,000.00 · May 08, 2026] → tap withdrawal → CARD Edit a money in/out entry, ₱15,000.00 → ₱6,000.00, date October 05, 2026 | PASS |
+| RP-07 | how much did I earn last month | ₱8,000.00 earned by Demo Admin in October 2026; From the Admin's cut ₱8,000.00; Own loans repaid 0; Dates October 01 to 31 | PASS |
+| RP-11 | how much is my cut this month? | ₱0.00 collected; Cut on loans made ₱160.00; Still to come (as of today) ₱14,120.00; Nov 01 to 04 | PASS |
+| RP-12 | admin cut in October? | ₱8,000.00 collected; Cut on loans made ₱13,000.00; Still to come (as of today) ₱14,120.00; 3 started, 1 repaid | PASS |
+| RP-17 | what came in last week? | Nothing came in last week. Dates October 26 to November 01, 2026 | PASS |
+| RP-18 | what went out last week? | ₱33,000.00: Maria Cruz −₱8,000.00 Nov 01; **Demo Admin** −₱25,000.00 Oct 28; Dates October 26 to November 01 | PASS |
+| RP-24 | which loans are due next week? | 1 loan: Rico Mendoza ₱25,600.00 due November 11; Dates November 11 to 17, 2026 (C-06 this week is November 04 to 10, so no overlap) | PASS |
+| RP-19 | Maria's deposits this month | ANSWER: No deposits for Maria Cruz this month; Dates November 01 to 04 (no card) | PASS |
+| D-01 | Maria deposited 5000 today | CARD Money in: Maria ₱5,000.00, November 04, 2026 | PASS |
+| F-01 | fix Maria's deposit to 90k | CARD Edit entry: deposit ₱80,000.00 May 08 → ₱90,000.00 (unchanged) | PASS |
+| F-02 | change Maria's withdrawal to 12k | CARD Edit entry: withdrawal ₱15,000.00 Oct 05 → ₱12,000.00 (unchanged) | PASS |
+| F-04 | delete Maria's withdrawal | CARD Delete entry: withdrawal ₱15,000.00 Oct 05 (unchanged) | PASS |
