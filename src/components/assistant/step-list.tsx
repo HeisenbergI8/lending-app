@@ -83,20 +83,22 @@ export function thoughtFor(ms: number): string {
 }
 
 /** The whole thinking, kept above the answer for good; folded until tapped. */
-export function DoneSteps({ steps, thoughtMs, failed }: { steps: Step[]; thoughtMs: number; failed?: boolean }) {
+export function DoneSteps({ steps, thoughtMs, failed, quick }: { steps: Step[]; thoughtMs: number; failed?: boolean; quick?: boolean }) {
   const [open, setOpen] = useState(false)
   const last: Step = failed ? { id: -1, text: 'Could not finish the answer', state: 'missed' } : { id: -1, text: 'Wrote the answer', state: 'done' }
   const all = unique([...steps, last])
+  // Answered by the server from the app's own numbers: no AI, so no thinking time to show.
+  const title = quick ? 'Instant answer' : thoughtFor(thoughtMs)
   return (
     <div aria-label="What Dex-E checked" className={cn(BOX, 'py-0')}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={`${thoughtFor(thoughtMs)}, ${all.length} ${all.length === 1 ? 'step' : 'steps'}. ${open ? 'Hide' : 'Show'} the thinking`}
+        aria-label={`${title}, ${all.length} ${all.length === 1 ? 'step' : 'steps'}. ${open ? 'Hide' : 'Show'} the thinking`}
         className="text-brand focus-visible:ring-brand/40 flex w-full cursor-pointer items-center gap-1.5 rounded-full py-2 text-xs font-medium outline-none focus-visible:ring-2"
       >
-        {thoughtFor(thoughtMs)}
+        {title}
         <span className="text-brand/60 font-normal">· {all.length} {all.length === 1 ? 'step' : 'steps'}</span>
         <ChevronDown aria-hidden className={cn('ml-auto size-3.5 transition-transform duration-200', open && 'rotate-180')} />
       </button>

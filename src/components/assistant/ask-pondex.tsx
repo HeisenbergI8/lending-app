@@ -9,6 +9,7 @@ import { ActionCard, type CardStatus, type ProposalView } from './action-card.ts
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 import { DoneSteps, LiveSteps, WRITING_STEP } from './step-list.tsx'
 import type { Step } from '@/lib/assistant-steps'
+import { matchQuick } from '@/lib/quick-answers'
 
 /**
  * Dex-E: the chat that lives on every signed-in screen.
@@ -21,6 +22,10 @@ import type { Step } from '@/lib/assistant-steps'
  *
  * The header says whether Pondex can answer now and which model will (see
  * lib/assistant-status.ts); tapping it shows Groq's own figures per model.
+ * Common questions (the suggestion buttons among them) the server answers
+ * from the app's own numbers, with no AI (lib/quick-answers.ts), so those
+ * buttons keep working while the AI rests.
+ *
  * When every model is resting, the input is locked and a countdown says when
  * Pondex is back, instead of letting a question fail.
  *
@@ -33,7 +38,7 @@ import type { Step } from '@/lib/assistant-steps'
 type Card = { proposal: ProposalView; status: CardStatus; error: string | null }
 type Message =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[]; thoughtMs?: number }
+  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[]; thoughtMs?: number; quick?: boolean }
 
 /** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
 type ModelFigures = {
@@ -56,9 +61,9 @@ const SAMPLES = [
   'What makes a borrower Good, Okay or Bad?',
 ]
 
-type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number }
+type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean }
 
-type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage } | { ok: false; error: string; usage: Usage | null }
+type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean } | { ok: false; error: string; usage: Usage | null }
 
 /** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
 async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void): Promise<Answer> {
@@ -93,7 +98,7 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
     }
     if (!data) throw new Error('No answer')
     return data.ok
-      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took() }
+      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took(), quick: data.quick }
       : { text: data.error, failed: true, proposal: null, usage: data.usage, thoughtMs: took() }
   } catch {
     return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true, proposal: null, usage: null, thoughtMs: took() }
@@ -203,7 +208,8 @@ export function AskPondex() {
 
   async function ask(question: string) {
     const q = question.trim()
-    if (!q || thinking || writing || resting) return
+    // While the AI rests, only questions the server answers itself go through.
+    if (!q || thinking || writing || (resting && !matchQuick(q))) return
     const id = nextId.current
     nextId.current += 2
 
@@ -222,7 +228,7 @@ export function AskPondex() {
 
     // A step comes twice: once as it starts, again when it is back.
     let steps: Step[] = []
-    const { text: a, failed, proposal, usage: latest, thoughtMs } = await fetchAnswer(history, (step) => {
+    const { text: a, failed, proposal, usage: latest, thoughtMs, quick } = await fetchAnswer(history, (step) => {
       steps = steps.some((s) => s.id === step.id) ? steps.map((s) => (s.id === step.id ? step : s)) : [...steps, step]
       setLiveSteps(steps)
     })
@@ -241,7 +247,7 @@ export function AskPondex() {
               : m,
           )
         : ms),
-      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing'), thoughtMs },
+      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing'), thoughtMs, quick },
     ])
     let n = 0
     const tick = () => {
@@ -368,7 +374,6 @@ export function AskPondex() {
                         key={s}
                         type="button"
                         onClick={() => ask(s)}
-                        disabled={resting}
                         className="border-border bg-muted/40 hover:bg-accent hover:border-brand-line min-h-11 cursor-pointer rounded-2xl border px-4 py-2.5 text-left text-sm disabled:cursor-default disabled:opacity-50"
                       >
                         {s}
@@ -390,7 +395,7 @@ export function AskPondex() {
                   <div key={m.id} className="animate-ask-rise flex max-w-[94%] items-start gap-2.5">
                     <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="shrink-0" />
                     <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
-                      {m.steps && <DoneSteps steps={m.steps} thoughtMs={m.thoughtMs ?? 0} failed={m.failed} />}
+                      {m.steps && <DoneSteps steps={m.steps} thoughtMs={m.thoughtMs ?? 0} failed={m.failed} quick={m.quick} />}
                       <p className={cn('text-sm leading-relaxed whitespace-pre-line', m.failed && 'text-muted-foreground')}>
                         {m.text}
                         {!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
@@ -434,18 +439,20 @@ export function AskPondex() {
                     {usage?.status === 'out' ? (
                       <>
                         Dex-E used up today&apos;s free AI. Back at{' '}
-                        <span className="text-brand font-semibold tabular-nums">{manilaTime(new Date(usage.coolUntil!))}</span>.
+                        <span className="text-brand font-semibold tabular-nums">{manilaTime(new Date(usage.coolUntil!))}</span>. The
+                        quick questions below still work.
                       </>
                     ) : (
                       <>
                         Dex-E is busy (free plan, per minute). Ready again in{' '}
-                        <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>.
+                        <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>. The quick
+                        questions below still work.
                       </>
                     )}
                   </p>
                 </div>
               )}
-              {!empty && !resting && (
+              {!empty && (
                 <div className="flex gap-2 overflow-x-auto pb-0.5">
                   {SAMPLES.map((s) => (
                     <button

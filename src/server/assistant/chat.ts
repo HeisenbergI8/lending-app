@@ -3,6 +3,7 @@ import { looksLikeChangeVerb } from './names.ts'
 import { manilaToday } from './today.ts'
 import { runTool, TOOLS } from './tools.ts'
 import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.ts'
+import { matchQuick, sayQuick } from '../../lib/quick-answers.ts'
 
 export { manilaToday }
 import { parseRefusal, readGroqHeaders, recordCall, recordHeaders, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
@@ -47,7 +48,7 @@ const MAX_OUTPUT_TOKENS = 1500
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string }
 export type ChatResult =
-  | { ok: true; answer: string; tools: string[]; model: string; tokens: number; proposal: Proposal | null; usage: UsageSummary }
+  | { ok: true; answer: string; tools: string[]; model: string; tokens: number; proposal: Proposal | null; usage: UsageSummary; quick?: boolean }
   | { ok: false; error: string; usage: UsageSummary | null }
 
 type GroqMessage =
@@ -401,6 +402,17 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
     { role: 'system', content: systemPrompt(mode) },
     ...trimHistory(history).map((t) => ({ role: t.role, content: t.text }) as GroqMessage),
   ]
+  // Instant answers first: a common question the app's own numbers answer,
+  // with no AI, no tokens, and even while every model is resting.
+  const latest = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
+  const quick = isChangeRequest(latest) ? null : matchQuick(latest)
+  if (quick) {
+    const answer = sayQuick(quick.kind, await lookup(quick.tool, quick.args))
+    if (answer) {
+      console.info('[ask-pondex]', { model: 'server', quick: quick.kind })
+      return { ok: true, answer, tools: [quick.tool], model: 'server', tokens: 0, proposal: null, usage: await currentUsage(), quick: true }
+    }
+  }
   // Plan first, the way a person would: for a change request, the server looks
   // up the fitting actions itself and hands them over, so a smaller model does
   // not have to remember to. It still picks the action and fills it in.
