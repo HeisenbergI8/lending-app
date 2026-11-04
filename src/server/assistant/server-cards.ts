@@ -204,11 +204,11 @@ async function card(ctx: Ctx, action: string, fields: Record<string, unknown>, f
   const error = r.error ?? ''
   ctx.say('A detail needs checking', 'missed')
   if (/how long the loan runs/.test(error)) return askLength(ctx)
-  const tryDates = /Try (\w+ \d{1,2}, \d{4}) or (\w+ \d{1,2}, \d{4})/.exec(error)
+  const tryDates = /Try (\w+ \d{1,2}, \d{4})(?: or (\w+ \d{1,2}, \d{4}))?/.exec(error)
   if (tryDates) {
-    const base = ctx.text.replace(/\b(for\s+)?\d+\s*(days?|araw)\b|\b(due|until|hanggang|by)\s+.*$/i, '').trim()
+    const base = ctx.text.replace(/\b((for|in|within|sa loob ng)\s+)?\d+\s*(days?|araw)\b|\b(due|until|hanggang|by)\s+.*$/i, '').trim()
     const spelled = (d: string) => { const iso = readDate(d, ctx.today); return iso ? spellDate(iso) : d }
-    return ask(`${error.replace(/\s*Try .*$/, '')} Loans run in whole weeks. Which due date?`, [tryDates[1], tryDates[2]].map((d) => ({ label: spelled(d), send: plus(base, `until ${d}`) })))
+    return ask(`${error.replace(/\s*Try .*$/, '')} Loans run in whole weeks. Which due date?`, [tryDates[1], tryDates[2]].filter(Boolean).map((d) => ({ label: spelled(d), send: plus(base, `until ${d}`) })))
   }
   if (/how much from each lender/.test(error)) return tell('How much is from each lender? For example: "6k from Maria and 4k from Jun", or say "split evenly".')
   if (/did not say \w+/.test(error)) return tell('How much? Please say the amount, for example "5k" or "₱5,000".')
@@ -286,11 +286,52 @@ function shares(text: string, lenders: Person[], capital: number | null): { lend
 const amountWords = (n: number) => (n % 1000 === 0 ? `${n / 1000}k` : String(n))
 const amountsInOne = (s: string) => amountsIn(s.replace(/₱\s?/, '₱'))[0] ?? null
 
-async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
+/** The text with one person's name words blanked out, so they are not read again as someone else. */
+function withoutName(text: string, p: Person): string {
+  const parts = wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x))
+  return text.replace(/[\p{L}']+/gu, (w) => {
+    const n = norm(w).replace(/'s$/, '')
+    return parts.some((x) => n === x || (x.length >= 4 && n.length >= 3 && distance(n, x) <= 1)) ? ' ' : w
+  })
+}
+
+/** Where the borrower comes after "from": "from Maria to Rico", "galing kay Maria para kay Rico". "galing kay" is the lender's. */
+const TO_BORROWER = /\b(?<!galing\s)(to|kay|para kay|para sa|para)\s+/gi
+
+/**
+ * The borrower, and the part of the sentence that names the lenders. Usually the
+ * borrower comes before "from" ("lend Rico 5k from Maria"). Said the other way
+ * round ("from Maria's pot 5k to Rico", or with no "to" at all: "from Maria, Rico
+ * 5k"), the borrower is found after it, with the lenders' own names set aside first.
+ */
+function borrowerAndLenders(ctx: Ctx, borrowers: Person[], lenders: Person[]): { borrower: Person | ServerReply | null; lenderPart: string } {
   const { before, after } = splitFrom(ctx.text)
-  const borrower = onePerson(ctx, before, await listBorrowerNames(ctx.userId), 'borrower')
+  const asBefore = (borrower: Person | ServerReply | null) => ({
+    borrower,
+    lenderPart: after || (borrower && !isReply(borrower) ? ctx.text.replace(new RegExp(`\\b${borrower.firstName}\\b`, 'i'), '') : ctx.text),
+  })
+  if (!after || mentions(before, borrowers).length > 0) return asBefore(onePerson(ctx, before, borrowers, 'borrower'))
+  for (const m of after.matchAll(TO_BORROWER)) {
+    const rest = after.slice(m.index + m[0].length)
+    if (mentions(rest, borrowers).length === 0) continue
+    const borrower = onePerson(ctx, rest, borrowers, 'borrower')
+    if (!borrower || isReply(borrower)) return { borrower, lenderPart: after }
+    return { borrower, lenderPart: `${after.slice(0, m.index)} ${withoutName(rest, borrower)}` }
+  }
+  const rest = mentions(after, lenders).flat().reduce(withoutName, after)
+  if (mentions(rest, borrowers).length === 1) {
+    const borrower = onePerson(ctx, rest, borrowers, 'borrower')
+    if (!borrower || isReply(borrower)) return { borrower, lenderPart: after }
+    return { borrower, lenderPart: withoutName(after, borrower) }
+  }
+  return asBefore(onePerson(ctx, before, borrowers, 'borrower'))
+}
+
+async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
+  const lenderNames = await listLenderNames(ctx.userId)
+  const { borrower, lenderPart } = borrowerAndLenders(ctx, await listBorrowerNames(ctx.userId), lenderNames)
   if (!borrower || isReply(borrower)) return borrower
-  const lenders = await lendersFor(ctx, after || ctx.text.replace(new RegExp(`\\b${borrower.firstName}\\b`, 'i'), ''), await listLenderNames(ctx.userId))
+  const lenders = await lendersFor(ctx, lenderPart, lenderNames)
   if (isReply(lenders)) return lenders
   const amounts = amountsIn(ctx.text)
   const length = lengthSaid(ctx.text, ctx.today)

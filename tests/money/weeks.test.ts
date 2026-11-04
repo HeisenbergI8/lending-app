@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   calendarDate,
   daysBetween,
+  describeWeeksError,
   dueDateAfterWeeks,
   parseCalendarDate,
   storedCalendarDate,
@@ -208,5 +209,21 @@ describe('storedCalendarDate — a day read back out of a `date` column', () => 
       assert.equal(day.getMonth(), utc.getUTCMonth())
       assert.equal(day.getDate(), utc.getUTCDate())
     }
+  })
+})
+
+describe('describeWeeksError — the dates that would work', () => {
+  test('30 days names the whole weeks either side', () => {
+    const result = weeksBetween(date(2026, 2, 1), date(2026, 3, 3))
+    assert.ok(!result.ok)
+    assert.match(describeWeeksError(result.error), /30 days is not a whole number of weeks\. Try .+ or .+\./)
+  })
+
+  test('under a week offers only one week, never the start day itself', () => {
+    const result = weeksBetween(date(2026, 11, 4), date(2026, 11, 7))
+    assert.ok(!result.ok)
+    const said = describeWeeksError(result.error)
+    assert.match(said, /^3 days is less than a week\. Try [^.]*11[^.]*\.$/)
+    assert.doesNotMatch(said, / or /)
   })
 })

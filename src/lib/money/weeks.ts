@@ -169,6 +169,8 @@ export function describeWeeksError(error: WeeksError): string {
     case 'same-day':
       return 'A loan runs at least one week.'
     case 'not-whole-weeks':
+      // Under a week, the earlier "whole week" is the start day itself, which is no loan at all.
+      if (error.days < DAYS_PER_WEEK) return `${error.days} days is less than a week. Try ${dayMonth.format(error.nextValidDue)}.`
       return `${error.days} days is not a whole number of weeks. Try ${dayMonth.format(error.previousValidDue)} or ${dayMonth.format(error.nextValidDue)}.`
   }
 }
