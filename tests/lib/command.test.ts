@@ -30,6 +30,23 @@ describe('reading days and lengths', () => {
     assert.equal(daySaid('paid on Monday', TODAY, 'past'), '2026-11-02')
     assert.equal(daySaid('starting Friday', TODAY, 'future'), '2026-11-06')
   })
+  test('found on the testing link: the lender Jun is not the month June', () => {
+    assert.equal(daySaid('pautang kay Lyn 2k galing kay Jun 1 linggo', TODAY, 'future'), null)
+    assert.equal(daySaid('lend Lyn 2k from Jun 1 week', TODAY, 'future'), null)
+    assert.deepEqual(amountsIn('lend Lyn 2k galing kay Jun 2k'), [2000, 2000])
+    assert.deepEqual(lengthSaid('lend Lyn 2k from Jun 1 week', TODAY), { weeks: 1 })
+    assert.equal(daySaid('lend Rico 10k starting Jun 30', TODAY, 'future'), '2027-06-30')
+    assert.equal(daySaid('lend Rico 10k starting Nov 20', TODAY, 'future'), '2026-11-20')
+    assert.equal(daySaid('paid on Jun 30', TODAY, 'past'), '2026-06-30')
+  })
+  test("found on the testing link: a button's loan reference is not the payment date", () => {
+    assert.equal(daySaid('Lyn paid in full (the ₱8,000.00 loan from November 01, 2026)', TODAY, 'past'), null)
+  })
+  test('found on the testing link: one more week is one week', () => {
+    assert.deepEqual(lengthSaid('Rico asked for one more week', TODAY), { weeks: 1 })
+    assert.deepEqual(lengthSaid('give Lyn another week', TODAY), { weeks: 1 })
+    assert.deepEqual(lengthSaid('2 more weeks', TODAY), { weeks: 2 })
+  })
   test('a due date is never read as the start', () => assert.equal(daySaid('lend Rico 10k due Nov 30', TODAY, 'future'), null))
   test('weeks, days, due dates, months', () => {
     assert.deepEqual(lengthSaid('for 3 weeks', TODAY), { weeks: 3 })

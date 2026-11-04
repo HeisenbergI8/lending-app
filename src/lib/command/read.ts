@@ -19,7 +19,7 @@ export type Day = string
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 const MONTH = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, isang: 1, two: 2, dalawang: 2, three: 3, tatlong: 3, four: 4, apat: 4, five: 5, limang: 5, six: 6, anim: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 }
+const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, isang: 1, isa: 1, two: 2, dalawang: 2, three: 3, tatlong: 3, four: 4, apat: 4, five: 5, limang: 5, six: 6, anim: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const iso = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
@@ -31,16 +31,24 @@ export function clean(text: string): string {
   return text.toLowerCase().replace(/[’‘`]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim()
 }
 
-/** A date written in a reference ("from October 18, 2026") or by itself. */
-const DATE_TEXT = new RegExp(`\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b|\\b\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?\\b`, 'g')
+/**
+ * After a day number: not more digits, and not a count of something. "Jun 30" is a date,
+ * but "from Jun 1 week" is the lender Jun and one week, and "kay Jun 2k" is Jun and ₱2,000.
+ */
+const DAY_END = '(?![\\d.,])(?!\\s*-?\\s*(?:k|thousand|libo|weeks?|wks?|weaks?|linggo|days?|araw|months?|buwan)\\b)'
+/** The references a follow-up button adds; their dates say which record, not when something happened. */
+const REFS = /\(the [^)]*\)/g
 
-/** One written date as a day, or null. A month-day with no year is this year, or next year if that day is long past. */
+/** A date written in a reference ("from October 18, 2026") or by itself. */
+const DATE_TEXT = new RegExp(`\\b${MONTH}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?${DAY_END}(?:,?\\s+\\d{4})?\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b|\\b\\d{1,2}\\/\\d{1,2}(?:\\/\\d{2,4})?\\b`, 'g')
+
+/** One written date as a day, or null. A month-day with no year is this year (daySaid moves a long-past start to next year). */
 export function readDate(text: string, today: Day): Day | null {
   const t = clean(text)
   const isoMatch = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(t)
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
   const year = Number(today.slice(0, 4))
-  const md = new RegExp(`\\b${MONTH}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?\\b`).exec(t)
+  const md = new RegExp(`\\b${MONTH}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?${DAY_END}(?:,?\\s+(\\d{4}))?\\b`).exec(t)
   if (md) {
     const month = MONTHS.indexOf(md[1].slice(0, 3)) + 1
     return `${md[3] ?? year}-${pad(month)}-${pad(Number(md[2]))}`
@@ -59,11 +67,13 @@ export function readDate(text: string, today: Day): Day | null {
  * "future" (a loan starting) as the next one from today. Null when no day is said.
  */
 export function daySaid(text: string, today: Day, when: 'past' | 'future'): Day | null {
-  const t = clean(text)
+  const t = clean(text).replace(REFS, ' ')
   if (/\b(today|ngayon|now|kanina)\b/.test(t)) return today
   if (/\b(yesterday|kahapon)\b/.test(t)) return addDays(today, -1)
   if (/\b(tomorrow|bukas)\b/.test(t)) return addDays(today, 1)
   const written = readDate(t.replace(/\b(due|until|hanggang|by|ending|ends?)\s+\S+(\s+\d{1,2}(st|nd|rd|th)?)?(,?\s+\d{4})?/g, ' '), today)
+  // A start with no year that is long past ("starting Jun 30" in November) means next year.
+  if (written && when === 'future' && !/\b\d{4}\b/.test(t) && written < addDays(today, -60)) return `${Number(written.slice(0, 4)) + 1}${written.slice(4)}`
   if (written) return written
   const wd = /\b(?:last|this|next|on)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/.exec(t)
   if (wd) {
@@ -78,9 +88,10 @@ export function daySaid(text: string, today: Day, when: 'past' | 'future'): Day 
 
 /** How long a loan runs: weeks, days, or a due date. A month is not a fixed length here, so it is left for the Admin to say in weeks. */
 export function lengthSaid(text: string, today: Day): { weeks?: number; days?: number; dueOn?: Day; months?: number } | null {
-  const t = clean(text)
+  const t = clean(text).replace(REFS, ' ')
+  if (/\b(another|extra|isa pang)\s+(week|linggo)\b/.test(t)) return { weeks: 1 }
   const count = (word: string) => (/^\d+$/.test(word) ? Number(word) : (NUMBER_WORDS[word] ?? NaN))
-  const weeks = /\b(\d+|a|an|one|isang|two|dalawang|three|tatlong|four|apat|five|limang|six|anim|seven|eight|nine|ten|twelve)\s*-?\s*(weeks?|wks?|weaks?|linggo)\b/.exec(t)
+  const weeks = /\b(\d+|a|an|one|isang|isa|two|dalawang|three|tatlong|four|apat|five|limang|six|anim|seven|eight|nine|ten|twelve)\s*-?\s*(?:more\s+|extra\s+|pang\s+)?(weeks?|wks?|weaks?|linggo)\b/.exec(t)
   if (weeks && count(weeks[1]) > 0) return { weeks: count(weeks[1]) }
   const days = /\b(\d+|a|one|two|three|four|five|six|seven|ten)\s*-?\s*(days?|araw)\b/.exec(t)
   if (days && count(days[1]) > 0) return { days: count(days[1]) }

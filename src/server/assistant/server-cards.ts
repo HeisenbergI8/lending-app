@@ -213,8 +213,11 @@ function askLength(ctx: Ctx): ServerReply {
 // ---------------------------------------------------------------- per action
 
 /** Lenders named in the "from ..." part, the Admin's own pot included, or the question. */
+/** A month right after "starting", "until" or "due" is a date, not a person: "starting Jun 30" is not the lender Jun. */
+const DATED_MONTH = /\b(starting|start|starts|on|until|due|by|hanggang|simula)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b/gi
+
 async function lendersFor(ctx: Ctx, part: string, all: Person[]): Promise<Person[] | ServerReply> {
-  const groups = mentions(part, all.filter((l) => !l.isSelf))
+  const groups = mentions(part.replace(DATED_MONTH, ' '), all.filter((l) => !l.isSelf))
   const ambiguous = groups.find((g) => g.length > 1)
   if (ambiguous) return whichPerson(ctx.text, ambiguous, 'lender')
   const picked = groups.map((g) => g[0])
