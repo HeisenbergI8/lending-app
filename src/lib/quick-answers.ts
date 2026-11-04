@@ -50,7 +50,7 @@ const PATTERNS: [QuickKind, string, RegExp][] = [
   ['floatingEach', 'list_lenders', /^(how much (money )?(is )?floating (in|for|per) (each|every) (pot|lender)s?|floating (in|for|per) (each|every) (pot|lender)s?|how much (does|do) each (lender|pot) have( floating)?)$/],
   ['floating', 'get_overview', new RegExp(`^(${HOW_MUCH}(floating|available to lend|free to lend|ready to lend)|(total )?floating( money| total)?)$`)],
   ['earned', 'get_overview', /^(how much (have we|have i|did we|did i|has been) (earned|made)|how much (is )?earned|(total )?(earned|earnings))$/],
-  ['overdue', 'get_overview', /^(who('s| is| are) (overdue|late)|(which|what) (borrowers?|loans?) (is |are )?(overdue|late)|(list |show )?(the )?(overdue|late) (borrowers|loans|list)|how many (borrowers |loans |people )?(are )?(overdue|late)|is any(one|body) (overdue|late)|any(one|body)? (overdue|late))$/],
+  ['overdue', 'get_overview', /^(who('s| is| are) (overdue|late)|(which|what) (borrowers?|loans?) (is |are )?(overdue|late)|(list |show )?(the )?(overdue|late) (borrowers|loans|list)|is any(one|body) (overdue|late)|any(one|body)? (overdue|late))$/],
   ['dueThisWeek', 'get_overview', /^((what's|what is|who's|who is|how much is) due this week|(due|collections?) this week|what do (i|we) collect this week)$/],
   ['interestOwed', 'get_overview', /^(how much interest is (still )?(owed|unpaid|left|to collect)( to (us|me))?|(unpaid|owed) interest|interest (still )?(owed|unpaid))$/],
   ['loansEver', 'get_overview', /^((what's |what is )?(the )?total (of )?(all )?(the )?loans( (i've|i have|we've|we have) ever made| ever)?|how many loans (have i|have we|did i|did we) (ever )?(made|given))$/],

@@ -154,7 +154,7 @@ const CHANGE_RULES = `Changes (add, edit, pay, delete, restore anything):
 const OFF_TOPIC = OUT_OF_SCOPE
 
 /** Tools for a plain question. find_action stays, so a missed change can still switch to change mode. */
-const READ_TOOLS = new Set(['read_rules', 'get_overview', 'list_lenders', 'find_borrower', 'find_loans', 'get_loan', 'get_lender', 'list_pending', 'list_deleted', 'search_notes', 'find_action'])
+const READ_TOOLS = new Set(['read_rules', 'get_overview', 'list_lenders', 'find_borrower', 'find_loans', 'get_loan', 'get_lender', 'lender_earnings', 'period_summary', 'admin_cut', 'borrower_statement', 'money_history', 'floating_on', 'list_pending', 'list_deleted', 'search_notes', 'find_action'])
 
 export function toolsFor(mode: Mode) {
   return TOOLS.filter((t) => mode === 'change' || READ_TOOLS.has(t.name)).map((t) => ({ type: 'function', function: t }))

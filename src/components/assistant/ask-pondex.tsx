@@ -89,7 +89,7 @@ function serverOnlyTest(): boolean {
 type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean; choices?: Choice[] } | { ok: false; error: string; usage: Usage | null }
 
 /** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
-async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void): Promise<Answer> {
+async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void, attempt = 1): Promise<Answer> {
   const started = Date.now()
   const took = () => Date.now() - started
   try {
@@ -124,6 +124,12 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
       ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took(), quick: data.quick, choices: data.choices }
       : { text: data.error, failed: true, proposal: null, usage: data.usage, thoughtMs: took() }
   } catch {
+    // Seen on a phone on mobile data (2026-11-04): the request never reached the server. Asking
+    // again is safe, since nothing is saved without Confirm, so it is tried once more before giving up.
+    if (attempt === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      return fetchAnswer(history, onStep, 2)
+    }
     return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true, proposal: null, usage: null, thoughtMs: took() }
   }
 }

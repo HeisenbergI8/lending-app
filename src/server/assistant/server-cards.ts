@@ -1,17 +1,19 @@
 import { db } from '../db.ts'
-import { listBorrowerNames } from '../borrowers/queries.ts'
+import { listBorrowerNames, listBorrowers } from '../borrowers/queries.ts'
+import { borrowerReport, lenderReport } from '../reports/queries.ts'
+import { BELONGS_TO, countCondition, type Metric, type Question, readQuestion } from '../../lib/command/question.ts'
 import { listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
   amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
-  requestRef, SPLIT_EVENLY, weekNumberSaid,
+  periodSaid, requestRef, SPLIT_EVENLY, weekNumberSaid,
 } from '../../lib/command/read.ts'
 import { closestNames, distance, type Named } from './names.ts'
 import { meaningOf } from './meaning.ts'
 import { type Proposal } from './proposal.ts'
 import { manilaToday } from './today.ts'
-import { proposeAction, runTool } from './tools.ts'
+import { adminCut, borrowerStatement, floatingOn, lenderEarnings, moneyHistory, periodSummary, proposeAction, runTool } from './tools.ts'
 
 /**
  * Server-made cards: common changes turned into a Confirm card by the server
@@ -39,9 +41,19 @@ export type ServerReply =
 type Say = (text: string, state?: 'done' | 'missed') => void
 
 type Person = Named & { isSelf?: boolean }
-type Ctx = { userId: string; text: string; today: string; say: Say }
+type Ctx = { userId: string; text: string; today: string; say: Say; names?: string[] }
 
 const CARD = 'Here is the change. Check it, then tap Confirm.'
+
+/**
+ * The period in the question, with people's names hidden first: "ni Jun" is the lender Jun, not June,
+ * and "how much did Jun earn" asks about all time. The names are loaded once per message.
+ */
+function periodIn(ctx: Ctx) {
+  const names = new Set(ctx.names ?? [])
+  const text = ctx.text.replace(/[\p{L}']+/gu, (w) => (names.has(w.toLowerCase().replace(/'s$/, '')) ? 'someone' : w))
+  return periodSaid(text, ctx.today)
+}
 const ask = (answer: string, choices: Choice[] = []): ServerReply => ({ kind: 'ask', answer, choices })
 const tell = (answer: string): ServerReply => ({ kind: 'answer', answer })
 const full = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`
@@ -734,7 +746,435 @@ async function build(ctx: Ctx, intent: Intent): Promise<ServerReply | null> {
   }
 }
 
+// ---------------------------------------------------------------- the app's screens, read by the server
+
+/** "this month", "in October 2026", "from November 01, 2026 to November 04, 2026": how a period reads in an answer. */
+function whenText(period: { from: string; to: string; label: string }): string {
+  if (period.label === 'that time') return `from ${spellDate(period.from)} to ${spellDate(period.to)}`
+  return /^(this|last|next|today|yesterday)\b/.test(period.label) ? period.label : `in ${period.label}`
+}
+const datesRow = (period: { from: string; to: string }) => `- Dates: ${spellDate(period.from)} to ${spellDate(period.to)}`
+/** Whether the text names anyone at all: a figure for "everyone" must not be given for one person's question. */
+async function namesSomeone(ctx: Ctx): Promise<boolean> {
+  const [b, l] = await Promise.all([listBorrowerNames(ctx.userId), listLenderNames(ctx.userId)])
+  return mentions(ctx.text, [...b, ...l.filter((x) => !x.isSelf)]).length > 0
+}
+async function oneBorrower(ctx: Ctx): Promise<Person | ServerReply | null> {
+  const groups = mentions(ctx.text, await listBorrowerNames(ctx.userId))
+  if (groups.length !== 1) return null
+  if (groups[0].length > 1) return whichPerson(ctx.text, groups[0], 'borrower')
+  ctx.say(`Found ${full(groups[0][0])}`)
+  return groups[0][0]
+}
+
+/** Recently Deleted: what can still be restored. */
+async function deletedCheck(ctx: Ctx): Promise<ServerReply | null> {
+  if (!isQuestion(ctx.text) || !/\b(recently deleted|deleted|trash|basura|restorable)\b/i.test(ctx.text)) return null
+  const r = (await runTool(ctx.userId, 'list_deleted', {})) as { borrowers: { name: string }[]; lenders: { name: string }[]; loans: { borrower: string; amount: string }[]; moneyEntries: { lender: string; amount: string }[] }
+  ctx.say('Checked Recently Deleted')
+  const rows = [
+    ...r.borrowers.map((b) => `- ${b.name}: Borrower`),
+    ...r.lenders.map((l) => `- ${l.name}: Lender`),
+    ...r.loans.map((l) => `- ${l.borrower}: ${l.amount} loan`),
+    ...r.moneyEntries.map((m) => `- ${m.lender}: ${m.amount} entry`),
+  ]
+  if (rows.length === 0) return tell('Recently Deleted is empty.')
+  return tell([`**${rows.length} ${rows.length === 1 ? 'item' : 'items'}** in Recently Deleted. Ask me to restore any of them.`, ...rows.slice(0, 10)].join('\n'))
+}
+
+/** "Is Dan a good borrower?", "Dan's track record": the saved label beside what the rule gives. */
+async function trackRecordCheck(ctx: Ctx): Promise<ServerReply | null> {
+  if (!isQuestion(ctx.text) || !/\b(track record|record|history|label|rating|reliable|trustworthy|good|okay|ok|bad)\b/i.test(ctx.text)) return null
+  if (EARN.test(ctx.text) || periodIn(ctx)) return null
+  const who = await oneBorrower(ctx)
+  if (!who || isReply(who)) return who
+  const r = (await runTool(ctx.userId, 'find_borrower', { name: full(who) })) as { borrowers?: { name: string; savedLabel: string; ruleWouldGive: string; trackRecord: string }[] }
+  const b = r.borrowers?.find((x) => x.name === full(who))
+  if (!b) return null
+  const word = (l: string) => (l === 'none' ? 'no label' : l.charAt(0) + l.slice(1).toLowerCase())
+  const same = b.savedLabel === b.ruleWouldGive
+  return tell([
+    same ? `${b.name} is **${word(b.savedLabel)}**, and your rule agrees.` : `${b.name} is saved as **${word(b.savedLabel)}**, but your rule gives **${word(b.ruleWouldGive)}**.`,
+    `- Saved label: ${word(b.savedLabel)}`,
+    `- By your rule: ${word(b.ruleWouldGive)}`,
+    `- Record: ${b.trackRecord}`,
+  ].join('\n'))
+}
+
+/** "How much did Angel pay this month?", "How much did Rico borrow in October?" */
+async function borrowerPeriodCheck(ctx: Ctx): Promise<ServerReply | null> {
+  if (!isQuestion(ctx.text)) return null
+  const pays = /\b(pay|paid|payed|bayad|nagbayad|binayaran|hulog|naghulog)\b/i.test(ctx.text)
+  const borrows = /\b(borrow|borrowed|hiram|hiniram|umutang|utang|loaned)\b/i.test(ctx.text)
+  const period = periodIn(ctx)
+  if ((!pays && !borrows) || !period) return null
+  const who = await oneBorrower(ctx)
+  if (!who || isReply(who)) return who
+  const r = (await borrowerStatement(ctx.userId, full(who), period.from, period.to)) as { found?: boolean; name?: string; borrowed?: string; paid?: string; weeksOfInterestPaid?: number; owesToday?: string }
+  if (!r.found) return null
+  ctx.say(`Read ${r.name}'s statement`)
+  return tell([
+    pays ? `**${r.paid}** paid by ${r.name} ${whenText(period)}.` : `**${r.borrowed}** borrowed by ${r.name} ${whenText(period)}.`,
+    pays ? `- Borrowed: ${r.borrowed}` : `- Paid: ${r.paid}`,
+    ...(r.weeksOfInterestPaid ? [`- Weeks of interest paid: ${r.weeksOfInterestPaid}`] : []),
+    `- Owes today: ${r.owesToday}`,
+    datesRow(period),
+  ].join('\n'))
+}
+
+/** "How much is my cut this month?" */
+async function adminCutCheck(ctx: Ctx): Promise<ServerReply | null> {
+  if (!/\b(cut|commission|komisyon)\b/i.test(ctx.text)) return null
+  const period = periodIn(ctx)
+  if (!period) return null
+  const r = (await adminCut(ctx.userId, period.from, period.to)) as { collected: string; agreedOnLoansStarted: string; stillToComeToday: string; loansStarted: number; loansRepaid: number }
+  ctx.say("Added up the Admin's cut")
+  return tell([
+    `**${r.collected}** Admin's cut collected ${whenText(period)}.`,
+    `- Cut on loans made: ${r.agreedOnLoansStarted}`,
+    `- Still to come (as of today): ${r.stillToComeToday}`,
+    `- Loans started: ${r.loansStarted}`,
+    `- Loans repaid: ${r.loansRepaid}`,
+    datesRow(period),
+  ].join('\n'))
+}
+
+/** "How much will be floating by the end of the month?", "How much will Maria have on Nov 30?" */
+async function floatingOnCheck(ctx: Ctx): Promise<ServerReply | null> {
+  const t = clean(ctx.text)
+  if (!/\b(will|by|on|end of)\b/.test(t) || !/\b(floating|have|available|ready to lend|free to lend)\b/.test(t)) return null
+  if (!/\b(will|by|end of)\b/.test(t)) return null
+  const endOfMonth = /\bend of (the )?month\b/.test(t) ? new Date(Date.UTC(Number(ctx.today.slice(0, 4)), Number(ctx.today.slice(5, 7)), 0)).toISOString().slice(0, 10) : null
+  const period = periodIn(ctx)
+  const on = endOfMonth ?? readDate(t, ctx.today) ?? (period && period.to > ctx.today ? period.to : null)
+  if (!on || on <= ctx.today) return null
+  const lenders = await listLenderNames(ctx.userId)
+  const self = lenders.find((l) => l.isSelf)
+  const groups = self && ADMIN_WORDS.test(ctx.text) ? [[self]] : mentions(ctx.text, lenders.filter((l) => !l.isSelf))
+  if (groups.length > 1) return null
+  if (groups[0]?.length > 1) return whichPerson(ctx.text, groups[0], 'lender')
+  const who = groups[0]?.[0]
+  const r = (await floatingOn(ctx.userId, who ? full(who) : '', on)) as { found?: boolean; who?: string; floatingNow?: string; floatingThen?: string; comingBackBy?: string; lateNotCounted?: string; perPot?: { name: string; floatingThen: string }[] }
+  if (!r.found) return null
+  ctx.say('Worked out what will be floating')
+  return tell([
+    `**${r.floatingThen}** floating ${who ? `in ${r.who}'s pot ` : ''}by ${spellDate(on)}, if every payment due by then arrives.`,
+    `- Floating now: ${r.floatingNow}`,
+    `- Coming back by then: ${r.comingBackBy}`,
+    ...(r.lateNotCounted && r.lateNotCounted !== '₱0.00' ? [`- Late, not counted: ${r.lateNotCounted}`] : []),
+    ...(r.perPot ?? []).map((p) => `- ${p.name}: ${p.floatingThen}`),
+  ].join('\n'))
+}
+
+/** "Which loans are due next week?", "Who is due in December?" */
+async function loansDueCheck(ctx: Ctx): Promise<ServerReply | null> {
+  if (!isQuestion(ctx.text) || !/\bdue\b/i.test(ctx.text)) return null
+  const period = periodIn(ctx)
+  if (!period || (await namesSomeone(ctx))) return null
+  const r = (await runTool(ctx.userId, 'find_loans', { status: 'active', due_from: period.from, due_to: period.to })) as { totals?: { matching: number; stillToCollect: string }; loans?: { borrower: string; totalToRepay: string; nextDue: string | null }[] }
+  if (!r.totals) return null
+  ctx.say(`Found ${r.totals.matching} ${r.totals.matching === 1 ? 'loan' : 'loans'}`)
+  if (r.totals.matching === 0) return tell(`No unpaid loan is due ${whenText(period)}.\n${datesRow(period)}`)
+  return tell([
+    `**${r.totals.matching} ${r.totals.matching === 1 ? 'loan' : 'loans'}** due ${whenText(period)}.`,
+    ...(r.loans ?? []).slice(0, 10).map((l) => `- ${l.borrower}: ${l.totalToRepay} | Due ${l.nextDue ? spellDate(l.nextDue) : 'not set'}`),
+    datesRow(period),
+  ].join('\n'))
+}
+
+/** "What came in last week?", "Maria's deposits this month", "withdrawals in October". */
+async function moneyHistoryCheck(ctx: Ctx): Promise<ServerReply | null> {
+  const t = clean(ctx.text)
+  if (!/\b(money in|money out|money history|deposits?|deposited|withdrawals?|withdrew|came in|went out|cash in|cash out|movements?|galaw)\b/.test(t)) return null
+  if (!isQuestion(ctx.text) && !/^(show|list)\b|'s (deposits|withdrawals|money)/.test(t)) return null
+  if (/\b(each|every|per|all lenders|bawat|most|least|highest|lowest)\b/.test(t)) return null
+  const period = periodIn(ctx)
+  const lenders = await listLenderNames(ctx.userId)
+  const groups = mentions(ctx.text, lenders.filter((l) => !l.isSelf))
+  if (groups.length > 1) return null
+  if (groups[0]?.length > 1) return whichPerson(ctx.text, groups[0], 'lender')
+  const who = groups[0]?.[0]
+  if (!period && !who) return null
+  const kind = /\b(deposits?|deposited)\b/.test(t) ? 'in' : /\b(withdrawals?|withdrew)\b/.test(t) ? 'withdrawals' : undefined
+  // "What came in" is every peso that arrived (deposits and repayments); "what went out" every peso that left.
+  const direction = kind ? undefined : /\b(came in|money in|cash in)\b/.test(t) ? 'in' : /\b(went out|money out|cash out)\b/.test(t) ? 'out' : undefined
+  const r = (await moneyHistory(ctx.userId, { ...(who ? { name: full(who) } : {}), ...(period ? { from: period.from, to: period.to } : {}), ...(kind ? { kind } : {}), ...(direction ? { direction } : {}) })) as { found?: boolean; count?: number; moneyIn?: string; moneyOut?: string; entries?: { date: string | null; lender: string; what: string; amount: string; direction: string }[] }
+  if (!r.found) return null
+  ctx.say(`Read ${r.count} money ${r.count === 1 ? 'entry' : 'entries'}`)
+  const scope = `${who ? ` for ${full(who)}` : ''}${period ? ` ${whenText(period)}` : ''}`
+  const head = kind === 'in' ? `**${r.moneyIn}** deposited${scope}.` : kind === 'withdrawals' ? `**${r.moneyOut}** withdrawn${scope}.` : direction === 'in' ? `**${r.moneyIn}** came in${scope}.` : direction === 'out' ? `**${r.moneyOut}** went out${scope}.` : `**${r.moneyIn}** in and ${r.moneyOut} out${scope}.`
+  if (!r.count) return tell(`${kind === 'in' ? `No deposits${scope}.` : kind === 'withdrawals' ? `No withdrawals${scope}.` : direction === 'in' ? `Nothing came in${scope}.` : direction === 'out' ? `Nothing went out${scope}.` : `No money moved${scope}.`}${period ? `\n${datesRow(period)}` : ''}`)
+  return tell([
+    head,
+    ...(r.entries ?? []).slice(0, 8).map((e) => `- ${e.lender}: ${e.direction === 'in' ? '' : '−'}${e.amount} | ${e.what} · ${e.date ? spellDate(e.date) : ''}`),
+    ...(period ? [datesRow(period)] : []),
+    ...(r.count! > 8 ? [`Showing 8 of ${r.count}. The Money history page has them all.`] : []),
+  ].join('\n'))
+}
+
+/** "How much did we lend this month?", "How much was collected in October?", "How many loans were made last month?" */
+async function summaryCheck(ctx: Ctx): Promise<ServerReply | null> {
+  const t = clean(ctx.text)
+  const period = periodIn(ctx)
+  if (!period || !isQuestion(ctx.text) || (await namesSomeone(ctx))) return null
+  const lent = /\b(lend|lent|loaned|lent out|released|pinahiram|pautang)\b/.test(t)
+  const collected = /\b(collect|collected|received|repaid|paid back|came back|nakolekta|bayad)\b/.test(t)
+  const made = /\bhow many loans?\b.*\b(made|started|new|given|released)\b/.test(t)
+  const paid = /\bhow many loans?\b.*\b(paid|repaid|settled|finished)\b/.test(t)
+  const summary = /\b(summary|report|recap|overview)\b/.test(t)
+  if (!lent && !collected && !made && !paid && !summary) return null
+  const r = (await periodSummary(ctx.userId, period.from, period.to)) as { lentOut: string; collected: string; adminEarned: string; loansMade: number; loansRepaid: number }
+  ctx.say('Added up loans and payments')
+  const head = made
+    ? `**${r.loansMade} ${r.loansMade === 1 ? 'loan' : 'loans'}** made ${whenText(period)}.`
+    : paid
+      ? `**${r.loansRepaid} ${r.loansRepaid === 1 ? 'loan' : 'loans'}** repaid ${whenText(period)}.`
+      : collected && !lent
+        ? `**${r.collected}** collected ${whenText(period)}.`
+        : lent
+          ? `**${r.lentOut}** lent out ${whenText(period)}.`
+          : `Summary ${whenText(period)}:`
+  return tell([
+    head,
+    `- Lent out: ${r.lentOut}`,
+    `- Collected: ${r.collected}`,
+    `- Admin earned: ${r.adminEarned}`,
+    `- Loans made: ${r.loansMade}`,
+    `- Loans repaid: ${r.loansRepaid}`,
+    datesRow(period),
+  ].join('\n'))
+}
+
+// ---------------------------------------------------------------- any figure, for anyone, for any time
+
+/** How each figure reads in an answer. "Now" figures are today's, whatever period is asked. */
+const FIGURE: Record<Exclude<Metric, 'count'>, { word: string; now: boolean; one: (name: string) => string }> = {
+  earned: { word: 'earned', now: false, one: (n) => `earned by ${n}` },
+  floating: { word: 'floating', now: true, one: (n) => `floating in ${n}'s pot` },
+  outOnLoan: { word: 'out on loan', now: true, one: (n) => `of ${n}'s money out on loan` },
+  interestOwed: { word: 'interest still to come', now: true, one: (n) => `interest still to come for ${n}` },
+  startingCapital: { word: 'starting capital', now: true, one: (n) => `starting capital for ${n}` },
+  deposits: { word: 'deposited', now: false, one: (n) => `deposited by ${n}` },
+  withdrawals: { word: 'withdrawn', now: false, one: (n) => `withdrawn by ${n}` },
+  owes: { word: 'still owed', now: true, one: (n) => `still owed by ${n}` },
+  overdue: { word: 'overdue', now: true, one: (n) => `overdue from ${n}` },
+  paid: { word: 'paid', now: false, one: (n) => `paid by ${n}` },
+  borrowed: { word: 'borrowed', now: false, one: (n) => `borrowed by ${n}` },
+}
+/** Names first, for a tie: "Angel and Bea borrowed the most, ₱75,000.00 each". */
+const VERB: Record<Exclude<Metric, 'count'>, string> = {
+  earned: 'earned', floating: 'have', outOnLoan: 'have out on loan', interestOwed: 'have interest still to come', startingCapital: 'started with',
+  deposits: 'deposited', withdrawals: 'withdrew', owes: 'owe', overdue: 'have overdue', paid: 'paid', borrowed: 'borrowed',
+}
+/** A tie at nothing: "Angel, Dan, Lyn and Rico paid nothing in October 2026." */
+const VERB_NONE: Record<Exclude<Metric, 'count'>, string> = {
+  earned: 'earned nothing', floating: 'have nothing floating', outOnLoan: 'have nothing out on loan', interestOwed: 'have no interest still to come', startingCapital: 'have no starting capital set',
+  deposits: 'deposited nothing', withdrawals: 'withdrew nothing', owes: 'owe nothing', overdue: 'have nothing overdue', paid: 'paid nothing', borrowed: 'borrowed nothing',
+}
+/** "All time" for a figure over a period: from long before the first loan to today. */
+const ALL_TIME = (today: string) => ({ from: '2000-01-01', to: today, label: 'all time' })
+
+/**
+ * Any figure the app shows, for one person, each lender (each pot), each
+ * borrower, everyone, or the Admin's own pot, now or for any period, ranked
+ * when asked. One reader for every combination, so "how much did each lender
+ * earn in October" needs no sentence of its own. Each figure comes from the same
+ * function as the screen that shows it (the Lenders and Borrowers lists, and the
+ * lender and borrower statements on the Reports page).
+ */
+async function anyFigureCheck(ctx: Ctx): Promise<ServerReply | null> {
+  // Reached only for questions, or for sentences no change rule recognised ("earnings of each lender in October").
+  // A statement with an amount ("Maria sent another 20k for her pot", "Jun started with 30000") is a change: not here.
+  if (!isQuestion(ctx.text) && amountsIn(ctx.text).length > 0) return null
+  const q0 = readQuestion(ctx.text, ctx.today)
+  if (!q0) return null
+  const q = { ...q0, period: periodIn(ctx) }
+  if (q.metric === 'count') return countAnswer(ctx, q)
+  const kind = BELONGS_TO[q.metric]
+  const figure = FIGURE[q.metric]
+  const [lenders, borrowerList] = await Promise.all([listLenders(ctx.userId), listBorrowers(ctx.userId, { page: 1, skip: 0, take: 1000 })])
+  const borrowers = borrowerList.rows
+  // A figure over time with no period said is all time; a "now" figure ignores the period.
+  const period = figure.now ? null : (q.period ?? ALL_TIME(ctx.today))
+  const range = period ? { from: new Date(`${period.from}T00:00:00`), to: new Date(`${period.to}T00:00:00`) } : null
+
+  const lenderValue = async (l: (typeof lenders)[number]): Promise<number> => {
+    switch (q.metric) {
+      case 'floating': return l.position.floating
+      case 'outOnLoan': return l.position.outOnLoan
+      case 'interestOwed': return l.position.pending
+      case 'startingCapital': return l.startingCapital
+      case 'earned': return range && q.period ? ((await lenderReport(ctx.userId, l.id, range))?.earnedInPeriod ?? 0) : l.position.earned
+      case 'deposits': return (await lenderReport(ctx.userId, l.id, range!))?.putIn ?? 0
+      case 'withdrawals': return (await lenderReport(ctx.userId, l.id, range!))?.tookOut ?? 0
+      default: return 0
+    }
+  }
+  const borrowerValue = async (b: (typeof borrowers)[number]): Promise<number> => {
+    switch (q.metric) {
+      case 'owes': return b.outstanding
+      case 'overdue': return b.overdueOutstanding
+      case 'paid': return (await borrowerReport(ctx.userId, b.id, range!, { withProof: false }))?.paidInPeriod ?? 0
+      case 'borrowed': return (await borrowerReport(ctx.userId, b.id, range!, { withProof: false }))?.borrowedInPeriod ?? 0
+      default: return 0
+    }
+  }
+  const when = period && period.label !== 'all time' ? ` ${whenText(period)}` : period ? ' in all' : ''
+  const tail = [...(period && period.label !== 'all time' ? [datesRow(period)] : []), ...(figure.now && q.period ? ['These are as of today.'] : [])]
+
+  // One named person, or the Admin's own pot.
+  const people: Person[] = kind === 'lender' ? lenders.filter((l) => !l.isSelf) : borrowers
+  const named = mentions(ctx.text, people)
+  const self = lenders.find((l) => l.isSelf)
+  if (named.length > 1) return null
+  if (named.length === 1 || (q.admin && kind === 'lender' && self && !q.each)) {
+    if (named[0]?.length > 1) return whichPerson(ctx.text, named[0], kind)
+    const person = named[0]?.[0] ?? self!
+    ctx.say(`Found ${full(person)}`)
+    const value = kind === 'lender' ? await lenderValue(lenders.find((l) => l.id === person.id)!) : await borrowerValue(borrowers.find((b) => b.id === person.id)!)
+    if (q.metric === 'overdue' && value === 0) return tell(`${full(person)} has nothing overdue.`)
+    // One pot or one borrower: the figures next to it on their own page, for context.
+    const pot = kind === 'lender' ? lenders.find((l) => l.id === person.id) : undefined
+    const owing = kind === 'borrower' ? borrowers.find((b) => b.id === person.id) : undefined
+    const context = pot
+      ? [q.metric !== 'floating' ? `- Floating now: ${pesos(pot.position.floating / 100)}` : '', q.metric !== 'outOnLoan' ? `- Out on loan: ${pesos(pot.position.outOnLoan / 100)}` : '', q.metric !== 'earned' ? `- Earned in all: ${pesos(pot.position.earned / 100)}` : ''].filter(Boolean)
+      : owing && q.metric !== 'owes'
+        ? [`- Still owes: ${pesos(owing.outstanding / 100)}`]
+        : owing
+          ? await unpaidLoanRows(ctx, full(person))
+          : []
+    return tell([`**${pesos(value / 100)}** ${figure.one(full(person))}${when}.`, ...context, ...tail].join('\n'))
+  }
+  // A name of the other kind ("how much did Maria pay", Maria being a lender) is not this figure's: the AI takes it.
+  const others: Person[] = kind === 'lender' ? borrowers : lenders.filter((l) => !l.isSelf)
+  if (mentions(ctx.text, others).length > 0) return null
+
+  // Each lender (each pot) or each borrower, a total, or a ranking: one row per person.
+  ctx.say(`Read every ${kind}`)
+  const rows = await Promise.all(
+    kind === 'lender'
+      ? lenders.map(async (l) => ({ name: full(l), value: await lenderValue(l) }))
+      : borrowers.map(async (b) => ({ name: full(b), value: await borrowerValue(b) })),
+  )
+  const total = rows.reduce((t, r) => t + r.value, 0)
+  // Borrowers with nothing in this figure are left out of a list, but not out of "who paid the least": ₱0.00 is the least.
+  const shown = rows.filter((r) => kind === 'lender' || r.value !== 0 || q.rank === 'least').sort((a, b) => (q.rank === 'least' ? a.value - b.value : b.value - a.value))
+  const one = kind === 'lender' ? 'lender' : 'borrower'
+  const tied = q.rank ? shown.filter((r) => r.value === shown[0]?.value) : []
+  const together = tied.length > 2 ? `${tied.slice(0, -1).map((r) => r.name).join(', ')} and ${tied.at(-1)!.name}` : tied.map((r) => r.name).join(' and ')
+  const head = q.rank && shown.length > 0
+    ? tied.length > 1
+      ? shown[0].value === 0
+        ? `${together} ${VERB_NONE[q.metric]}${when}.`
+        : `${together} ${VERB[q.metric]} the ${q.rank}${when}, **${pesos(shown[0].value / 100)}** each.`
+      : `**${pesos(shown[0].value / 100)}** ${figure.one(shown[0].name)}${when}, the ${q.rank} of any ${one}.`
+    : `**${pesos(total / 100)}** ${figure.word}${when}, ${kind === 'lender' ? 'across' : 'from'} ${shown.length} ${shown.length === 1 ? one : `${one}s`}.`
+  if (shown.length === 0) return tell([`Nothing ${figure.word}${when} for any ${kind}.`, ...tail].join('\n'))
+  return tell([
+    head,
+    ...shown.slice(0, 10).map((r) => `- ${r.name}: ${pesos(r.value / 100)}`),
+    ...(shown.length > 10 ? [`Showing 10 of ${shown.length}.`] : []),
+    ...tail,
+  ].join('\n'))
+}
+
+/** A borrower's unpaid loans as rows: amount and due date, overdue marked. */
+async function unpaidLoanRows(ctx: Ctx, name: string): Promise<string[]> {
+  const r = (await runTool(ctx.userId, 'find_borrower', { name })) as { borrowers?: { name: string; loans: { amount: string; due: string | null; state: string }[] }[] }
+  const loans = r.borrowers?.find((b) => b.name === name)?.loans.filter((l) => l.state !== 'paid') ?? []
+  return loans.map((l) => `- ${l.amount} loan: due ${l.due ? spellDate(l.due) : 'not set'}${l.state === 'overdue' ? ' | Overdue' : ''}`)
+}
+
+/** "How many borrowers are overdue?", "How many loans were made in October?", "How many lenders do I have?" */
+async function countAnswer(ctx: Ctx, q: Question): Promise<ServerReply | null> {
+  const condition = countCondition(ctx.text)
+  if (q.countOf === 'lenders') {
+    const lenders = await listLenders(ctx.userId)
+    return tell([`**${lenders.length} ${lenders.length === 1 ? 'lender' : 'lenders'}**, the Admin's pot included.`, ...lenders.map((l) => `- ${full(l)}: ${pesos(l.position.floating / 100)} | floating`)].join('\n'))
+  }
+  if (q.countOf === 'borrowers') {
+    const { rows } = await listBorrowers(ctx.userId, { page: 1, skip: 0, take: 1000 })
+    const picked = condition === 'overdue' ? rows.filter((b) => b.overdueOutstanding > 0) : condition === 'owing' ? rows.filter((b) => b.outstanding > 0) : rows
+    const what = condition === 'overdue' ? ' overdue' : condition === 'owing' ? ' owing money' : ''
+    const ranked = [...picked].sort((a, b) => (condition === 'overdue' ? b.overdueOutstanding - a.overdueOutstanding : b.outstanding - a.outstanding))
+    return tell([`**${picked.length} ${picked.length === 1 ? 'borrower' : 'borrowers'}**${what}.`, ...(condition ? ranked.slice(0, 10).map((b) => `- ${full(b)}: ${pesos((condition === 'overdue' ? b.overdueOutstanding : b.outstanding) / 100)}`) : [])].join('\n'))
+  }
+  if (q.countOf === 'loans') {
+    // "How many loans did Maria fund?", "How many loans has Angel taken?": one person's loans.
+    const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(ctx.userId), listBorrowerNames(ctx.userId)])
+    const asLender = mentions(ctx.text, lenderNames.filter((l) => !l.isSelf))
+    const asBorrower = mentions(ctx.text, borrowerNames)
+    const named = asLender.length === 1 && asBorrower.length === 0 ? { kind: 'lender' as const, people: asLender[0] } : asBorrower.length === 1 && asLender.length === 0 ? { kind: 'borrower' as const, people: asBorrower[0] } : null
+    if (named) {
+      if (named.people.length > 1) return whichPerson(ctx.text, named.people, named.kind)
+      const who = named.people[0]
+      ctx.say(`Found ${full(who)}`)
+      const where = named.kind === 'lender' ? { userId: ctx.userId, deletedAt: null, fundings: { some: { lenderId: who.id } } } : { userId: ctx.userId, deletedAt: null, borrowerId: who.id }
+      const [all, unpaid] = await Promise.all([db.loan.count({ where }), db.loan.count({ where: { ...where, status: 'ACTIVE' } })])
+      return tell([`**${all} ${all === 1 ? 'loan' : 'loans'}** ${named.kind === 'lender' ? 'funded by' : 'taken by'} ${full(who)}.`, `- Unpaid: ${unpaid}`, `- Fully paid: ${all - unpaid}`].join('\n'))
+    }
+    if (q.period && (condition === 'made' || condition === 'paid' || condition === null)) {
+      const r = (await periodSummary(ctx.userId, q.period.from, q.period.to)) as { loansMade: number; loansRepaid: number }
+      const n = condition === 'paid' ? r.loansRepaid : r.loansMade
+      return tell([`**${n} ${n === 1 ? 'loan' : 'loans'}** ${condition === 'paid' ? 'repaid' : 'made'} ${whenText(q.period)}.`, datesRow(q.period)].join('\n'))
+    }
+    const o = (await runTool(ctx.userId, 'get_overview', {})) as { overdue: { loans: number }; allLoansEver: { loans: number } }
+    const active = await db.loan.count({ where: { userId: ctx.userId, deletedAt: null, status: 'ACTIVE' } })
+    const paidAll = await db.loan.count({ where: { userId: ctx.userId, deletedAt: null, status: 'PAID' } })
+    if (condition === 'overdue') {
+      const who = (o as unknown as { overdue: { who: { borrower: string; owes: string }[] } }).overdue.who
+      return tell([`**${o.overdue.loans} ${o.overdue.loans === 1 ? 'loan' : 'loans'}** overdue right now.`, ...who.map((w) => `- ${w.borrower}: ${w.owes}`)].join('\n'))
+    }
+    if (condition === 'owing') return tell(`**${active} ${active === 1 ? 'loan' : 'loans'}** still unpaid.`)
+    if (condition === 'paid') return tell(`**${paidAll} ${paidAll === 1 ? 'loan' : 'loans'}** fully paid.`)
+    return tell([`**${o.allLoansEver.loans} ${o.allLoansEver.loans === 1 ? 'loan' : 'loans'}** in all.`, `- Unpaid: ${active}`, `- Fully paid: ${paidAll}`, `- Overdue now: ${o.overdue.loans}`].join('\n'))
+  }
+  return null
+}
+
 // ---------------------------------------------------------------- per-person checks
+
+const EARN = /\b(earn|earns|earned|earning|earnings|kita|kinita|kumita|income|profit|tubo|made)\b/i
+
+/**
+ * "How much did John Ross earn this month?": one lender and a stretch of time,
+ * answered with the same figure as their statement on the Reports page.
+ * Anything vaguer (no period, several lenders, everyone) is the big AI's.
+ */
+async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
+  if (!EARN.test(ctx.text)) return null
+  const period = periodIn(ctx)
+  if (!period && !isQuestion(ctx.text)) return null
+  const lenders = await listLenderNames(ctx.userId)
+  const self = lenders.find((l) => l.isSelf)
+  // "the admin", "my pot", "I": the Admin's own pot.
+  const mine = self && (ADMIN_WORDS.test(ctx.text) || /\b(did i|have i|i earned|my earnings)\b/i.test(ctx.text))
+  const groups = mine ? [[self]] : mentions(ctx.text, lenders)
+  if (groups.length !== 1) return null
+  if (groups[0].length > 1) return whichPerson(ctx.text, groups[0], 'lender')
+  const lender = groups[0][0]
+  ctx.say(`Found ${full(lender)}`)
+  // No period said: everything they have earned, as on their pot.
+  if (!period) {
+    const pot = (await listLenders(ctx.userId)).find((l) => l.id === lender.id)
+    if (!pot) return null
+    return tell([`**${pesos(pot.position.earned / 100)}** earned by ${full(lender)} in all.`, `- Floating now: ${pesos(pot.position.floating / 100)}`, `- Out on loan: ${pesos(pot.position.outOnLoan / 100)}`, 'Ask for a month too, like "this month" or "in October".'].join('\n'))
+  }
+  const r = (await lenderEarnings(ctx.userId, full(lender), period.from, period.to)) as {
+    found?: boolean; name?: string; earned?: string; includesAdminCut?: string; loansRepaid?: number; weeksOfInterestCollected?: number
+  }
+  if (!r.found) return null
+  ctx.say(`Added up ${r.name}'s earnings, ${spellDate(period.from)} to ${spellDate(period.to)}`)
+  const when = period.label === 'that time' ? `from ${spellDate(period.from)} to ${spellDate(period.to)}` : /^(this|last|today|yesterday)\b/.test(period.label) ? period.label : `in ${period.label}`
+  return tell([
+    `**${r.earned}** earned by ${r.name} ${when}.`,
+    // On the Admin's pot most of it is the cut on other lenders' loans, so that comes first and the loans are "own" ones.
+    ...(r.includesAdminCut ? [`- From the Admin's cut: ${r.includesAdminCut}`] : []),
+    `- ${r.includesAdminCut ? 'Own loans repaid' : 'Loans repaid'}: ${r.loansRepaid ?? 0}`,
+    ...(r.weeksOfInterestCollected ? [`- Weeks of interest collected: ${r.weeksOfInterestCollected}`] : []),
+    `- Dates: ${spellDate(period.from)} to ${spellDate(period.to)}`,
+  ].join('\n'))
+}
 
 /**
  * Plain checks on one person, answered from the app's own numbers: "how much
@@ -743,6 +1183,11 @@ async function build(ctx: Ctx, intent: Intent): Promise<ServerReply | null> {
  * the big AI's.
  */
 async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
+  // The app's read-only screens, each answered from the same figures as the screen itself.
+  for (const check of [earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
+    const answer = await check(ctx)
+    if (answer) return answer
+  }
   const t = clean(ctx.text).replace(/[?.!]+$/, '').replace(/\b(right now|now|currently|today|po|please|pls)\b/g, ' ').replace(/\s+/g, ' ').trim()
   const owe = /^(how much (does|do|is|did) (.+?) (still )?(owe|owes|owing|utang)|what does (.+?) (still )?owe|magkano (pa )?(ang )?utang ni (.+)|(.+?)'?s? (balance|utang|debt)|(show|list|check)( me)? (.+?)'?s? loans|(.+?)'?s? loans|how many loans does (.+?) have)$/.exec(t)
   const pot = /^(how much (does|do|is) (.+?) (have|has)( floating| left| in (her|his|their) pot)?|(.+?)'?s? (pot|floating|money)|how much is in (.+?)'?s? pot|how much is floating for (.+?))$/.exec(t)
@@ -802,7 +1247,9 @@ function oneAtATime(text: string): ServerReply | null {
  */
 export async function serverReply(userId: string, history: { role: 'user' | 'assistant'; text: string }[], say: Say): Promise<ServerReply | null> {
   const latest = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
-  const ctx: Ctx = { userId, text: latest, today: manilaToday(), say }
+  const [borrowerNames, lenderNames] = await Promise.all([listBorrowerNames(userId), listLenderNames(userId)])
+  const names = [...borrowerNames, ...lenderNames].flatMap((p) => wordsOf(full(p))).filter((w) => w.length > 1)
+  const ctx: Ctx = { userId, text: latest, today: manilaToday(), say, names }
   if (isQuestion(latest)) return personCheck(ctx)
 
   let intent = intentByRules(latest)

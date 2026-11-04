@@ -46,6 +46,18 @@ export function stepStarted(tool: string, args: Args): string {
       return 'Opening the loan'
     case 'get_lender':
       return args.name ? `Opening ${nameOf(args.name)}’s lender page` : 'Opening the lender page'
+    case 'lender_earnings':
+      return args.name ? `Adding up ${nameOf(args.name)}'s earnings` : 'Adding up the earnings'
+    case 'period_summary':
+      return 'Adding up loans and payments for those dates'
+    case 'admin_cut':
+      return "Adding up the Admin's cut"
+    case 'borrower_statement':
+      return args.name ? `Reading ${nameOf(args.name)}'s statement` : "Reading the borrower's statement"
+    case 'money_history':
+      return args.name ? `Reading ${nameOf(args.name)}'s money history` : 'Reading the money history'
+    case 'floating_on':
+      return 'Working out what will be floating'
     case 'list_pending':
       return 'Checking pending loan requests'
     case 'list_deleted':
@@ -98,6 +110,18 @@ export function stepFinished(tool: string, args: Args, result: unknown): { text:
       if (r.found) return done(`Opened ${r.name}’s lender page`)
       if (list(r.matches).length > 0) return missed(`Several lenders match “${typed}”`)
       return missed(`No lender named “${typed}”`)
+    case 'lender_earnings':
+      return r.found ? done(`Added up ${r.name}'s earnings`) : missed(`No lender named “${typed}”`)
+    case 'period_summary':
+      return done('Added up loans and payments')
+    case 'admin_cut':
+      return done("Added up the Admin's cut")
+    case 'borrower_statement':
+      return r.found ? done(`Read ${r.name}'s statement`) : missed(`No borrower named “${typed}”`)
+    case 'money_history':
+      return r.found ? done(`Read ${plural(Number(r.count ?? 0), 'money entry', 'money entries')}`) : missed(`No lender named “${typed}”`)
+    case 'floating_on':
+      return r.found ? done('Worked out what will be floating') : missed(`No lender named “${typed}”`)
     case 'list_pending': {
       const n = list(result).length
       return done(n > 0 ? `Found ${plural(n, 'pending request')}` : 'No pending requests')
