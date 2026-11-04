@@ -9,8 +9,9 @@ import type { Step } from '@/lib/assistant-steps'
  * short timeline in the app's blue.
  *
  * While it works the steps show one by one under "Thinking", each with a
- * spinner that turns into a tick. Once the answer is in, the same steps stay
- * above it, so the Admin can always see how it got there.
+ * spinner that turns into a tick. Once the answer is in, the whole thinking
+ * stays above it, never removed: how long it took, every lookup, and the
+ * last step of writing the answer, so the Admin can always see how it got there.
  * The same line twice ("Looking for Angel" asked again) shows once.
  */
 
@@ -62,7 +63,6 @@ export const WRITING_STEP = 'Thinking it through'
 
 /** The steps as they happen, under the thinking face. */
 export function LiveSteps({ steps }: { steps: Step[] }) {
-  if (steps.length === 0) return null
   const writing = steps.every((s) => s.state !== 'doing')
   return (
     <div role="status" aria-live="polite" className={BOX}>
@@ -71,12 +71,22 @@ export function LiveSteps({ steps }: { steps: Step[] }) {
   )
 }
 
-/** The finished steps, kept above the answer. */
-export function DoneSteps({ steps }: { steps: Step[] }) {
-  if (unique(steps).length === 0) return null
+/** "Thought for 6 seconds", "Thought for 1 minute 5 seconds". */
+export function thoughtFor(ms: number): string {
+  const total = Math.max(1, Math.round(ms / 1000))
+  const min = Math.floor(total / 60)
+  const sec = total % 60
+  const part = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`
+  return `Thought for ${min > 0 ? `${part(min, 'minute')}${sec > 0 ? ` ${part(sec, 'second')}` : ''}` : part(sec, 'second')}`
+}
+
+/** The whole thinking, kept above the answer for good. */
+export function DoneSteps({ steps, thoughtMs, failed }: { steps: Step[]; thoughtMs: number; failed?: boolean }) {
+  const last: Step = failed ? { id: -1, text: 'Could not finish the answer', state: 'missed' } : { id: -1, text: 'Wrote the answer', state: 'done' }
   return (
     <div aria-label="What Dex-E checked" className={BOX}>
-      <StepRows steps={steps} />
+      <p className="text-brand mb-2 text-xs font-medium">{thoughtFor(thoughtMs)}</p>
+      <StepRows steps={[...steps, last]} />
     </div>
   )
 }

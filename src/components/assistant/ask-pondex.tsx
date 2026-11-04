@@ -33,7 +33,7 @@ import type { Step } from '@/lib/assistant-steps'
 type Card = { proposal: ProposalView; status: CardStatus; error: string | null }
 type Message =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[] }
+  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[]; thoughtMs?: number }
 
 /** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
 type ModelFigures = {
@@ -56,12 +56,14 @@ const SAMPLES = [
   'What makes a borrower Good, Okay or Bad?',
 ]
 
-type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null }
+type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number }
 
 type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage } | { ok: false; error: string; usage: Usage | null }
 
 /** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
 async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void): Promise<Answer> {
+  const started = Date.now()
+  const took = () => Date.now() - started
   try {
     const response = await fetch('/api/assistant', {
       method: 'POST',
@@ -91,10 +93,10 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
     }
     if (!data) throw new Error('No answer')
     return data.ok
-      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage }
-      : { text: data.error, failed: true, proposal: null, usage: data.usage }
+      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took() }
+      : { text: data.error, failed: true, proposal: null, usage: data.usage, thoughtMs: took() }
   } catch {
-    return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true, proposal: null, usage: null }
+    return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true, proposal: null, usage: null, thoughtMs: took() }
   }
 }
 
@@ -220,7 +222,7 @@ export function AskPondex() {
 
     // A step comes twice: once as it starts, again when it is back.
     let steps: Step[] = []
-    const { text: a, failed, proposal, usage: latest } = await fetchAnswer(history, (step) => {
+    const { text: a, failed, proposal, usage: latest, thoughtMs } = await fetchAnswer(history, (step) => {
       steps = steps.some((s) => s.id === step.id) ? steps.map((s) => (s.id === step.id ? step : s)) : [...steps, step]
       setLiveSteps(steps)
     })
@@ -239,7 +241,7 @@ export function AskPondex() {
               : m,
           )
         : ms),
-      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing') },
+      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing'), thoughtMs },
     ])
     let n = 0
     const tick = () => {
@@ -388,7 +390,7 @@ export function AskPondex() {
                   <div key={m.id} className="animate-ask-rise flex max-w-[94%] items-start gap-2.5">
                     <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="shrink-0" />
                     <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
-                      {m.steps && <DoneSteps steps={m.steps} />}
+                      {m.steps && <DoneSteps steps={m.steps} thoughtMs={m.thoughtMs ?? 0} failed={m.failed} />}
                       <p className={cn('text-sm leading-relaxed whitespace-pre-line', m.failed && 'text-muted-foreground')}>
                         {m.text}
                         {!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
