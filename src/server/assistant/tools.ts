@@ -249,6 +249,20 @@ async function findBorrower(userId: string, name: string) {
         deleted: deleted.map((d) => ({ id: d.id, name: `${d.firstName} ${d.lastName}` })),
       }
     }
+    // A lender is not a stranger either: "how much did Maria earn" is about a lender,
+    // and offering to add her as a borrower would make a duplicate person.
+    const lenders = await db.lender.findMany({
+      where: { userId, deletedAt: null, AND: terms.map((term) => ({ OR: [{ firstName: { contains: term, ...INSENSITIVE } }, { lastName: { contains: term, ...INSENSITIVE } }] })) },
+      select: { id: true, firstName: true, lastName: true },
+      take: 3,
+    })
+    if (lenders.length > 0) {
+      return {
+        found: false,
+        reason: `${lenders.map((l) => `${l.firstName} ${l.lastName}`).join(', ')} is a lender, not a borrower. Answer with get_lender, and never offer to add them as a borrower.`,
+        lenders: lenders.map((l) => ({ id: l.id, name: `${l.firstName} ${l.lastName}` })),
+      }
+    }
     // A typo finds nobody by exact match. Offer the close names before the
     // model offers to add a new person, which would be a duplicate.
     const didYouMean = closestNames(name, await listBorrowerNames(userId)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))

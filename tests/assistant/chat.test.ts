@@ -100,6 +100,8 @@ describe('the slips the first runs found', () => {
 describe('phantom cards and missed changes (run 7)', () => {
   test('"Here is the ready-to-confirm card" with no card is sent back', () =>
     assert.match(nudgeFor('Here is the ready-to-confirm card.', 'lyn paid in full today', ['find_borrower']) ?? '', /No card/))
+  test('a proposal written out as text ("**Proposed action** ... Please confirm") is sent back', () =>
+    assert.match(nudgeFor('**Proposed action**\n\nAction: create_loan\nPlease confirm.', 'lend 20k to rico from john ross', ['find_borrower']) ?? '', /No card/))
   test('"pd" and "withdrawal" are change requests', () => {
     assert.match(nudgeFor('Okay.', 'rico pd today', []) ?? '', /This is a change/)
     assert.match(nudgeFor('Noted.', 'record jun withdrawal 5k', []) ?? '', /This is a change/)
