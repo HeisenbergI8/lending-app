@@ -1,7 +1,7 @@
 import { formatPesos, parsePesos, type Centavos } from '../../lib/money/centavos.ts'
 import { describeTerm, parseCalendarDate, toDateInput } from '../../lib/money/weeks.ts'
 import { NO_FILTER, type LoanFilter, type LoanStatusFilter } from '../../lib/loan-filter.ts'
-import { describeTrackRecord } from '../../lib/track-record.ts'
+import { describeTrackRecord, labelByRule } from '../../lib/track-record.ts'
 import { borrowerCounts, getBorrower, listBorrowerNames } from '../borrowers/queries.ts'
 import { db } from '../db.ts'
 import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
@@ -48,7 +48,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'get_overview',
     description:
-      "Today's dashboard totals: out on loan, floating, earned, interest, who is overdue, due this week, borrower counts.",
+      "Today's dashboard totals: out on loan, floating, earned, interest, who is overdue, due this week, borrower counts, all loans ever made (count and capital), and the 3 borrowers who owe the most now.",
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -60,7 +60,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'find_borrower',
     description:
-      'A borrower by name: label, track record, still owed, and every loan with funders, each payment made and notes. found: false if nobody matches.',
+      'A borrower by name: saved label, the label your rule gives (labelByYourRule; say both when they differ), track record, still owed, and every loan with funders, each payment made and notes. found: false if nobody matches.',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string', description: 'As written, e.g. "Mitch G".' } },
@@ -174,6 +174,13 @@ async function getOverview(userId: string) {
     // "Who is overdue" is the next question after "how many", so the names come along.
     listLoans(userId, { ...NO_FILTER, status: 'overdue' }, { page: 1, skip: 0, take: 25 }),
   ])
+  // "Total of all loans ever" and "who owes the most" need every loan, not one page.
+  const [ever, unpaid] = await Promise.all([
+    db.loan.aggregate({ where: { userId, deletedAt: null }, _count: true, _sum: { capitalCentavos: true } }),
+    db.loan.groupBy({ by: ['borrowerId'], where: { userId, deletedAt: null, status: 'ACTIVE' }, _sum: { totalCentavos: true }, _count: true }),
+  ])
+  const top = unpaid.sort((a, b) => (b._sum.totalCentavos ?? 0) - (a._sum.totalCentavos ?? 0)).slice(0, 3)
+  const names = new Map((await db.borrower.findMany({ where: { id: { in: top.map((t) => t.borrowerId) } }, select: { id: true, firstName: true, lastName: true } })).map((b) => [b.id, `${b.firstName} ${b.lastName}`]))
   const overdueWho = late.rows.map((loan) => ({ borrower: loan.borrowerName, owes: peso(loan.total), wasDue: day(loan.dueOn), daysLate: daysSince(loan.dueOn) }))
   const sum = (pick: (l: (typeof lenders)[number]) => number) =>
     peso(lenders.reduce((total, l) => total + pick(l), 0) as Centavos)
@@ -187,6 +194,8 @@ async function getOverview(userId: string) {
     overdue: { loans: overdue.loans, people: overdue.borrowers, amount: peso(overdue.total), who: overdueWho },
     dueThisWeek: { amount: peso(week.total), loans: week.loans, people: week.borrowers, from: day(week.from), to: day(week.to) },
     borrowers: { all: people.all, owingNow: people.owing },
+    allLoansEver: { loans: ever._count, capital: peso((ever._sum.capitalCentavos ?? 0) as Centavos) },
+    owesMostNow: top.map((t) => ({ borrower: names.get(t.borrowerId), unpaidLoans: t._count, toRepay: peso((t._sum.totalCentavos ?? 0) as Centavos) })),
   }
 }
 
@@ -303,6 +312,8 @@ async function findBorrower(userId: string, name: string) {
         id: b.id,
         name: `${b.firstName} ${b.lastName}`,
         label: b.label,
+        // Worked out here so the model never counts it: "is Dan bad?" needs both.
+        labelByYourRule: labelByRule(b.record),
         trackRecord: describeTrackRecord(b.record),
         stillOwes: peso(b.outstanding),
         overdueAmount: peso(b.overdueOutstanding),
@@ -699,6 +710,13 @@ export async function proposeAction(userId: string, args: Record<string, unknown
       if (given.startOn === undefined) given.startOn = request.startOn ? request.startOn.toISOString().slice(0, 10) : 'today'
       if (given.dueOn === undefined && given.weeks === undefined && request.termDays % 7 === 0) given.weeks = String(request.termDays / 7)
     }
+  }
+  // "for 3 days": the Admin's own length decides, never a week the model rounded it up to.
+  const daysSaid = typeof said === 'string' ? /\b(\d+)\s*(days?|araw)\b/i.exec(said) : null
+  if (spec.name === 'create_loan' && daysSaid && !/\d+\s*(weeks?|wks?|weaks?)\b/i.test(String(said))) {
+    given.days = daysSaid[1]
+    delete given.weeks
+    delete given.dueOn
   }
   // A "new" borrower whose full name is exactly someone already on the list is that person.
   if (spec.name === 'create_loan' && !given.borrowerId && typeof given.borrowerFirstName === 'string' && typeof given.borrowerLastName === 'string') {

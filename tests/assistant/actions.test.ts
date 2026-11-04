@@ -175,6 +175,15 @@ describe('the server does the calendar, not the model', () => {
   test('weeks across a month end', () => {
     assert.equal(normalizeFields(loan, { startOn: '2026-11-28', weeks: '1' }, '2026-11-04').dueOn, '2026-12-05')
   })
+  test('3 days becomes a due date 3 days out, not a week (Groq rerun LOAN-15)', () => {
+    assert.deepEqual(normalizeFields(loan, { startOn: 'today', days: '3' }, '2026-11-04'), { startOn: '2026-11-04', dueOn: '2026-11-07' })
+  })
+  test('"3 days" typed into the due date is a length', () => {
+    assert.equal(normalizeFields(loan, { startOn: '2026-11-04', dueOn: '3 days' }, '2026-11-04').dueOn, '2026-11-07')
+  })
+  test('weeks win when both weeks and days came through', () => {
+    assert.equal(normalizeFields(loan, { startOn: '2026-11-04', weeks: '1', days: '3' }, '2026-11-04').dueOn, '2026-11-11')
+  })
   test('tomorrow in another date field', () => {
     assert.equal(normalizeFields(actionSpec('mark_paid')!, { paidOn: 'Tomorrow' }, '2026-11-30').paidOn, '2026-12-01')
   })

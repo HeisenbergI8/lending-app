@@ -62,18 +62,29 @@ The untested ones with no note never press Confirm, so they can run together aft
 | Scenario | Model | What went wrong | Likely cause |
 |---|---|---|---|
 | READ-15 | 120b | "How much did Maria earn in October?" It said it can't tell, but never pointed to the lender page. | Model (small miss) |
-| READ-16 | 120b | Gave ₱95,000.00 (out on loan now) as the total of every loan ever made. Right answer: ₱190,000.00 over 8 loans. | Code: no tool gives an all-time total |
-| READ-21 | 120b | "Who's the biggest borrower?" It said it can't see each borrower's balance. Right answer: Angel, ₱38,400.00. | Code: no tool ranks borrowers by amount owed |
-| RULE-02 | 120b | Said Dan's Bad label matches the rule with 1 overdue loan. By the rule, 1 overdue is Okay. | Code: the lookup could give the label the rule would give, so the model doesn't have to work it out |
+| READ-16 | 120b | Gave ₱95,000.00 (out on loan now) as the total of every loan ever made. Right answer: ₱190,000.00 over 8 loans. | Code: no tool gave an all-time total. **Fixed**, needs retest |
+| READ-21 | 120b | "Who's the biggest borrower?" It said it can't see each borrower's balance. Right answer: Angel, ₱38,400.00. | Code: no tool ranked borrowers by amount owed. **Fixed**, needs retest |
+| RULE-02 | 120b | Said Dan's Bad label matches the rule with 1 overdue loan. By the rule, 1 overdue is Okay. | Code: the model had to work out the rule's label itself. **Fixed**, needs retest |
 | RULE-11 | 20b | Gave ₱4,200.00 interest but left out the ₱24,200.00 total. | Model |
 | NAME-05 | 20b | "How much does Cruz have?" Answered only for Angel Dela Cruz; never mentioned Maria Cruz the lender. | Model (the lookup already lists her as a lender) |
 | LOANX-05 | 27b | Made a delete card for Angel's active loan instead of asking which of her 3 loans. | Model |
-| LOAN-15 | 20b | Card right except the due date: "3 days" became Nov 11 (7 days) instead of Nov 7. | Code, to check: how a length in days becomes a due date |
+| LOAN-15 | 20b | Card right except the due date: "3 days" became Nov 11 (7 days) instead of Nov 7. | Code: the loan form only took weeks, so days were rounded to a week. **Fixed**, needs retest |
 
 ## Bugs already fixed during this run (commit `c7291cb`)
 
 1. A lender's name (Maria) made the AI offer to add her as a new borrower. The lookup now says she is a lender.
 2. The AI sometimes wrote "Proposed action ... Please confirm" as plain text with no real card. That is now caught and sent back.
+
+## Bugs fixed after the first 12 (commit below this file's, 2026-11-04)
+
+3. **READ-16, READ-21:** the dashboard lookup now also gives all loans ever made (count and capital) and the 3
+   borrowers who owe the most now. Checked on demo: 8 loans, ₱190,000.00; Angel ₱38,400.00 first.
+4. **RULE-02 (and RULE-03):** the borrower lookup now gives the label your rule gives beside the saved one.
+   Checked on demo: Dan saved Bad, rule Okay; Rico saved Okay, rule Good. Unit tests added.
+5. **LOAN-15:** loans can run a number of days. "for 3 days" in the Admin's words sets the due date 3 days out,
+   even if the model sent 1 week. Checked on demo: Bea's loan due Nov 7. Unit tests added.
+
+After these: `npm run verify` 697 pass, card checks 32/32, Confirm checks 49/49 (demo).
 
 ## Groq free plan findings
 

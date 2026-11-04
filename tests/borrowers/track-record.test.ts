@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { describeTrackRecord, trackRecord } from '../../src/lib/track-record.ts'
+import { describeTrackRecord, labelByRule, trackRecord } from '../../src/lib/track-record.ts'
 
 const TODAY = new Date(2026, 8, 21) // 21 September 2026
 const day = (n: number) => new Date(2026, 8, 21 + n)
@@ -144,4 +144,12 @@ test('extended loans are counted beside the rest; a loan closed by an extension 
   assert.equal(record.paidOnTime, 1)
   assert.equal(record.extended, 2)
   assert.ok(describeTrackRecord(record).includes('2 extended'))
+})
+
+describe('the label the rule gives (Groq rerun RULE-02, RULE-03)', () => {
+  const record = (paidLate: number, overdue: number) => ({ total: 3, paid: 2, paidOnTime: 2 - paidLate, paidLate, active: 1, overdue, extended: 0 })
+  test('nothing late or overdue is Good', () => assert.equal(labelByRule(record(0, 0)), 'GOOD'))
+  test('one overdue loan is Okay, not Bad', () => assert.equal(labelByRule(record(0, 1)), 'OKAY'))
+  test('one paid late is Okay', () => assert.equal(labelByRule(record(1, 0)), 'OKAY'))
+  test('one late plus one overdue is Bad', () => assert.equal(labelByRule(record(1, 1)), 'BAD'))
 })

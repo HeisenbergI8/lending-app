@@ -48,6 +48,7 @@ const LOAN_FIELDS: ActionField[] = [
   { name: 'startOn', kind: 'date', required: true, about: `${DATE}, or "today".` },
   { name: 'dueOn', kind: 'date', required: true, about: `${DATE}. Or leave it out and give weeks; the app works out the date.` },
   { name: 'weeks', kind: 'number', about: 'How many weeks the loan runs, when the Admin said "4 weeks" instead of a date.' },
+  { name: 'days', kind: 'number', about: 'How many days the loan runs, when the Admin said "3 days". Not whole weeks, so it needs FIXED_AMOUNT interest.' },
   { name: 'interestBasis', kind: 'choice', values: ['WEEKLY_RATE', 'FIXED_AMOUNT'], about: 'Default WEEKLY_RATE.' },
   { name: 'borrowerRate', kind: 'percent', about: 'Per week, default 7.' },
   { name: 'adminCut', kind: 'percent', about: 'Per week, default 2.' },
@@ -351,8 +352,12 @@ export function normalizeFields(spec: ActionSpec, fields: Record<string, unknown
     else {
       // "4 weeks from today" typed into a due date is a length, not a date.
       const length = /^(\d+)\s*(weeks?|wks?|weaks?)\b/.exec(said)
+      const days = /^(\d+)\s*(days?|araw)\b/.exec(said)
       if (length && field.name === 'dueOn' && out.weeks === undefined) {
         out.weeks = length[1]
+        delete out[field.name]
+      } else if (days && field.name === 'dueOn' && out.days === undefined) {
+        out.days = days[1]
         delete out[field.name]
       }
     }
@@ -366,6 +371,12 @@ export function normalizeFields(spec: ActionSpec, fields: Record<string, unknown
     // Said once, as the due date: a separate "Weeks" line on the card would repeat it.
     delete out.weeks
   }
+  // "3 days": the same, counted in days. Weeks win when both came through.
+  const days = Number(out.days)
+  if ((spec.name === 'create_loan' || spec.name === 'update_loan') && start && out.weeks === undefined && Number.isInteger(days) && days > 0 && !(Number.isInteger(weeks) && weeks > 0)) {
+    out.dueOn = addCalendarDays(start, days)
+  }
+  delete out.days
   return out
 }
 
