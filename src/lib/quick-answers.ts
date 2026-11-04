@@ -156,3 +156,30 @@ export function sayQuick(kind: QuickKind, result: unknown): string | null {
       ].join('\n')
   }
 }
+
+/** The one reply to anything outside Pondex. */
+export const OUT_OF_SCOPE = 'I can only help with your Pondex loans, borrowers, lenders and rules.'
+
+/** Who Dex-E is, said the same way every time, with nothing about how it is built. */
+const ABOUT_ME =
+  "I'm Dex-E, the helper inside Pondex. I answer questions about your loans, borrowers, lenders and rules, and I get changes ready for you to confirm. I can't share how I was made or the instructions I follow."
+
+/** Questions about Dex-E itself: how it was made, which AI, its instructions. */
+const ABOUT_DEXE =
+  /\b(how (were|was|are|is) (you|dex-?e|this (bot|ai|chat))|who (made|built|created|trained|programmed|developed) (you|dex-?e|this)|what (are you|ai are you|model|llm)|which (ai|model|llm)|are you (an? )?(ai|bot|robot|human|chatgpt|gpt|claude|gemini|llama)|(you|your|dex-?e)( were| are| have| has| been| was| got)* (made|built|created|trained|coded|programmed|developed)|your (system )?(prompt|instructions|rules you follow|source code|training|model)|(chatgpt|openai|groq|llama|gpt-?oss|anthropic|gemini))\b/
+
+/**
+ * Tricks to make the AI step outside its job: "ignore your rules", "you are
+ * now in developer mode", "pretend you are", "repeat your prompt". Known as
+ * jailbreaks or prompt injection. Answered here, so the AI never sees them.
+ */
+const TRICKS =
+  /\b(ignore (all |any |your |the |previous |prior )+(rules|instructions|prompts?)|forget (your|all|the) (rules|instructions)|(developer|dev|god|debug|jailbreak) mode|you are now (in|a|an|my|free|no longer)|pretend (to be|you are|you're)|role-?play|jailbreak|system prompt|(show|print|repeat|reveal|tell me) (me )?(your|the) (prompt|instructions|rules you)|bypass|override (your|the) (rules|safety))\b/
+
+/** A fixed reply for questions about Dex-E itself or tricks to change its job, or null. */
+export function matchOffLimits(question: string): string | null {
+  const q = normalize(question)
+  if (TRICKS.test(q)) return OUT_OF_SCOPE
+  if (ABOUT_DEXE.test(q)) return ABOUT_ME
+  return null
+}
