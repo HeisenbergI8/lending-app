@@ -1,3 +1,5 @@
+import { spellDate } from './dates.ts'
+
 /**
  * Instant answers: common questions the server answers from the app's own
  * numbers, with no AI. Free, instant, and the same figures as the dashboard.
@@ -82,60 +84,59 @@ type Pot = { name: string; floating: string }
 type Pending = { name: string; amount: string; start: string | null }
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-/** "2026-10-28" → "Oct 28". */
-const shortDate = (iso: string | null) =>
-  iso ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : ''
+const date = (iso: string | null) => (iso ? spellDate(iso) : '')
 
 /** The answer, worded from the lookup's result. Null if the result is not what was expected (the AI answers then). */
 export function sayQuick(kind: QuickKind, result: unknown): string | null {
   if (!result || typeof result !== 'object' || 'error' in result) return null
   const o = result as Overview
+  // A one-line answer first, the key figure in bold, then one fact per line ("- Label: value").
   switch (kind) {
     case 'outOnLoan':
-      return `${o.outOnLoan} is out on loan right now, with ${count(o.borrowers.owingNow, 'borrower')}.`
+      return `**${o.outOnLoan}** is out on loan right now.\n- Borrowers owing: ${o.borrowers.owingNow}`
     case 'floating':
-      return `${o.floating} is floating, ready to lend.`
+      return `**${o.floating}** is floating, ready to lend.`
     case 'earned':
-      return `Your lenders have earned ${o.earned} so far.`
+      return `Your lenders have earned **${o.earned}** so far.`
     case 'overdue': {
-      const who = o.overdue.who
       if (o.overdue.loans === 0) return 'Nobody is overdue right now.'
-      const lines = who.map((w) => `• ${w.borrower}: ${w.owes}, was due ${shortDate(w.wasDue)}${w.daysLate ? ` (${count(w.daysLate, 'day')} late)` : ''}`)
-      return `${count(o.overdue.people, 'borrower is', 'borrowers are')} overdue, ${o.overdue.amount} in all:\n${lines.join('\n')}`
+      const lines = o.overdue.who.map((w) => `- ${w.borrower}: ${w.owes}, was due ${date(w.wasDue)}${w.daysLate ? ` (${count(w.daysLate, 'day')} late)` : ''}`)
+      return `${count(o.overdue.people, 'borrower is', 'borrowers are')} overdue, **${o.overdue.amount}** in all.\n${lines.join('\n')}`
     }
-    case 'dueThisWeek':
+    case 'dueThisWeek': {
+      const week = `- Week: ${date(o.dueThisWeek.from)} to ${date(o.dueThisWeek.to)}`
       return o.dueThisWeek.loans === 0
-        ? `Nothing is due this week (${shortDate(o.dueThisWeek.from)} to ${shortDate(o.dueThisWeek.to)}).`
-        : `${o.dueThisWeek.amount} is due this week (${shortDate(o.dueThisWeek.from)} to ${shortDate(o.dueThisWeek.to)}), from ${count(o.dueThisWeek.loans, 'loan')} and ${count(o.dueThisWeek.people, 'borrower')}.`
+        ? `Nothing is due this week.\n${week}`
+        : `**${o.dueThisWeek.amount}** is due this week.\n${week}\n- Loans: ${o.dueThisWeek.loans}\n- Borrowers: ${o.dueThisWeek.people}`
+    }
     case 'interestOwed':
-      return `${o.interest.stillOwed} of interest is still owed. ${o.interest.collected} of ${o.interest.charged} has been collected.`
+      return `**${o.interest.stillOwed}** of interest is still owed.\n- Collected: ${o.interest.collected}\n- Charged in all: ${o.interest.charged}`
     case 'loansEver':
-      return `You have made ${count(o.allLoansEver.loans, 'loan')} in all, ${o.allLoansEver.capital} lent.`
+      return `You have made **${count(o.allLoansEver.loans, 'loan')}** in all.\n- Total lent: ${o.allLoansEver.capital}`
     case 'owesMost': {
       if (o.owesMostNow.length === 0) return 'Nobody owes anything right now.'
       const [top, ...rest] = o.owesMostNow
-      const others = rest.map((r) => `${r.borrower} (${r.toRepay})`).join(', ')
-      return `${top.borrower} owes the most right now: ${top.toRepay}.${others ? ` Next: ${others}.` : ''}`
+      return [`**${top.borrower}** owes the most right now: ${top.toRepay}.`, ...rest.map((r) => `- Next: ${r.borrower}, ${r.toRepay}`)].join('\n')
     }
     case 'borrowerCount':
-      return `You have ${count(o.borrowers.all, 'borrower')}. ${o.borrowers.owingNow} of them owe money right now.`
+      return `You have **${count(o.borrowers.all, 'borrower')}**.\n- Owing money now: ${o.borrowers.owingNow}`
     case 'floatingEach': {
       if (!Array.isArray(result)) return null
       const pots = result as Pot[]
-      return `Floating in each pot:\n${pots.map((p) => `• ${p.name}: ${p.floating}`).join('\n')}`
+      return `Floating in each pot:\n${pots.map((p) => `- ${p.name}: ${p.floating}`).join('\n')}`
     }
     case 'pending': {
       if (!Array.isArray(result)) return null
       const rows = result as Pending[]
       if (rows.length === 0) return 'There are no pending loan requests.'
-      return `${count(rows.length, 'pending request')}:\n${rows.map((r) => `• ${r.name}: ${r.amount}${r.start ? `, from ${shortDate(r.start)}` : ''}`).join('\n')}`
+      return `**${count(rows.length, 'pending request')}**:\n${rows.map((r) => `- ${r.name}: ${r.amount}${r.start ? `, from ${date(r.start)}` : ''}`).join('\n')}`
     }
     case 'labelRule':
       return [
-        "A borrower's label comes from their record: count their loans paid late plus their loans overdue now.",
-        '• Good: none',
-        '• Okay: 1',
-        '• Bad: 2 or more',
+        "A borrower's label comes from their record: count their loans **paid late** plus their loans **overdue now**.",
+        '- Good: none',
+        '- Okay: 1',
+        '- Bad: 2 or more',
         'The label shown in the app is the one you saved, so it can differ from what the rule gives. Ask me to change it any time.',
       ].join('\n')
   }

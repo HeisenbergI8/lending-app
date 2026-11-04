@@ -47,12 +47,12 @@ describe('instant answers: the words', () => {
     allLoansEver: { loans: 8, capital: '₱190,000.00' },
     owesMostNow: [{ borrower: 'Angel Dela Cruz', unpaidLoans: 1, toRepay: '₱38,400.00' }, { borrower: 'Rico Mendoza', unpaidLoans: 1, toRepay: '₱20,000.00' }],
   }
-  test('out on loan', () => assert.equal(sayQuick('outOnLoan', overview), '₱95,000.00 is out on loan right now, with 5 borrowers.'))
+  test('out on loan', () => assert.equal(sayQuick('outOnLoan', overview), '**₱95,000.00** is out on loan right now.\n- Borrowers owing: 5'))
   test('who is overdue, by name', () => {
-    assert.equal(sayQuick('overdue', overview), '1 borrower is overdue, ₱15,360.00 in all:\n• Dan Aquino: ₱15,360.00, was due Oct 28 (7 days late)')
+    assert.equal(sayQuick('overdue', overview), '1 borrower is overdue, **₱15,360.00** in all.\n- Dan Aquino: ₱15,360.00, was due October 28, 2026 (7 days late)')
     assert.equal(sayQuick('overdue', { ...overview, overdue: { loans: 0, people: 0, amount: '₱0.00', who: [] } }), 'Nobody is overdue right now.')
   })
-  test('who owes the most', () => assert.equal(sayQuick('owesMost', overview), 'Angel Dela Cruz owes the most right now: ₱38,400.00. Next: Rico Mendoza (₱20,000.00).'))
-  test('each pot', () => assert.equal(sayQuick('floatingEach', [{ name: 'Maria Cruz', floating: '₱45,000.00' }]), 'Floating in each pot:\n• Maria Cruz: ₱45,000.00'))
+  test('who owes the most', () => assert.equal(sayQuick('owesMost', overview), '**Angel Dela Cruz** owes the most right now: ₱38,400.00.\n- Next: Rico Mendoza, ₱20,000.00'))
+  test('each pot', () => assert.equal(sayQuick('floatingEach', [{ name: 'Maria Cruz', floating: '₱45,000.00' }]), 'Floating in each pot:\n- Maria Cruz: ₱45,000.00'))
   test('a failed lookup hands the question to the AI', () => assert.equal(sayQuick('outOnLoan', { error: 'That lookup failed.' }), null))
 })

@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { clock, manilaTime, modelLines, type Status, statusLine } from '@/lib/assistant-status'
 import { ActionCard, type CardStatus, type ProposalView } from './action-card.tsx'
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
+import { AnswerText } from './answer-text.tsx'
 import { DoneSteps, LiveSteps, WRITING_STEP } from './step-list.tsx'
 import type { Step } from '@/lib/assistant-steps'
 import { matchQuick } from '@/lib/quick-answers'
@@ -396,10 +397,11 @@ export function AskPondex() {
                     <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="shrink-0" />
                     <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
                       {m.steps && <DoneSteps steps={m.steps} thoughtMs={m.thoughtMs ?? 0} failed={m.failed} quick={m.quick} />}
-                      <p className={cn('text-sm leading-relaxed whitespace-pre-line', m.failed && 'text-muted-foreground')}>
-                        {m.text}
-                        {!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
-                      </p>
+                      <AnswerText
+                        text={m.text}
+                        failed={m.failed}
+                        caret={!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
+                      />
                       {m.done && m.card && (
                         <ActionCard
                           proposal={m.card.proposal}
