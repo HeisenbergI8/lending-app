@@ -259,15 +259,21 @@ export function AskPondex() {
                   }}
                   disabled={!usage || usage.local}
                   aria-expanded={details}
-                  className="text-muted-foreground hover:text-foreground focus-visible:ring-brand/40 block max-w-full cursor-pointer truncate rounded text-left text-xs outline-none focus-visible:ring-2 disabled:cursor-default disabled:hover:text-muted-foreground"
+                  aria-label={usage && !usage.local ? `${statusLine(usage, now)}. ${details ? 'Hide' : 'Show'} AI used today` : undefined}
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-brand/40 group flex max-w-full cursor-pointer items-center gap-1 rounded text-left text-xs outline-none focus-visible:ring-2 disabled:cursor-default disabled:hover:text-muted-foreground"
                 >
-                  {thinking
-                    ? 'Looking through your loans…'
-                    : writing
-                      ? 'Writing an answer…'
-                      : usage
-                        ? statusLine(usage, now)
-                        : 'Answers from your loans'}
+                  <span className="truncate">
+                    {thinking
+                      ? 'Looking through your loans…'
+                      : writing
+                        ? 'Writing an answer…'
+                        : usage
+                          ? statusLine(usage, now)
+                          : 'Answers from your loans'}
+                  </span>
+                  {usage && !usage.local && (
+                    <ChevronDown aria-hidden className={cn('size-3.5 shrink-0 transition-transform duration-200', details && 'rotate-180')} />
+                  )}
                 </button>
               </div>
               <button
