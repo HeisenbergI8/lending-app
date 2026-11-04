@@ -342,6 +342,16 @@ per person; a ranking puts the top one first. See `dex-e-questions.md`.
 | Q-32 | utang ng lahat ng borrowers? | ANSWER same as Q-31 |
 | Q-33 | how much did the investors earn last month? | ANSWER same as Q-02 |
 | Q-34 | total profit last month | ANSWER same as Q-02 |
+| Q-35 | magkano ang hawak ni Jun | ANSWER ₱18,000.00 floating in Jun Reyes's pot (Jun is a person here, not June) |
+| Q-36 | which borrower paid the least last month? | ANSWER ₱0.00 each, the four who paid nothing named, not Bea |
+| Q-37 | how many loans did Maria fund? | ANSWER 3 loans funded by Maria Cruz (2 unpaid, 1 paid) |
+| Q-38 | sino ang may pinakamalaking utang | ANSWER ₱38,400.00 still owed by Angel Dela Cruz, the most |
+| Q-39 | how much did each lender withdraw last month | ANSWER ₱15,000.00, Maria ₱15,000.00 |
+| Q-40 | total money out on loan per pot | ANSWER ₱95,000.00 out on loan, one row per lender (not withdrawals) |
+| Q-41 | how much did Jun earn? | ANSWER Jun Reyes's earnings in all (not June) |
+| Q-42 | Maria sent another 20k for her pot | CARD money in ₱20,000.00 (a change, not a question) |
+| Q-43 | Jun started with 30000 | CARD starting capital ₱30,000.00 (a change, not a question) |
+| Q-44 | how many borrowers are overdue? | ANSWER leads with "1 borrower", then Dan Aquino |
 
 ## 16. Look and feel (check once or twice, not on every prompt)
 

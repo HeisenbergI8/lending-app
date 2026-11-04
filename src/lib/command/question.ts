@@ -72,14 +72,15 @@ function metricOf(t: string): Metric | null {
   if (/\b(starting capital|initial capital|puhunan|started with)\b/.test(t)) return 'startingCapital'
   if (/\binterest\b.*\b(owed|unpaid|pending|to collect|coming|still)\b|\bpending interest\b|\b(owed|unpaid) interest\b/.test(t)) return 'interestOwed'
   if (/\b(earn|earns|earned|earning|earnings|kita|kinita|kumita|income|profit|tubo|made money)\b/.test(t)) return 'earned'
-  if (/\b(deposits?|deposited|money in|cash in|put in|nilagay|naglagay|topped up|top ups?)\b/.test(t)) return 'deposits'
-  if (/\b(withdrawals?|withdrew|withdrawn|took out|taken out|cash out|cashed out|kinuha|money out)\b/.test(t)) return 'withdrawals'
-  if (/\b(overdue|late|delayed|behind|lagpas|atrasado)\b/.test(t)) return 'overdue'
+  // "Money out on loan" is out on loan, not money out of a pot: checked before deposits and withdrawals.
   if (/\b(out on loan|lent out|deployed|in (the )?borrowers'? hands|nasa labas|naka-?pautang)\b/.test(t)) return 'outOnLoan'
+  if (/\b(deposits?|deposit|deposited|money in|cash in|put in|nilagay|naglagay|topped up|top ups?)\b/.test(t)) return 'deposits'
+  if (/\b(withdrawals?|withdraw|withdrew|withdrawn|took out|taken out|cash out|cashed out|kinuha|money out)\b/.test(t)) return 'withdrawals'
+  if (/\b(overdue|late|delayed|behind|lagpas|atrasado)\b/.test(t)) return 'overdue'
   if (/\b(paid|pay|pays|payments?|bayad|binayaran|nagbayad|repaid|hulog|naghulog)\b/.test(t)) return 'paid'
   if (/\b(borrow|borrowed|borrowing|hiram|hiniram|loaned)\b/.test(t)) return 'borrowed'
   if (/\b(owe|owes|owed|owing|utang|balance|balances|remaining|unpaid|still due)\b/.test(t)) return 'owes'
-  if (/\b(floating|available|free|ready to lend|idle|cash on hand|natitira|left in|pots?)\b/.test(t)) return 'floating'
+  if (/\b(floating|available|free|ready to lend|idle|cash on hand|natitira|left in|hawak|holding|holds|pots?)\b/.test(t)) return 'floating'
   // "How much does each lender have?": what a pot has is its floating money.
   if (/\bhow much\b.*\b(have|has|meron)\b|\bmagkano\b.*\b(meron|mayroon)\b/.test(t)) return 'floating'
   return null
@@ -93,9 +94,9 @@ export function readQuestion(text: string, today: Day): Question | null {
   // Two figures joined ("who is overdue and owes the most"): answering one would be half an answer, so the AI takes it.
   const sides = t.split(/\band\b|\bat\b|,/).map(metricOf).filter((m) => m !== null)
   if (new Set(sides).size > 1) return null
-  const rank = /\b(most|highest|biggest|largest|top|pinakamalaki|pinakamarami|richest)\b/.test(t)
+  const rank = /\b(most|highest|biggest|largest|top|richest|pinakamalaki\w*|pinakamarami\w*)\b/.test(t)
     ? 'most'
-    : /\b(least|lowest|smallest|pinakamaliit|pinakakaunti)\b/.test(t)
+    : /\b(least|lowest|smallest|pinakamaliit\w*|pinakakaunti\w*)\b/.test(t)
       ? 'least'
       : null
   const saysLender = LENDER_WORDS.test(t)

@@ -41,9 +41,19 @@ export type ServerReply =
 type Say = (text: string, state?: 'done' | 'missed') => void
 
 type Person = Named & { isSelf?: boolean }
-type Ctx = { userId: string; text: string; today: string; say: Say }
+type Ctx = { userId: string; text: string; today: string; say: Say; names?: string[] }
 
 const CARD = 'Here is the change. Check it, then tap Confirm.'
+
+/**
+ * The period in the question, with people's names hidden first: "ni Jun" is the lender Jun, not June,
+ * and "how much did Jun earn" asks about all time. The names are loaded once per message.
+ */
+function periodIn(ctx: Ctx) {
+  const names = new Set(ctx.names ?? [])
+  const text = ctx.text.replace(/[\p{L}']+/gu, (w) => (names.has(w.toLowerCase().replace(/'s$/, '')) ? 'someone' : w))
+  return periodSaid(text, ctx.today)
+}
 const ask = (answer: string, choices: Choice[] = []): ServerReply => ({ kind: 'ask', answer, choices })
 const tell = (answer: string): ServerReply => ({ kind: 'answer', answer })
 const full = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`
@@ -775,7 +785,7 @@ async function deletedCheck(ctx: Ctx): Promise<ServerReply | null> {
 /** "Is Dan a good borrower?", "Dan's track record": the saved label beside what the rule gives. */
 async function trackRecordCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!isQuestion(ctx.text) || !/\b(track record|record|history|label|rating|reliable|trustworthy|good|okay|ok|bad)\b/i.test(ctx.text)) return null
-  if (EARN.test(ctx.text) || periodSaid(ctx.text, ctx.today)) return null
+  if (EARN.test(ctx.text) || periodIn(ctx)) return null
   const who = await oneBorrower(ctx)
   if (!who || isReply(who)) return who
   const r = (await runTool(ctx.userId, 'find_borrower', { name: full(who) })) as { borrowers?: { name: string; savedLabel: string; ruleWouldGive: string; trackRecord: string }[] }
@@ -796,7 +806,7 @@ async function borrowerPeriodCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!isQuestion(ctx.text)) return null
   const pays = /\b(pay|paid|payed|bayad|nagbayad|binayaran|hulog|naghulog)\b/i.test(ctx.text)
   const borrows = /\b(borrow|borrowed|hiram|hiniram|umutang|utang|loaned)\b/i.test(ctx.text)
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   if ((!pays && !borrows) || !period) return null
   const who = await oneBorrower(ctx)
   if (!who || isReply(who)) return who
@@ -815,7 +825,7 @@ async function borrowerPeriodCheck(ctx: Ctx): Promise<ServerReply | null> {
 /** "How much is my cut this month?" */
 async function adminCutCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!/\b(cut|commission|komisyon)\b/i.test(ctx.text)) return null
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   if (!period) return null
   const r = (await adminCut(ctx.userId, period.from, period.to)) as { collected: string; agreedOnLoansStarted: string; stillToComeToday: string; loansStarted: number; loansRepaid: number }
   ctx.say("Added up the Admin's cut")
@@ -835,7 +845,7 @@ async function floatingOnCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!/\b(will|by|on|end of)\b/.test(t) || !/\b(floating|have|available|ready to lend|free to lend)\b/.test(t)) return null
   if (!/\b(will|by|end of)\b/.test(t)) return null
   const endOfMonth = /\bend of (the )?month\b/.test(t) ? new Date(Date.UTC(Number(ctx.today.slice(0, 4)), Number(ctx.today.slice(5, 7)), 0)).toISOString().slice(0, 10) : null
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   const on = endOfMonth ?? readDate(t, ctx.today) ?? (period && period.to > ctx.today ? period.to : null)
   if (!on || on <= ctx.today) return null
   const lenders = await listLenderNames(ctx.userId)
@@ -859,7 +869,7 @@ async function floatingOnCheck(ctx: Ctx): Promise<ServerReply | null> {
 /** "Which loans are due next week?", "Who is due in December?" */
 async function loansDueCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!isQuestion(ctx.text) || !/\bdue\b/i.test(ctx.text)) return null
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   if (!period || (await namesSomeone(ctx))) return null
   const r = (await runTool(ctx.userId, 'find_loans', { status: 'active', due_from: period.from, due_to: period.to })) as { totals?: { matching: number; stillToCollect: string }; loans?: { borrower: string; totalToRepay: string; nextDue: string | null }[] }
   if (!r.totals) return null
@@ -878,7 +888,7 @@ async function moneyHistoryCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!/\b(money in|money out|money history|deposits?|deposited|withdrawals?|withdrew|came in|went out|cash in|cash out|movements?|galaw)\b/.test(t)) return null
   if (!isQuestion(ctx.text) && !/^(show|list)\b|'s (deposits|withdrawals|money)/.test(t)) return null
   if (/\b(each|every|per|all lenders|bawat|most|least|highest|lowest)\b/.test(t)) return null
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   const lenders = await listLenderNames(ctx.userId)
   const groups = mentions(ctx.text, lenders.filter((l) => !l.isSelf))
   if (groups.length > 1) return null
@@ -905,7 +915,7 @@ async function moneyHistoryCheck(ctx: Ctx): Promise<ServerReply | null> {
 /** "How much did we lend this month?", "How much was collected in October?", "How many loans were made last month?" */
 async function summaryCheck(ctx: Ctx): Promise<ServerReply | null> {
   const t = clean(ctx.text)
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   if (!period || !isQuestion(ctx.text) || (await namesSomeone(ctx))) return null
   const lent = /\b(lend|lent|loaned|lent out|released|pinahiram|pautang)\b/.test(t)
   const collected = /\b(collect|collected|received|repaid|paid back|came back|nakolekta|bayad)\b/.test(t)
@@ -964,8 +974,11 @@ const ALL_TIME = (today: string) => ({ from: '2000-01-01', to: today, label: 'al
  */
 async function anyFigureCheck(ctx: Ctx): Promise<ServerReply | null> {
   // Reached only for questions, or for sentences no change rule recognised ("earnings of each lender in October").
-  const q = readQuestion(ctx.text, ctx.today)
-  if (!q) return null
+  // A statement with an amount ("Maria sent another 20k for her pot", "Jun started with 30000") is a change: not here.
+  if (!isQuestion(ctx.text) && amountsIn(ctx.text).length > 0) return null
+  const q0 = readQuestion(ctx.text, ctx.today)
+  if (!q0) return null
+  const q = { ...q0, period: periodIn(ctx) }
   if (q.metric === 'count') return countAnswer(ctx, q)
   const kind = BELONGS_TO[q.metric]
   const figure = FIGURE[q.metric]
@@ -1034,12 +1047,15 @@ async function anyFigureCheck(ctx: Ctx): Promise<ServerReply | null> {
       : borrowers.map(async (b) => ({ name: full(b), value: await borrowerValue(b) })),
   )
   const total = rows.reduce((t, r) => t + r.value, 0)
-  // Borrowers with nothing in this figure are left out; every pot is shown.
-  const shown = rows.filter((r) => kind === 'lender' || r.value !== 0).sort((a, b) => (q.rank === 'least' ? a.value - b.value : b.value - a.value))
-  const plural = kind === 'lender' ? 'lenders' : 'borrowers'
+  // Borrowers with nothing in this figure are left out of a list, but not out of "who paid the least": ₱0.00 is the least.
+  const shown = rows.filter((r) => kind === 'lender' || r.value !== 0 || q.rank === 'least').sort((a, b) => (q.rank === 'least' ? a.value - b.value : b.value - a.value))
+  const one = kind === 'lender' ? 'lender' : 'borrower'
+  const tied = q.rank ? shown.filter((r) => r.value === shown[0]?.value) : []
   const head = q.rank && shown.length > 0
-    ? `**${pesos(shown[0].value / 100)}** ${figure.one(shown[0].name)}${when}, the ${q.rank} of the ${plural}.`
-    : `**${pesos(total / 100)}** ${figure.word}${when}, across ${shown.length} ${shown.length === 1 ? plural.slice(0, -1) : plural}.`
+    ? tied.length > 1
+      ? `**${pesos(shown[0].value / 100)}** each: ${tied.length > 2 ? `${tied.slice(0, -1).map((r) => r.name).join(', ')} and ${tied.at(-1)!.name}` : tied.map((r) => r.name).join(' and ')}${when}, the ${q.rank} of any ${one}.`
+      : `**${pesos(shown[0].value / 100)}** ${figure.one(shown[0].name)}${when}, the ${q.rank} of any ${one}.`
+    : `**${pesos(total / 100)}** ${figure.word}${when}, ${kind === 'lender' ? 'across' : 'from'} ${shown.length} ${shown.length === 1 ? one : `${one}s`}.`
   if (shown.length === 0) return tell([`Nothing ${figure.word}${when} for any ${kind}.`, ...tail].join('\n'))
   return tell([
     head,
@@ -1061,15 +1077,29 @@ async function countAnswer(ctx: Ctx, q: Question): Promise<ServerReply | null> {
   const condition = countCondition(ctx.text)
   if (q.countOf === 'lenders') {
     const lenders = await listLenders(ctx.userId)
-    return tell([`**${lenders.length} ${lenders.length === 1 ? 'lender' : 'lenders'}**, your own pot included.`, ...lenders.map((l) => `- ${full(l)}: ${pesos(l.position.floating / 100)} | floating`)].join('\n'))
+    return tell([`**${lenders.length} ${lenders.length === 1 ? 'lender' : 'lenders'}**, the Admin's pot included.`, ...lenders.map((l) => `- ${full(l)}: ${pesos(l.position.floating / 100)} | floating`)].join('\n'))
   }
   if (q.countOf === 'borrowers') {
     const { rows } = await listBorrowers(ctx.userId, { page: 1, skip: 0, take: 1000 })
     const picked = condition === 'overdue' ? rows.filter((b) => b.overdueOutstanding > 0) : condition === 'owing' ? rows.filter((b) => b.outstanding > 0) : rows
     const what = condition === 'overdue' ? ' overdue' : condition === 'owing' ? ' owing money' : ''
-    return tell([`**${picked.length} ${picked.length === 1 ? 'borrower' : 'borrowers'}**${what}.`, ...(condition ? picked.slice(0, 10).map((b) => `- ${full(b)}: ${pesos((condition === 'overdue' ? b.overdueOutstanding : b.outstanding) / 100)}`) : [])].join('\n'))
+    const ranked = [...picked].sort((a, b) => (condition === 'overdue' ? b.overdueOutstanding - a.overdueOutstanding : b.outstanding - a.outstanding))
+    return tell([`**${picked.length} ${picked.length === 1 ? 'borrower' : 'borrowers'}**${what}.`, ...(condition ? ranked.slice(0, 10).map((b) => `- ${full(b)}: ${pesos((condition === 'overdue' ? b.overdueOutstanding : b.outstanding) / 100)}`) : [])].join('\n'))
   }
   if (q.countOf === 'loans') {
+    // "How many loans did Maria fund?", "How many loans has Angel taken?": one person's loans.
+    const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(ctx.userId), listBorrowerNames(ctx.userId)])
+    const asLender = mentions(ctx.text, lenderNames.filter((l) => !l.isSelf))
+    const asBorrower = mentions(ctx.text, borrowerNames)
+    const named = asLender.length === 1 && asBorrower.length === 0 ? { kind: 'lender' as const, people: asLender[0] } : asBorrower.length === 1 && asLender.length === 0 ? { kind: 'borrower' as const, people: asBorrower[0] } : null
+    if (named) {
+      if (named.people.length > 1) return whichPerson(ctx.text, named.people, named.kind)
+      const who = named.people[0]
+      ctx.say(`Found ${full(who)}`)
+      const where = named.kind === 'lender' ? { userId: ctx.userId, deletedAt: null, fundings: { some: { lenderId: who.id } } } : { userId: ctx.userId, deletedAt: null, borrowerId: who.id }
+      const [all, unpaid] = await Promise.all([db.loan.count({ where }), db.loan.count({ where: { ...where, status: 'ACTIVE' } })])
+      return tell([`**${all} ${all === 1 ? 'loan' : 'loans'}** ${named.kind === 'lender' ? 'funded by' : 'taken by'} ${full(who)}.`, `- Unpaid: ${unpaid}`, `- Fully paid: ${all - unpaid}`].join('\n'))
+    }
     if (q.period && (condition === 'made' || condition === 'paid' || condition === null)) {
       const r = (await periodSummary(ctx.userId, q.period.from, q.period.to)) as { loansMade: number; loansRepaid: number }
       const n = condition === 'paid' ? r.loansRepaid : r.loansMade
@@ -1097,7 +1127,7 @@ const EARN = /\b(earn|earns|earned|earning|earnings|kita|kinita|kumita|income|pr
  */
 async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!EARN.test(ctx.text)) return null
-  const period = periodSaid(ctx.text, ctx.today)
+  const period = periodIn(ctx)
   if (!period && !isQuestion(ctx.text)) return null
   const lenders = await listLenderNames(ctx.userId)
   const self = lenders.find((l) => l.isSelf)
@@ -1201,7 +1231,9 @@ function oneAtATime(text: string): ServerReply | null {
  */
 export async function serverReply(userId: string, history: { role: 'user' | 'assistant'; text: string }[], say: Say): Promise<ServerReply | null> {
   const latest = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
-  const ctx: Ctx = { userId, text: latest, today: manilaToday(), say }
+  const [borrowerNames, lenderNames] = await Promise.all([listBorrowerNames(userId), listLenderNames(userId)])
+  const names = [...borrowerNames, ...lenderNames].flatMap((p) => wordsOf(full(p))).filter((w) => w.length > 1)
+  const ctx: Ctx = { userId, text: latest, today: manilaToday(), say, names }
   if (isQuestion(latest)) return personCheck(ctx)
 
   let intent = intentByRules(latest)
