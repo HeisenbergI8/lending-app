@@ -87,14 +87,15 @@ describe('the details view, in plain words', () => {
   ]
   const lines = modelLines(summarize(MODELS, rows, NOW), NOW)
   test('plain names, not model ids', () => assert.deepEqual(lines.map((l) => l.name), ['Main AI', 'Backup AI 1', 'Backup AI 2']))
-  test('a model out for the day shows as used up, not 31% used', () => {
-    assert.equal(lines[0].percentLeft, 0)
+  test('a model out for the day is a full bar, matching "Used up" (not 31%)', () => {
+    assert.equal(lines[0].percentUsed, 100)
+    assert.equal(lines[0].tone, 'full')
     assert.equal(lines[0].note, 'Used up · back at 6:13 PM')
   })
-  test('the model in use shows what is left as a percent', () => {
-    assert.equal(lines[2].percentLeft, 79)
-    assert.equal(lines[2].note, 'In use · about 79% left today')
-    assert.equal(lines[2].tone, 'good')
+  test('the model in use: the bar and the words give the same percent used', () => {
+    assert.equal(lines[2].percentUsed, 21)
+    assert.equal(lines[2].note, 'In use · about 21% used today')
+    assert.equal(lines[2].tone, 'ok')
   })
   test('a short per-minute rest is a short break with a countdown', () => {
     const l = modelLines(summarize(MODELS, [row(MODELS[0], { coolUntil: at(1) })], NOW), NOW)[0]
@@ -102,7 +103,7 @@ describe('the details view, in plain words', () => {
   })
   test("fewer requests than tokens left: Groq's request count decides", () => {
     const l = modelLines(summarize(MODELS, [row(MODELS[0], { requestsLeft: 100, requestLimit: 1000 })], NOW), NOW)[0]
-    assert.equal(l.percentLeft, 10)
-    assert.equal(l.tone, 'low')
+    assert.equal(l.percentUsed, 90)
+    assert.equal(l.tone, 'high')
   })
 })

@@ -26,7 +26,7 @@ await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitFo
 ok('groq status text', (await header()).includes('Ready'), await header())
 await p.getByRole('button', { name: /^Ready/ }).click(); await p.waitForTimeout(500)
 const details = await p.locator('section[aria-label="Ask Pondex"]').innerText()
-ok('details in plain words', details.includes('Main AI') && details.includes('In use · about 94% left today') && details.includes('Backup AI') && !details.includes('gpt-oss'), details.slice(0, 300).replace(/\n/g, ' '))
+ok('details in plain words', details.includes('Main AI') && details.includes('In use · about 6% used today') && details.includes('Backup AI') && !details.includes('gpt-oss'), details.slice(0, 300).replace(/\n/g, ' '))
 await p.screenshot({ path: `${out}/ui-details.png` })
 await p.getByRole('button', { name: /^Ready/ }).click()
 

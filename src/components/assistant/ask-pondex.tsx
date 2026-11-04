@@ -259,7 +259,7 @@ export function AskPondex() {
                   }}
                   disabled={!usage || usage.local}
                   aria-expanded={details}
-                  className="text-muted-foreground hover:text-foreground block max-w-full cursor-pointer truncate text-left text-xs disabled:cursor-default disabled:hover:text-muted-foreground"
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-brand/40 block max-w-full cursor-pointer truncate rounded text-left text-xs outline-none focus-visible:ring-2 disabled:cursor-default disabled:hover:text-muted-foreground"
                 >
                   {thinking
                     ? 'Looking through your loans…'
@@ -290,7 +290,7 @@ export function AskPondex() {
 
             {details && usage && !usage.local && (
               <div className="border-border/70 bg-muted/40 border-b px-4 py-3">
-                <p className="text-muted-foreground mb-3 text-xs">Free AI left today. When one runs out, the next one answers.</p>
+                <p className="text-muted-foreground mb-3 text-xs">Free AI used today. When one is used up, the next one answers.</p>
                 <ul className="flex flex-col gap-3">
                   {modelLines(usage, now).map((line) => (
                     <li key={line.model} title={line.model}>
@@ -298,10 +298,10 @@ export function AskPondex() {
                         <span className="font-medium">{line.name}</span>
                         <span className="text-muted-foreground text-xs">{line.note}</span>
                       </div>
-                      <div className="bg-border/70 h-1.5 overflow-hidden rounded-full" role="meter" aria-label={`${line.name} left today`} aria-valuenow={line.percentLeft} aria-valuemin={0} aria-valuemax={100}>
+                      <div className="bg-border/70 h-1.5 overflow-hidden rounded-full" role="meter" aria-label={`${line.name} used today`} aria-valuenow={line.percentUsed} aria-valuemin={0} aria-valuemax={100}>
                         <div
-                          className={cn('h-full rounded-full', line.tone === 'good' ? 'bg-emerald-500' : line.tone === 'low' ? 'bg-amber-500' : 'bg-transparent')}
-                          style={{ width: `${line.percentLeft}%` }}
+                          className={cn('h-full rounded-full', line.tone === 'ok' ? 'bg-emerald-500' : line.tone === 'high' ? 'bg-amber-500' : 'bg-red-500/70')}
+                          style={{ width: `${line.percentUsed}%` }}
                         />
                       </div>
                     </li>

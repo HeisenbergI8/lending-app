@@ -176,8 +176,12 @@ export function friendlyName(index: number, count: number): string {
   return count > 2 ? `Backup AI ${index}` : 'Backup AI'
 }
 
-/** One plain line per model for the details view: how much is left and what it is doing. */
-export type ModelLine = { name: string; model: string; percentLeft: number; note: string; tone: 'good' | 'low' | 'empty' }
+/**
+ * One plain line per model for the details view. The bar fills as the day's
+ * allowance is USED, the way a fuel gauge empties: "Used up" is a full bar,
+ * so the bar and the words always say the same thing.
+ */
+export type ModelLine = { name: string; model: string; percentUsed: number; note: string; tone: 'ok' | 'high' | 'full' }
 
 export function modelLines(
   usage: { inUse: string | null; models: { model: string; used: number; limit: number; coolUntil: Date | string | null; requestsLeft: number | null; requestLimit: number | null }[] },
@@ -187,15 +191,15 @@ export function modelLines(
     const cool = m.coolUntil ? new Date(m.coolUntil) : null
     const resting = cool !== null && cool.getTime() > now
     const outForDay = resting && cool.getTime() - now > DAY_REST_MS
-    const byTokens = m.limit > 0 ? Math.max(0, m.limit - m.used) / m.limit : 0
-    const byRequests = m.requestsLeft !== null && m.requestLimit ? m.requestsLeft / m.requestLimit : 1
-    const percentLeft = outForDay || m.requestsLeft === 0 ? 0 : Math.round(100 * Math.min(byTokens, byRequests))
+    const byTokens = m.limit > 0 ? Math.min(1, m.used / m.limit) : 1
+    const byRequests = m.requestsLeft !== null && m.requestLimit ? 1 - m.requestsLeft / m.requestLimit : 0
+    const percentUsed = outForDay || m.requestsLeft === 0 ? 100 : Math.round(100 * Math.max(byTokens, byRequests))
     const note = outForDay
       ? `Used up · back at ${manilaTime(cool)}`
       : resting
         ? `Short break · back in ${clock(cool.getTime() - now)}`
-        : `${m.model === usage.inUse ? 'In use' : 'Ready'} · about ${percentLeft}% left today`
-    return { name: friendlyName(i, usage.models.length), model: m.model, percentLeft, note, tone: percentLeft === 0 ? 'empty' : percentLeft < 25 ? 'low' : 'good' }
+        : `${m.model === usage.inUse ? 'In use' : 'Ready'} · about ${percentUsed}% used today`
+    return { name: friendlyName(i, usage.models.length), model: m.model, percentUsed, note, tone: percentUsed >= 100 ? 'full' : percentUsed >= 75 ? 'high' : 'ok' }
   })
 }
 
