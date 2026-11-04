@@ -79,13 +79,14 @@ const CHOICES: Record<string, string> = {
 
 const day = (raw: string) => {
   const date = parseCalendarDate(raw)
-  return date ? date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : `${raw} (not a date)`
+  // Spelled out like every Dex-E answer: "November 25, 2026".
+  return date ? date.toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' }) : `${raw} (not a date)`
 }
 const pesos = (raw: string) => {
   const parsed = parsePesos(raw)
   return parsed.ok ? formatPesos(parsed.value) : `${raw} (not an amount)`
 }
-const short = (date: Date) => date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' })
+const short = (date: Date) => date.toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric', timeZone: 'Asia/Manila' })
 const person = (p: { firstName: string; lastName: string } | null) => (p ? `${p.firstName} ${p.lastName}` : 'not found')
 
 /** One id in words, always within this account. */
@@ -155,6 +156,8 @@ export async function describeProposal(userId: string, spec: ActionSpec, fields:
   for (const field of spec.fields) {
     const value = fields[field.name]
     if (value === undefined || value === '') continue
+    // How the request's length was given is the form's own detail; the Weeks or Start and Due lines say it.
+    if (field.name === 'termChoice') continue
     const label = LABELS[field.name] ?? field.name
     const shown =
       field.kind === 'id'

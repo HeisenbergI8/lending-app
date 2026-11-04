@@ -35,7 +35,7 @@ export function clean(text: string): string {
  * After a day number: not more digits, and not a count of something. "Jun 30" is a date,
  * but "from Jun 1 week" is the lender Jun and one week, and "kay Jun 2k" is Jun and ₱2,000.
  */
-const DAY_END = '(?![\\d.,])(?!\\s*-?\\s*(?:k|thousand|libo|weeks?|wks?|weaks?|linggo|days?|araw|months?|buwan)\\b)'
+const DAY_END = '(?!\\d|[.,]\\d)(?!\\s*-?\\s*(?:k|thousand|libo|weeks?|wks?|weaks?|linggo|days?|araw|months?|buwan)\\b)'
 /** The references a follow-up button adds; their dates say which record, not when something happened. */
 const REFS = /\(the [^)]*\)/g
 

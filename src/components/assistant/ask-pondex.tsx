@@ -150,6 +150,8 @@ export function AskPondex() {
   const router = useRouter()
   const [usage, setUsage] = useState<Usage | null>(null)
   const [details, setDetails] = useState(false)
+  // Shown in the header so a tester can see the AI is switched off. Read when the chat opens: it lives in the tab's storage.
+  const [testMode, setTestMode] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
   const coolMs = usage?.coolUntil ? new Date(usage.coolUntil).getTime() - now : 0
@@ -208,6 +210,7 @@ export function AskPondex() {
       setFull(false)
     } else {
       setOpen(true)
+      setTestMode(serverOnlyTest())
       poke()
       // Fresh figures each time the chat opens.
       void loadUsage()
@@ -310,7 +313,10 @@ export function AskPondex() {
                 <PondexMascot mood={mood} size={52} />
               </button>
               <div className="min-w-0 flex-1">
-                <p className="text-base font-semibold">Dex-E</p>
+                <p className="flex items-center gap-2 text-base font-semibold">
+                  Dex-E
+                  {testMode && <span className="bg-brand-bg text-brand border-brand-line rounded-full border px-2 py-0.5 text-[11px] font-medium">Test mode · server only</span>}
+                </p>
                 <button
                   type="button"
                   onClick={() => {

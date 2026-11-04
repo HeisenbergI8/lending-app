@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { amountsIn, daySaid, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, rateSaid, weekNumberSaid } from '../../src/lib/command/read.ts'
+import { amountsIn, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, rateSaid, weekNumberSaid } from '../../src/lib/command/read.ts'
 import { intentByRules, isQuestion } from '../../src/lib/command/intents.ts'
 
 const TODAY = '2026-11-04' // a Wednesday
@@ -38,6 +38,8 @@ describe('reading days and lengths', () => {
     assert.equal(daySaid('lend Rico 10k starting Jun 30', TODAY, 'future'), '2027-06-30')
     assert.equal(daySaid('lend Rico 10k starting Nov 20', TODAY, 'future'), '2026-11-20')
     assert.equal(daySaid('paid on Jun 30', TODAY, 'past'), '2026-06-30')
+    assert.equal(readDate('Nov 11, 2026', TODAY), '2026-11-11')
+    assert.equal(daySaid('paid on November 03, 2026', TODAY, 'past'), '2026-11-03')
   })
   test("found on the testing link: a button's loan reference is not the payment date", () => {
     assert.equal(daySaid('Lyn paid in full (the ₱8,000.00 loan from November 01, 2026)', TODAY, 'past'), null)

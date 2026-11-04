@@ -4,7 +4,7 @@ import { listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
-  amountsIn, clean, daySaid, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
+  amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
   requestRef, SPLIT_EVENLY, weekNumberSaid,
 } from '../../lib/command/read.ts'
 import { closestNames, distance, type Named } from './names.ts'
@@ -45,8 +45,6 @@ const CARD = 'Here is the change. Check it, then tap Confirm.'
 const ask = (answer: string, choices: Choice[] = []): ServerReply => ({ kind: 'ask', answer, choices })
 const tell = (answer: string): ServerReply => ({ kind: 'answer', answer })
 const full = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`
-/** The sentence without its week words, when the answer turned out to be the whole loan. */
-const withoutWeek = (text: string) => text.replace(/\b(for\s+)?(this\s+week'?s?|week\s*#?\s*\d+|\d+(st|nd|rd|th)\s+week|weekly|week)(\s+(payment|interest|hulog))?\b/gi, ' ').replace(/\s+/g, ' ').trim()
 /** The sentence again with a detail added, for a button. */
 const plus = (text: string, extra: string) => `${text.trim().replace(/[.!]+$/, '')}${extra.startsWith(',') ? '' : ' '}${extra}`
 
@@ -197,13 +195,15 @@ async function card(ctx: Ctx, action: string, fields: Record<string, unknown>, f
   const tryDates = /Try (\w+ \d{1,2}, \d{4}) or (\w+ \d{1,2}, \d{4})/.exec(error)
   if (tryDates) {
     const base = ctx.text.replace(/\b(for\s+)?\d+\s*(days?|araw)\b|\b(due|until|hanggang|by)\s+.*$/i, '').trim()
-    return ask(`${error.replace(/\s*Try .*$/, '')} Loans run in whole weeks. Which due date?`, [tryDates[1], tryDates[2]].map((d) => ({ label: d, send: plus(base, `until ${d}`) })))
+    const spelled = (d: string) => { const iso = readDate(d, ctx.today); return iso ? spellDate(iso) : d }
+    return ask(`${error.replace(/\s*Try .*$/, '')} Loans run in whole weeks. Which due date?`, [tryDates[1], tryDates[2]].map((d) => ({ label: spelled(d), send: plus(base, `until ${d}`) })))
   }
   if (/how much from each lender/.test(error)) return tell('How much is from each lender? For example: "6k from Maria and 4k from Jun", or say "split evenly".')
   if (/did not say \w+/.test(error)) return tell('How much? Please say the amount, for example "5k" or "₱5,000".')
   // Ids, names or fields the server could not settle: the big AI takes it from here.
   if (/Missing:|must be one of|Not found|did not name|No action/.test(error)) return null
-  return tell(`I can't make that card: ${error.replace(/\s*Ask\b[^.]*\.?/g, '').trim()}`)
+  const why = error.replace(/\s*Ask\b[^.]*\.?/g, '').trim()
+  return tell(`I can't make that card: ${why.charAt(0).toLowerCase()}${why.slice(1)}`)
 }
 
 function askLength(ctx: Ctx): ServerReply {
@@ -217,6 +217,10 @@ function askLength(ctx: Ctx): ServerReply {
 const DATED_MONTH = /\b(starting|start|starts|on|until|due|by|hanggang|simula)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b/gi
 
 async function lendersFor(ctx: Ctx, part: string, all: Person[]): Promise<Person[] | ServerReply> {
+  // A borrower named where the lenders go is said back, never quietly dropped.
+  const lenderWords = new Set(all.flatMap((l) => wordsOf(full(l))))
+  const borrowerThere = mentions(part.replace(DATED_MONTH, ' '), await listBorrowerNames(ctx.userId)).flat().find((b) => !wordsOf(full(b)).some((w) => lenderWords.has(w)))
+  if (borrowerThere) return tell(`${full(borrowerThere)} is a borrower, not a lender, so they can't fund a loan. Which lenders is it from?`)
   const groups = mentions(part.replace(DATED_MONTH, ' '), all.filter((l) => !l.isSelf))
   const ambiguous = groups.find((g) => g.length > 1)
   if (ambiguous) return whichPerson(ctx.text, ambiguous, 'lender')
@@ -365,8 +369,8 @@ async function payment(ctx: Ctx, intent: 'mark_paid' | 'mark_week_paid' | 'paid_
     // "Lyn paid": on a weekly loan with weeks still to go, a week or the whole loan are both likely.
     if (weekly && next < weeks) {
       return ask(`Did ${who.firstName} pay week ${next}'s interest, or the whole loan?`, [
-        { label: `Week ${next} only`, send: plus(ctx.text, `, week ${next} interest (${describeLoan(loan)})`) },
-        { label: 'The whole loan', send: plus(ctx.text, `in full (${describeLoan(loan)})`) },
+        { label: `Week ${next} only`, send: `${who.firstName} paid week ${next} interest (${describeLoan(loan)})` },
+        { label: 'The whole loan', send: `${who.firstName} paid in full (${describeLoan(loan)})` },
       ])
     }
     intent = 'mark_paid'
@@ -374,19 +378,19 @@ async function payment(ctx: Ctx, intent: 'mark_paid' | 'mark_week_paid' | 'paid_
   if (intent === 'mark_week_paid') {
     if (!weekly) {
       return ask(`${who.firstName}'s loan collects interest at the end, not every week. Did ${who.firstName} pay the whole loan?`, [
-        { label: 'Yes, paid in full', send: plus(withoutWeek(ctx.text), `in full (${describeLoan(loan)})`) },
+        { label: 'Yes, paid in full', send: `${who.firstName} paid in full (${describeLoan(loan)})` },
       ])
     }
     const said = weekNumberSaid(ctx.text)
     if (said !== null && paid.includes(said)) return tell(`Week ${said} of ${who.firstName}'s loan is already paid. The next unpaid week is week ${next}.`)
     if (said !== null && said > next) {
       return ask(`Week ${next} comes before week ${said}, and the app marks weeks in order. Mark week ${next} paid?`, [
-        { label: `Mark week ${next} paid`, send: ctx.text.replace(/\bweek\s*#?\s*\d+\b|\b\d+(st|nd|rd|th)\s+week\b/i, `week ${next}`) },
+        { label: `Mark week ${next} paid`, send: `${who.firstName} paid week ${next} (${describeLoan(loan)})` },
       ])
     }
     if (next >= weeks) {
       return ask(`Week ${next} is the last week, so it settles the whole loan. Mark ${who.firstName}'s loan paid in full?`, [
-        { label: 'Yes, paid in full', send: plus(withoutWeek(ctx.text), `in full (${describeLoan(loan)})`) },
+        { label: 'Yes, paid in full', send: `${who.firstName} paid in full (${describeLoan(loan)})` },
       ])
     }
     return card(ctx, 'mark_week_paid', { loanId: loan.id, paidOn })
@@ -454,7 +458,7 @@ async function extend(ctx: Ctx): Promise<ServerReply | null> {
   const r = await borrowerLoanAction(ctx, 'extend_loan', '{name} has no unpaid loan to extend.')
   if (!r.loan) return r.reply ?? null
   const length = lengthSaid(ctx.text, ctx.today)
-  if (!length?.weeks) return ask('Extend by how many weeks?', [1, 2, 3, 4].map((n) => ({ label: `${n} week${n > 1 ? 's' : ''}`, send: plus(ctx.text, `by ${n} week${n > 1 ? 's' : ''}`) })))
+  if (!length?.weeks) return ask('Extend by how many weeks?', [1, 2, 3, 4].map((n) => ({ label: `${n} week${n > 1 ? 's' : ''}`, send: `extend ${r.who!.firstName}'s loan by ${n} week${n > 1 ? 's' : ''} (${describeLoan(r.loan!)})` })))
   const paidNow = /\b(paid|bayad|nagbayad)\b.{0,30}\b(now|today|already|na)\b|\binterest (is )?paid\b/i.test(ctx.text)
   return card(ctx, 'extend_loan', { loanId: r.loan.id, weeks: String(length.weeks), ...(paidNow ? { paidNow: 'yes' } : {}) })
 }
@@ -622,7 +626,9 @@ async function simplePerson(ctx: Ctx, intent: Intent): Promise<ServerReply | nul
     case 'clear_borrower_photo': {
       const who = onePerson(ctx, ctx.text, borrowers, 'borrower')
       if (!who || isReply(who)) return who
-      return card(ctx, 'clear_borrower_photo', { borrowerId: full(who) })
+      const made = await card(ctx, 'clear_borrower_photo', { borrowerId: full(who) })
+      // Said with the person's name, not "that borrower".
+      return made?.kind === 'answer' && /no photo/i.test(made.answer) ? tell(`${who.firstName} has no photo to remove.`) : made
     }
     case 'create_borrower':
     case 'create_lender': {
@@ -762,7 +768,8 @@ async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
   ctx.say(`Found ${full(l)}`)
   const r = (await runTool(ctx.userId, 'get_lender', { name: full(l) })) as { found?: boolean; name?: string; floating?: string; outOnLoan?: string; startingCapital?: string }
   if (!r.found) return null
-  return tell([`**${r.name}** has ${r.floating} floating, ready to lend.`, `- Out on loan: ${r.outOnLoan}`, `- Starting capital: ${r.startingCapital}`].join('\n'))
+  // A starting capital of ₱0.00 means none was set; "₱0.00" next to a large first deposit reads as wrong.
+  return tell([`**${r.name}** has ${r.floating} floating, ready to lend.`, `- Out on loan: ${r.outOnLoan}`, ...(r.startingCapital && r.startingCapital !== '₱0.00' ? [`- Starting capital: ${r.startingCapital}`] : [])].join('\n'))
 }
 
 /**

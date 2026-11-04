@@ -149,7 +149,7 @@ export function sayQuick(kind: QuickKind, result: unknown): string | null {
     case 'labelRule':
       return [
         "A borrower's label comes from their record: count their loans **paid late** plus their loans **overdue now**.",
-        '- Good: none',
+        '- Good: 0 (no late or overdue loans)',
         '- Okay: 1',
         '- Bad: 2 or more',
         'The label shown in the app is the one you saved, so it can differ from what the rule gives. Ask me to change it any time.',
