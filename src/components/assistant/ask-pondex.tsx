@@ -599,7 +599,7 @@ export function AskPondex() {
           aria-expanded={open}
           className="cursor-pointer rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
         >
-          <PondexMascot mood={mood} size={84} className="size-16 md:size-[84px]" />
+          <PondexMascot mood={mood} size={84} className="size-[76px] md:size-[84px]" />
         </button>
       </div>
     </>
