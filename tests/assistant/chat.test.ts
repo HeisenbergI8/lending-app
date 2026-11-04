@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clip, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { clip, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -139,5 +139,18 @@ describe('which model answers (plain lookups go to the light model)', () => {
     assert.equal(lightModel(['openai/gpt-oss-120b', 'openai/gpt-oss-20b']), 'openai/gpt-oss-20b')
     assert.equal(lightModel(['openai/gpt-oss-120b']), null)
     assert.equal(lightModel(['openai/gpt-oss-20b', 'openai/gpt-oss-120b']), null)
+  })
+})
+
+describe('sending only what a question needs (fewer tokens per call)', () => {
+  const names = (mode: 'read' | 'change') => toolsFor(mode).map((t) => t.function.name)
+  test('a plain question gets no propose_action', () => assert.ok(!names('read').includes('propose_action')))
+  test('a plain question keeps find_action, so a missed change can still switch over', () => assert.ok(names('read').includes('find_action')))
+  test('a change gets every tool', () => assert.ok(names('change').includes('propose_action')))
+  test('change requests the words used to miss (Groq rerun, recall check)', () => {
+    assert.equal(isChangeRequest('pahiram si lyn ng 3k galing kay maria, 2 weeks simula ngayon'), true)
+    assert.equal(isChangeRequest('maria deposited 5k'), true)
+    assert.equal(isChangeRequest('Lyn is good now, set it'), true)
+    assert.equal(isChangeRequest('update Rico to 6%'), true)
   })
 })

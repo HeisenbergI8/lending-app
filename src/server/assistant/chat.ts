@@ -126,7 +126,32 @@ export function trimHistory<T>(turns: T[], max = MAX_HISTORY): T[] {
   return turns.length <= max ? turns : [turns[0], ...turns.slice(-(max - 1))]
 }
 
-function systemPrompt(): string {
+/**
+ * A plain question or a change. A question gets the read tools and the short
+ * rules; a change also gets the action tools and the rules for proposing one.
+ * The instructions and tool list are resent with EVERY call (measured
+ * 2026-11-04: about 580 + 1,050 tokens, against 100 to 550 for the data a
+ * lookup returns), so sending only what the question needs is the biggest saving.
+ */
+export type Mode = 'read' | 'change'
+
+const CHANGE_RULES = `Changes (add, edit, pay, delete, restore anything):
+- find_action first, then look up every id it needs (find_borrower, list_lenders, get_loan), then propose_action. The Admin confirms on a card; nothing is saved before that.
+- A person not found: ask whether to add them as new, with first and last name. Never assume.
+- Fill only the fields the Admin gave, plus the required ones. Leave every other optional field out; the app uses its defaults.
+- If a required detail is missing or unclear (which lender, how much from each, which loan), ask for it. Never guess a detail of a change.
+- Never say a change is done. Say it is ready to confirm.
+
+`
+
+/** Tools for a plain question. find_action stays, so a missed change can still switch to change mode. */
+const READ_TOOLS = new Set(['read_rules', 'get_overview', 'list_lenders', 'find_borrower', 'find_loans', 'get_loan', 'get_lender', 'list_pending', 'list_deleted', 'search_notes', 'find_action'])
+
+export function toolsFor(mode: Mode) {
+  return TOOLS.filter((t) => mode === 'change' || READ_TOOLS.has(t.name)).map((t) => ({ type: 'function', function: t }))
+}
+
+function systemPrompt(mode: Mode = 'change'): string {
   return `You are Pondex, the helper in a private lending tracker. You talk only to the Admin who runs it. Today is ${manilaToday()} (Philippine time).
 
 Sources:
@@ -139,14 +164,7 @@ Sources:
 - A name matching nobody: not a borrower in Pondex. Matching several: ask which one.
 - A lookup that returns didYouMean: ask "Did you mean ...?" with only those names. Never invent a name, and never treat a misspelled name as a new person.
 
-Changes (add, edit, pay, delete, restore anything):
-- find_action first, then look up every id it needs (find_borrower, list_lenders, get_loan), then propose_action. The Admin confirms on a card; nothing is saved before that.
-- A person not found: ask whether to add them as new, with first and last name. Never assume.
-- Fill only the fields the Admin gave, plus the required ones. Leave every other optional field out; the app uses its defaults.
-- If a required detail is missing or unclear (which lender, how much from each, which loan), ask for it. Never guess a detail of a change.
-- Never say a change is done. Say it is ready to confirm.
-
-Limits (never refuse without the reason):
+${mode === 'change' ? CHANGE_RULES : 'Changes: to add, edit, pay, delete or restore anything, call find_action first.\n\n'}Limits (never refuse without the reason):
 - You only see the account that is signed in. There is no other account to look at or compare with.
 - No phone numbers, addresses or IDs are stored. Say so if asked.
 - You cannot sign in or out, change the password, or upload a new borrower photo. Point to the app for those. Removing a photo is an action: use find_action.
@@ -166,7 +184,7 @@ function modelOptions(model: string): Record<string, unknown> {
   return {}
 }
 
-async function complete(model: string, messages: GroqMessage[], retries = 1): Promise<{ reply: GroqReply; tokens: number }> {
+async function complete(model: string, messages: GroqMessage[], mode: Mode, retries = 1): Promise<{ reply: GroqReply; tokens: number }> {
   const local = model === localModel()
   const key = process.env.GROQ_API_KEY
   if (!local && !key) throw new Error('GROQ_API_KEY is not set.')
@@ -177,7 +195,7 @@ async function complete(model: string, messages: GroqMessage[], retries = 1): Pr
     body: JSON.stringify({
       model,
       messages,
-      tools: TOOLS.map((t) => ({ type: 'function', function: t })),
+      tools: toolsFor(mode),
       tool_choice: 'auto',
       temperature: 0.2,
       max_completion_tokens: MAX_OUTPUT_TOKENS,
@@ -192,7 +210,7 @@ async function complete(model: string, messages: GroqMessage[], retries = 1): Pr
     // A short per-minute wait on the same model beats switching to a weaker one.
     if (!refusal.daily && retries > 0 && refusal.waitS <= MAX_WAIT_S) {
       await sleep(Math.max(1, refusal.waitS) * 1000)
-      return complete(model, messages, retries - 1)
+      return complete(model, messages, mode, retries - 1)
     }
     await recordRefusal(model, refusal)
     throw new LimitError(refusal.daily)
@@ -223,7 +241,7 @@ async function complete(model: string, messages: GroqMessage[], retries = 1): Pr
  * rested and the same turn goes to the next one. Every message so far is plain
  * OpenAI-shaped, so a different model can pick the conversation up mid-way.
  */
-async function nextTurn(messages: GroqMessage[], preferred: string | null) {
+async function nextTurn(messages: GroqMessage[], preferred: string | null, mode: Mode) {
   const usage = await currentUsage()
   const ready = usage.models.filter((m) => m.coolUntil === null).map((m) => m.model)
   // Stay on the model that started the question while it still works.
@@ -234,7 +252,7 @@ async function nextTurn(messages: GroqMessage[], preferred: string | null) {
     // Two tries per model: a broken tool call is usually right the second time.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return { model, ...(await complete(model, messages)) }
+        return { model, ...(await complete(model, messages, mode)) }
       } catch (error) {
         if (error instanceof SlipError) {
           last = error
@@ -289,7 +307,7 @@ const ID = /\b(c[a-z0-9]{20,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * answered from memory. Costs nothing when the model behaves.
  */
 /** A request to change something, in the words people use for it. */
-const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pd|pay|record|deposit|withdr[ae]w\w*|rename|extend|convert|label|note|advance|fund|request|attach|proof|receipt|starting capital|make|fix|should be|change|borrow|wants)\b/i
+const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pd|pay|record|deposit\w*|withdr[ae]w\w*|pahiram|pautang|hulog|rename|extend|convert|label|note|advance|fund|request|attach|proof|receipt|starting capital|make|fix|should be|change|borrow|wants|set|update|edit)\b/i
 /** An answer that claims a card exists. */
 const CLAIMS_CARD = /\b(tap confirm|ready[\s-]to[\s-]confirm|check it, then tap|confirm (it|the card)|card (is )?ready|here is the .{0,30}card|review and confirm|confirm the changes?|(is|are) (now )?prepared|proposed action)\b/i
 
@@ -358,8 +376,10 @@ export function withoutIds(answer: string): string {
 const compact = (value: unknown) => JSON.stringify(value, (_key, v: unknown) => (v === null ? undefined : v))
 
 export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResult> {
+  // A change anywhere in the conversation keeps the action tools: "ok go ahead" follows a request.
+  let mode: Mode = history.some((t) => t.role === 'user' && isChangeRequest(t.text)) ? 'change' : 'read'
   const messages: GroqMessage[] = [
-    { role: 'system', content: systemPrompt() },
+    { role: 'system', content: systemPrompt(mode) },
     ...trimHistory(history).map((t) => ({ role: t.role, content: t.text }) as GroqMessage),
   ]
   // Plan first, the way a person would: for a change request, the server looks
@@ -394,7 +414,7 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
       // A plain lookup starts on the light model; the main model keeps its allowance for the rest.
-      const turn = await nextTurn(messages, model ?? (isSimpleQuestion(question, history.filter((t) => t.role === 'user').length) ? lightModel() : null))
+      const turn = await nextTurn(messages, model ?? (isSimpleQuestion(question, history.filter((t) => t.role === 'user').length) ? lightModel() : null), mode)
       model = turn.model
       tokens += turn.tokens
       const calls = turn.reply.tool_calls ?? []
@@ -422,6 +442,11 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
       messages.push({ role: 'assistant', content: turn.reply.content ?? null, tool_calls: calls })
       for (const call of calls) {
         used.push(call.function.name)
+        // A change the words did not give away: from here on the full change rules and tools go along.
+        if (call.function.name === 'find_action' && mode === 'read') {
+          mode = 'change'
+          messages[0] = { role: 'system', content: systemPrompt('change') }
+        }
         const args = parseArgs(call.function.arguments)
         if (call.function.name === 'propose_action') {
           dropUnasked(args, saidByAdmin)

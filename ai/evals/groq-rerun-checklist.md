@@ -86,6 +86,17 @@ The untested ones with no note never press Confirm, so they can run together aft
 
 After these: `npm run verify` 697 pass, card checks 32/32, Confirm checks 49/49 (demo).
 
+## Fewer tokens per question (2026-11-04)
+
+- A plain question now gets short instructions and only the lookup tools; a change gets everything. The
+  instructions and tool list go with every call (about 580 + 1,050 tokens), so this is the biggest saving.
+- If a change has no change words, the AI can still reach for find_action, and the question switches to change mode.
+- Measured on the Mac model, same questions: plain questions about 15 to 16% fewer tokens (3,650 to 3,076).
+  Changes about the same.
+- Change words added: pahiram, pautang, hulog, deposited, set, update, edit.
+- The borrower lookup's label fields are now savedLabel and ruleWouldGive. The first name ("labelByYourRule")
+  made the small model think Lyn was already Good, so "mark Lyn as good" made no card. Now 3 of 3 make the card.
+
 ## Groq free plan findings
 
 - The main model (120b) ran out for the day after about 16 questions. Groq counts a rolling 24 hours, so yesterday's

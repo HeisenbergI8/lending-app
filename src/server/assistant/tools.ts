@@ -60,7 +60,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'find_borrower',
     description:
-      'A borrower by name: saved label, the label your rule gives (labelByYourRule; say both when they differ), track record, still owed, and every loan with funders, each payment made and notes. found: false if nobody matches.',
+      'A borrower by name: savedLabel (what the app shows), ruleWouldGive (what your rule would give; say both when they differ), track record, still owed, and every loan with funders, each payment made and notes. found: false if nobody matches.',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string', description: 'As written, e.g. "Mitch G".' } },
@@ -311,9 +311,10 @@ async function findBorrower(userId: string, name: string) {
       .map((b) => ({
         id: b.id,
         name: `${b.firstName} ${b.lastName}`,
-        label: b.label,
-        // Worked out here so the model never counts it: "is Dan bad?" needs both.
-        labelByYourRule: labelByRule(b.record),
+        // The label the Admin saved (what set_label changes), and separately what the
+        // Admin's rule would give. Named apart so neither is read as the other.
+        savedLabel: b.label ?? 'none',
+        ruleWouldGive: labelByRule(b.record),
         trackRecord: describeTrackRecord(b.record),
         stillOwes: peso(b.outstanding),
         overdueAmount: peso(b.overdueOutstanding),
@@ -378,7 +379,8 @@ async function findLoans(userId: string, args: Record<string, unknown>) {
       amount: peso(loan.capital),
       totalToRepay: peso(loan.total),
       nextDue: day(loan.dueOn),
-      nextDueIsAWeeklyPayment: loan.dueIsWeekly,
+      // Only said when true: on every row of a 25-loan list, "false" is tokens for nothing.
+      ...(loan.dueIsWeekly ? { nextDueIsAWeeklyPayment: true } : {}),
       // Worked out here: counting days on a calendar is where models slip.
       ...(loan.state === 'overdue' ? { daysLate: daysSince(loan.dueOn) } : {}),
       state: loan.state,
