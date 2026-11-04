@@ -301,6 +301,48 @@ That reply is written **→ AI** below.
 | RP-28 | what's in recently deleted? | ANSWER "Recently Deleted is empty." |
 | RP-29 | Maria deposited 5000 today | CARD Record money in or out (a command, not a question, still makes a card) |
 
+## 18. Any figure, for anyone, for any time (added 2026-11-04)
+
+Expected figures are from the demo data on November 04, 2026. Each "each" answer has the total on top and one row
+per person; a ranking puts the top one first. See `dex-e-questions.md`.
+
+| ID | Prompt | Expected |
+|---|---|---|
+| Q-01 | how much did each lender earn this month? | ANSWER total and one row per lender (4 lenders), dates this month |
+| Q-02 | earnings of each lender in October | ANSWER ₱28,000.00 across 4 lenders: John Ross ₱12,000.00, Demo Admin ₱8,000.00, Maria ₱8,000.00, Jun ₱0.00 |
+| Q-03 | how much did all lenders earn? | ANSWER ₱38,500.00 earned in all, one row per lender |
+| Q-04 | who earned the most in October? | ANSWER ₱12,000.00 by John Ross Santos, the most, ranked rows |
+| Q-05 | who earned the least? | ANSWER Jun Reyes ₱0.00, the least |
+| Q-06 | how much did each pot earn last month? | ANSWER same as Q-02 (a pot is a lender) |
+| Q-07 | magkano kinita ng bawat lender nung October | ANSWER same as Q-02 |
+| Q-08 | total earnings in October? | ANSWER ₱28,000.00 with a row per lender |
+| Q-09 | how much does each lender have? | ANSWER ₱223,500.00 floating across 4 lenders |
+| Q-10 | which lender has the most floating? | ANSWER John Ross Santos ₱134,500.00, the most |
+| Q-11 | how much of each lender's money is out on loan? | ANSWER ₱95,000.00 across 4 lenders |
+| Q-12 | how much interest is still to come for each lender? | ANSWER ₱24,920.00 across 4 lenders |
+| Q-13 | how much did each lender deposit this year? | ANSWER ₱295,000.00, one TOTAL row per lender (not a list of entries) |
+| Q-14 | withdrawals per lender? | ANSWER ₱15,000.00, Maria ₱15,000.00, others ₱0.00 |
+| Q-15 | how much does each borrower owe? | ANSWER ₱119,920.00 across 5 borrowers |
+| Q-16 | who owes the least? | ANSWER Lyn Bautista ₱8,560.00, the least |
+| Q-17 | how much did each borrower pay in October? | ANSWER ₱78,000.00, Bea Villanueva only |
+| Q-18 | who paid the most last month? | ANSWER Bea Villanueva ₱78,000.00 |
+| Q-19 | how much did each borrower borrow in October? | ANSWER ₱75,000.00 across 3 borrowers |
+| Q-20 | who borrowed the most? | ANSWER ₱75,000.00 (Angel and Bea tie), ranked |
+| Q-21 | how much is overdue for each borrower? | ANSWER ₱15,360.00, Dan Aquino |
+| Q-22 | how much has Bea paid in all? | ANSWER ₱78,000.00 paid by Bea Villanueva in all, still owes ₱32,000.00 |
+| Q-23 | how much does Maria have? | ANSWER ₱45,000.00 floating, out on loan ₱28,000.00, earned ₱8,000.00 |
+| Q-24 | how much does Angel owe? | ANSWER ₱38,400.00 still owed, a row for the ₱30,000.00 loan |
+| Q-25 | how many borrowers are overdue? | ANSWER 1 borrower, Dan Aquino |
+| Q-26 | how many borrowers owe money? | ANSWER 5 borrowers |
+| Q-27 | how many lenders do I have? | ANSWER 4 lenders, your own pot included |
+| Q-28 | how many loans are unpaid? | ANSWER 5 loans |
+| Q-29 | how many loans have been fully paid? | ANSWER 3 loans |
+| Q-30 | how much is in my pot? | ANSWER ₱26,000.00 floating in Demo Admin's pot |
+| Q-31 | how much do the clients owe in total? | ANSWER ₱119,920.00 across 5 borrowers |
+| Q-32 | utang ng lahat ng borrowers? | ANSWER same as Q-31 |
+| Q-33 | how much did the investors earn last month? | ANSWER same as Q-02 |
+| Q-34 | total profit last month | ANSWER same as Q-02 |
+
 ## 16. Look and feel (check once or twice, not on every prompt)
 
 | ID | What to check | Expected |
