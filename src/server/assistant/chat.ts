@@ -261,7 +261,7 @@ const ID = /\b(c[a-z0-9]{20,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * answered from memory. Costs nothing when the model behaves.
  */
 /** A request to change something, in the words people use for it. */
-const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pd|pay|record|deposit|withdr[ae]w\w*|rename|extend|convert|label|note|advance|fund|request|attach|proof|receipt|starting capital)\b/i
+const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrower|lender|loan)|delete|remove|restore|undo|mark|paid|pd|pay|record|deposit|withdr[ae]w\w*|rename|extend|convert|label|note|advance|fund|request|attach|proof|receipt|starting capital|make|fix|should be|change|borrow|wants)\b/i
 /** An answer that claims a card exists. */
 const CLAIMS_CARD = /\b(tap confirm|ready[\s-]to[\s-]confirm|check it, then tap|confirm (it|the card)|card (is )?ready|here is the .{0,30}card|review and confirm|confirm the changes?|(is|are) (now )?prepared)\b/i
 

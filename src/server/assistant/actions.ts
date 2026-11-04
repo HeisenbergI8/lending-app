@@ -185,7 +185,7 @@ export const ACTIONS: ActionSpec[] = [
       { name: 'occurredOn', kind: 'date', required: true, about: DATE },
       { name: 'note', kind: 'text' },
     ],
-    words: 'deposit withdraw withdrawal money in out add funds cash',
+    words: 'deposit withdraw withdrawal money in out add funds cash pot put took',
   },
   {
     name: 'record_advance',
@@ -235,7 +235,9 @@ const BY_NAME = new Map(ACTIONS.map((a) => [a.name, a]))
 export const actionSpec = (name: string) => BY_NAME.get(name) ?? null
 
 /** The actions whose name, title or words share the most words with what was asked. */
-const wordsOf = (text: string) => new Set(text.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2))
+/** Word endings dropped so "added" finds add, "loans" finds loan, "withdrawal" finds withdraw. */
+const stem = (w: string) => (w.length > 4 ? w.replace(/(al|ed|ing|s)$/, '') : w.length > 3 ? w.replace(/s$/, '') : w)
+const wordsOf = (text: string) => new Set(text.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2).map(stem))
 
 /**
  * The actions whose name, title or words share the most WHOLE words with what

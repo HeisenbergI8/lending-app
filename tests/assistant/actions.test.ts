@@ -213,3 +213,10 @@ describe("the loan form's term checks run before a card", () => {
     assert.equal(normalizeFields(loan, { startOn: 'today', dueOn: '4 weeks from today' }, '2026-11-04').dueOn, '2026-12-02')
   })
 })
+
+describe('find_action word endings (run 10)', () => {
+  test('"Maria added 10k" finds money in', () => assert.equal(findActions('Maria added 10k to her pot')[0]?.name, 'record_money'))
+  test('"Jun withdrew" and "withdrawal" find money out', () => {
+    assert.equal(findActions('record a withdrawal for Jun')[0]?.name, 'record_money')
+  })
+})

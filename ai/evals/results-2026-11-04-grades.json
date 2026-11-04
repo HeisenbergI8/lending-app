@@ -51,7 +51,7 @@
   "id": "READ-09",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Says ₱20,520.00 from list_lenders instead of the ₱24,920.00 interest still owed from get_overview."
+  "reason": "Says ₱20,520.00 summed from list_lenders instead of the ₱24,920.00 interest still owed from get_overview."
  },
  "READ-10": {
   "id": "READ-10",
@@ -93,7 +93,7 @@
   "id": "READ-16",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Says ₱223,500.00 (the floating figure) instead of ₱190,000.00 across the 8 loans."
+  "reason": "Says ₱223,500.00 (a floating figure) instead of ₱190,000.00 across the 8 loans."
  },
  "READ-17": {
   "id": "READ-17",
@@ -147,7 +147,7 @@
   "id": "RULE-03",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Only restated the rule; never looked Rico up, so neither label was given."
+  "reason": "Only restated the rule and offered to look Rico up; neither label given."
  },
  "RULE-04": {
   "id": "RULE-04",
@@ -177,7 +177,7 @@
   "id": "RULE-08",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Called read_rules but answered 'your rules don't say'; pondex-rules.md:96 says marking paid needs a screenshot."
+  "reason": "Called read_rules but answered 'your rules don't say'; the rules file says marking paid needs a screenshot."
  },
  "RULE-09": {
   "id": "RULE-09",
@@ -195,7 +195,7 @@
   "id": "RULE-11",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Answered ₱2,450 and ₱22,450 (right is ₱4,200.00 and ₱24,200.00) and even tried propose_action for a calculation."
+  "reason": "Divided 7% by 7 and answered ₱600.00; right is ₱4,200.00 interest and ₱24,200.00 total."
  },
  "RULE-12": {
   "id": "RULE-12",
@@ -297,7 +297,7 @@
   "id": "LOANX-05",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Showed a delete card for one of Angel's three loans (₱30,000.00 due Nov 18) instead of asking which; not confirmed."
+  "reason": "No card, but it described one of Angel's three loans instead of asking which one to delete."
  },
  "LOANX-17": {
   "id": "LOANX-17",
@@ -525,7 +525,7 @@
   "id": "LOAN-02",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Its funders added to ₱30,000.00 for a ₱20,000.00 loan; the server refused correctly and it asked instead of sending 10k + 10k."
+  "reason": "Its proposal was refused and it asked for 'lender IDs' though John Ross and Maria at 10k each were given; no card."
  },
  "LOAN-03": {
   "id": "LOAN-03",
@@ -579,7 +579,7 @@
   "id": "LOAN-15",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "No card: it left out fixedLenderShare (0 for 'I keep all of it'; the field survives dropUnasked via 'flat') and asked the Admin for it."
+  "reason": "Described Bea's existing ₱25,000.00 loan instead of proposing the new ₱3,000.00 fixed-interest loan; no card."
  },
  "LOAN-16": {
   "id": "LOAN-16",
@@ -609,7 +609,7 @@
   "id": "LOAN-20",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "The Admin said \"she's new\", but the model looked her up and asked again instead of proposing the new borrower."
+  "reason": "Made an 'Add a borrower' card for Carla Reyes instead of the new-loan card; the 5k from Maria and the dates are on no card."
  },
  "LOAN-21": {
   "id": "LOAN-21",
@@ -633,13 +633,13 @@
   "id": "LOAN-24",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Start Nov 8 is a Sunday; next Monday is Nov 9, so both dates are a day early (21 days apart is right)."
+  "reason": "No card; it listed invented details (₱20,000.00, start today, 4 weeks, Admin and John Ross) instead of 10k from Maria from Nov 9 for 3 weeks."
  },
  "LOANX-01": {
   "id": "LOANX-01",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "The model asked the Admin for the loan id instead of looking up Rico's loan."
+  "reason": "The model asked for the loan id instead of looking up Rico's loan."
  },
  "LOANX-02": {
   "id": "LOANX-02",
@@ -685,21 +685,21 @@
  },
  "LOANX-10": {
   "id": "LOANX-10",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Empty reply even after the nudges ('Pondex had no answer'); no card."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card right: convert Rico's ₱20,000.00 loan to weekly interest (the Confirm step for this action passes in the regression)."
  },
  "LOANX-11": {
   "id": "LOANX-11",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Admin named the paid 50k loan, but the card converts Bea's active ₱25,000.00 loan; not confirmed."
+  "reason": "No change made, but it never said the 50k loan is paid and offered to convert it to weekly."
  },
  "LOANX-12": {
   "id": "LOANX-12",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Used all 8 steps without proposing the note ('too many lookups'); no card."
+  "reason": "Searched notes instead of proposing add_note on Dan's loan; no card."
  },
  "LOANX-13": {
   "id": "LOANX-13",
@@ -711,13 +711,13 @@
   "id": "LOANX-14",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Asked the Admin for loan and payment ids instead of looking Lyn's loan up; no card."
+  "reason": "Picked the payment-proof action and asked for loan and payment ids instead of looking Lyn's loan up; no card."
  },
  "LOANX-15": {
   "id": "LOANX-15",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Called no tool and gave an unrelated answer about phone numbers and IDs; nothing proposed."
+  "reason": "Asked for the loan id instead of looking Lyn's loan up; no card, so the refusal was never reached."
  },
  "LOANX-16": {
   "id": "LOANX-16",
@@ -729,7 +729,7 @@
   "id": "PAY-01",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Said Lyn has several paid loans and asked for an id; no mark-paid card for her ₱8,000.00 loan."
+  "reason": "Used all 8 steps without proposing ('too many lookups'); no mark-paid card for Lyn's ₱8,000.00 loan."
  },
  "PAY-02": {
   "id": "PAY-02",
@@ -747,13 +747,13 @@
   "id": "PAY-04",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Called no tool and asked for a loan id or payment date; no undo card."
+  "reason": "Said it cannot find a loan for Lyn Bautista though her paid loan exists; no undo card."
  },
  "PAY-05": {
   "id": "PAY-05",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Proposed on Lyn's loan, not Rico's; the server rightly refused and the raw refusal text was shown to the Admin."
+  "reason": "Talked about Lyn's loan instead of Rico's weekly loan and asked to confirm; no card."
  },
  "PAY-06": {
   "id": "PAY-06",
@@ -769,15 +769,15 @@
  },
  "PAY-08": {
   "id": "PAY-08",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Called no tool and said the app does not keep GCash receipts; no proof card."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card 'Add proof to a payment': Bea Villanueva ₱50,000.00 due Oct 1, payment ₱78,000.00 paid Oct 1 (matches seed), file required; not confirmed by the runner."
  },
  "PAY-09": {
   "id": "PAY-09",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Passed 'Bea's 50k payment' as a loan id to get_loan, then asked for an id; no remove card."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card 'Remove a payment proof file' for the file added Nov 4 by PAY-08 setup; not confirmed by the runner."
  },
  "PAY-10": {
   "id": "PAY-10",
@@ -801,19 +801,19 @@
   "id": "PPL-02",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Nothing saved, but with no lookup it said Angel Dela Cruz is not a borrower and offered to add a duplicate."
+  "reason": "No duplicate made, but it asked for names already given and never said Angel Dela Cruz is already a borrower."
  },
  "PPL-04": {
   "id": "PPL-04",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Empty reply even after the nudges ('Pondex had no answer'); no card."
+  "reason": "Empty reply even after the nudges."
  },
  "PPL-05": {
   "id": "PPL-05",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Proposal failed and it asked to confirm with a blank borrower id instead of a label-Good card."
+  "reason": "Empty reply even after the nudges ('Pondex had no answer'); no label card."
  },
  "PPL-06": {
   "id": "PPL-06",
@@ -823,15 +823,15 @@
  },
  "PPL-08": {
   "id": "PPL-08",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Asked 'which loan or borrower' instead of the keep-or-delete-loans choice for Lyn."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Asks whether to keep Lyn's unpaid loans or delete them, which the rule allows."
  },
  "PPL-09": {
   "id": "PPL-09",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Found Lyn and her loan in Recently Deleted but asked a yes/no question instead of a restore card."
+  "reason": "Found Lyn in Recently Deleted but offered to restore her loan with a yes/no question; no restore-borrower card."
  },
  "PPL-12": {
   "id": "PPL-12",
@@ -843,19 +843,19 @@
   "id": "PPL-13",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Empty reply even after the nudges ('Pondex had no answer'); no card."
+  "reason": "Its proposal failed and it asked to confirm with a blank lender id; no rename card."
  },
  "PPL-14": {
   "id": "PPL-14",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Read it as a question and reported ₱0.00 starting capital; no set-capital card."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card: Lender John Ross Santos, Starting capital ₱100,000.00 (it also added an unasked note line, wording only)."
  },
  "PPL-15": {
   "id": "PPL-15",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Found Paolo but asked a yes/no question instead of a delete card."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card 'Delete a lender': Paolo Garcia; not confirmed by the runner."
  },
  "PPL-16": {
   "id": "PPL-16",
@@ -879,7 +879,7 @@
   "id": "MON-01",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Read 'Maria added 10k' as a loan payment and listed her loans; no money-in card."
+  "reason": "The model treated lender Maria as a borrower instead of using the money-in action it was handed."
  },
  "MON-02": {
   "id": "MON-02",
@@ -921,13 +921,13 @@
   "id": "MON-08",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Called no tool and restated the Admin's words; no edit card."
+  "reason": "The card kept ₱15,000.00 when the Admin said it was 12k; both amounts were in the message, so the amount check could not catch it. Not confirmed."
  },
  "MON-09": {
   "id": "MON-09",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Asked for a transaction id without calling get_lender or list_lenders; no delete card."
+  "reason": "Found the entry via get_lender but asked a yes/no question with a blank id instead of a delete card."
  },
  "MON-10": {
   "id": "MON-10",
@@ -939,25 +939,25 @@
   "id": "REQ-01",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Treated it as a new loan, gave a wrong due date (Nov 22, should be Nov 25) and asked for lenders; no pending-request card."
+  "reason": "Empty reply even after the nudges."
  },
  "REQ-02": {
   "id": "REQ-02",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Used the new-loan form with only 'Bea' and never looked her up; no pending-request card."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card right: Bea, ₱10,000.00, custom dates Nov 11 to Nov 25 (the dates option now works)."
  },
  "REQ-04": {
   "id": "REQ-04",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "The model reported Rico Mendoza as not found; the server resolves his name, so the model sent something else (its arguments were not logged)."
+  "reason": "Empty reply even after the nudges ('Pondex had no answer'); the server now fills the request's length, so nothing in code blocked a card."
  },
  "REQ-05": {
   "id": "REQ-05",
-  "verdict": "FAIL",
-  "cause": "MODEL",
-  "reason": "Both delete_request proposals failed though list_pending gave the id; the fallback 'could not make the card' message showed correctly."
+  "verdict": "PASS",
+  "cause": null,
+  "reason": "Card 'Remove a pending request': Rico Mendoza, ₱15,000.00; not confirmed by the runner."
  },
  "REQ-06": {
   "id": "REQ-06",
@@ -1005,19 +1005,19 @@
   "id": "MT-08",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Turn 1 asked for first and last name already given, so there was no card to confirm and nothing saved."
+  "reason": "Turn 1 asked for names already given, so there was no card and turn 3 rightly said nothing saved."
  },
  "MT-10": {
   "id": "MT-10",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "Turn 1 card was rightly refused on Confirm (Jun has ₱18,000.00 floating); turn 3 got an empty reply, no new card."
+  "reason": "Turn 1 made no card; turn 3 asked for Lyn's full name though Lyn Bautista exists; no new card."
  },
  "MT-12": {
   "id": "MT-12",
   "verdict": "FAIL",
   "cause": "MODEL",
-  "reason": "No guessed loan, but it said Rico was not found, never gave Maria's or Jun's floating, and forgot Lyn at the end."
+  "reason": "No guessed card, but it said Maria and Jun were not found right after giving Maria's floating, and never answered Jun or Rico."
  },
  "CARD-01": {
   "id": "CARD-01",

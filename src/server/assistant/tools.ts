@@ -577,6 +577,7 @@ const SAID_AMOUNT: Record<string, string> = {
   create_request: 'capital',
   record_money: 'amount',
   record_advance: 'amount',
+  update_money: 'amount',
   set_starting_capital: 'startingCapital',
 }
 
