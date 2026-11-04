@@ -1,6 +1,7 @@
 'use client'
 
-import { Check, Loader2, Minus } from 'lucide-react'
+import { useState } from 'react'
+import { Check, ChevronDown, Loader2, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Step } from '@/lib/assistant-steps'
 
@@ -11,7 +12,8 @@ import type { Step } from '@/lib/assistant-steps'
  * While it works the steps show one by one under "Thinking", each with a
  * spinner that turns into a tick. Once the answer is in, the whole thinking
  * stays above it, never removed: how long it took, every lookup, and the
- * last step of writing the answer, so the Admin can always see how it got there.
+ * last step of writing the answer. It starts folded to one line, "Thought for
+ * 11 seconds", and opens with a tap, so the answer stays the first thing read.
  * The same line twice ("Looking for Angel" asked again) shows once.
  */
 
@@ -80,13 +82,29 @@ export function thoughtFor(ms: number): string {
   return `Thought for ${min > 0 ? `${part(min, 'minute')}${sec > 0 ? ` ${part(sec, 'second')}` : ''}` : part(sec, 'second')}`
 }
 
-/** The whole thinking, kept above the answer for good. */
+/** The whole thinking, kept above the answer for good; folded until tapped. */
 export function DoneSteps({ steps, thoughtMs, failed }: { steps: Step[]; thoughtMs: number; failed?: boolean }) {
+  const [open, setOpen] = useState(false)
   const last: Step = failed ? { id: -1, text: 'Could not finish the answer', state: 'missed' } : { id: -1, text: 'Wrote the answer', state: 'done' }
+  const all = unique([...steps, last])
   return (
-    <div aria-label="What Dex-E checked" className={BOX}>
-      <p className="text-brand mb-2 text-xs font-medium">{thoughtFor(thoughtMs)}</p>
-      <StepRows steps={[...steps, last]} />
+    <div aria-label="What Dex-E checked" className={cn(BOX, 'py-0')}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={`${thoughtFor(thoughtMs)}, ${all.length} ${all.length === 1 ? 'step' : 'steps'}. ${open ? 'Hide' : 'Show'} the thinking`}
+        className="text-brand focus-visible:ring-brand/40 flex w-full cursor-pointer items-center gap-1.5 rounded-full py-2 text-xs font-medium outline-none focus-visible:ring-2"
+      >
+        {thoughtFor(thoughtMs)}
+        <span className="text-brand/60 font-normal">· {all.length} {all.length === 1 ? 'step' : 'steps'}</span>
+        <ChevronDown aria-hidden className={cn('ml-auto size-3.5 transition-transform duration-200', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="animate-ask-rise pb-2.5">
+          <StepRows steps={all} />
+        </div>
+      )}
     </div>
   )
 }
