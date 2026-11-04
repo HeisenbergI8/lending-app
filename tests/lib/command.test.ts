@@ -147,12 +147,13 @@ describe('reading a stretch of time (for earnings questions)', () => {
 
 describe('reading questions about the screens', () => {
   test('next week and next month look ahead', () => {
-    assert.deepEqual(periodSaid('which loans are due next week', TODAY), { from: '2026-11-09', to: '2026-11-15', label: 'next week' })
+    assert.deepEqual(periodSaid('which loans are due next week', TODAY), { from: '2026-11-11', to: '2026-11-17', label: 'next week' })
     assert.deepEqual(periodSaid('who is due next month', TODAY), { from: '2026-12-01', to: '2026-12-31', label: 'December 2026' })
   })
   test('"Maria\'s deposits this month" asks to see something, it is not a new deposit', () => {
     assert.equal(isQuestion("Maria's deposits this month"), true)
     assert.equal(intentByRules("Maria's deposits this month"), null)
     assert.equal(intentByRules('Maria deposited 5000 today'), 'deposit')
+    assert.equal(intentByRules("fix Maria's money entry to 6k"), 'update_money')
   })
 })

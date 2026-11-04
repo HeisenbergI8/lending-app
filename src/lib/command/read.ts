@@ -237,7 +237,8 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
   const monday = addDays(today, -((asDate(today).getUTCDay() + 6) % 7))
   if (/\b(this week|ngayong linggo)\b/.test(t)) return { from: monday, to: today, label: 'this week' }
   if (/\b(last week|nakaraang linggo)\b/.test(t)) return { from: addDays(monday, -7), to: addDays(monday, -1), label: 'last week' }
-  if (/\b(next week|susunod na linggo)\b/.test(t)) return { from: addDays(monday, 7), to: addDays(monday, 13), label: 'next week' }
+  // The dashboard's "this week" is today and the 6 days after, so "next week" is the 7 days after that: no day in both.
+  if (/\b(next week|susunod na linggo)\b/.test(t)) return { from: addDays(today, 7), to: addDays(today, 13), label: 'next week' }
   if (/\b(next month|susunod na buwan)\b/.test(t)) {
     const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1]
     return { from: `${ny}-${pad(nm)}-01`, to: monthEnd(ny, nm), label: `${monthName(nm)} ${ny}` }

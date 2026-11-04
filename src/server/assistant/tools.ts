@@ -610,7 +610,9 @@ const KIND_WORDS: Record<string, string> = { deposit: 'Money in', withdrawal: 'W
 
 /** The Money history screen, filtered by lender, dates and kind, newest first, with totals. */
 export async function moneyHistory(userId: string, args: Record<string, unknown>) {
-  const { events } = await allMoneyHistory(userId)
+  const [{ events }, names] = await Promise.all([allMoneyHistory(userId), listLenderNames(userId)])
+  // The pot's full name, as in every other answer (the Money history page itself says "Admin").
+  const fullName = new Map(names.map((l) => [l.id, `${l.firstName} ${l.lastName}`]))
   const name = str(args, 'name')
   const lenderId = name ? await personId(userId, 'lender', name) : null
   if (name && !lenderId) return { found: false, reason: `No single lender named "${name}".` }
@@ -629,7 +631,7 @@ export async function moneyHistory(userId: string, args: Record<string, unknown>
     moneyIn: sum(1),
     moneyOut: sum(-1),
     shown: Math.min(picked.length, 15),
-    entries: picked.slice(0, 15).map((e) => ({ date: day(e.on), lender: e.lender.name, what: KIND_WORDS[e.kind] ?? e.title, about: e.title, amount: peso(Math.abs(e.amount) as Centavos), direction: e.amount >= 0 ? 'in' : 'out' })),
+    entries: picked.slice(0, 15).map((e) => ({ date: day(e.on), lender: fullName.get(e.lender.id) ?? e.lender.name, what: KIND_WORDS[e.kind] ?? e.title, about: e.title, amount: peso(Math.abs(e.amount) as Centavos), direction: e.amount >= 0 ? 'in' : 'out' })),
   }
 }
 

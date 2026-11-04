@@ -99,7 +99,8 @@ export function isQuestion(text: string): boolean {
   const t = clean(text)
   if (/^(can|could|would|will) you\b|^(please|pls|paki)\b/.test(t)) return false
   // "Maria's deposits this month" asks to see something, the same as "show Maria's deposits".
-  if (/\b\w+'s (deposits|withdrawals|money( history)?|earnings|loans|balance|track record|record|history|statement|cut)\b/.test(t)) return true
+  // Unless it starts with a change word: "fix Maria's money entry to 6k" is a change.
+  if (!/^(fix|change|edit|update|correct|delete|remove|restore|undo|set|mark|add|record|rename|extend)\b/.test(t) && /\b\w+'s (deposits|withdrawals|money( history)?|earnings|loans|balance|track record|record|history|statement|cut)\b/.test(t)) return true
   return /\?\s*$/.test(t) || /^(how|who|what|when|which|why|where|is|are|does|do|did|was|were|has|have|show|list|check|tell me|magkano|sino|ano|kailan)\b/.test(t)
 }
 

@@ -819,8 +819,8 @@ async function adminCutCheck(ctx: Ctx): Promise<ServerReply | null> {
   ctx.say("Added up the Admin's cut")
   return tell([
     `**${r.collected}** Admin's cut collected ${whenText(period)}.`,
-    `- Agreed on loans started then: ${r.agreedOnLoansStarted}`,
-    `- Still to come, today: ${r.stillToComeToday}`,
+    `- Cut on loans made: ${r.agreedOnLoansStarted}`,
+    `- Still to come (as of today): ${r.stillToComeToday}`,
     `- Loans started: ${r.loansStarted}`,
     `- Loans repaid: ${r.loansRepaid}`,
     datesRow(period),
@@ -890,10 +890,11 @@ async function moneyHistoryCheck(ctx: Ctx): Promise<ServerReply | null> {
   ctx.say(`Read ${r.count} money ${r.count === 1 ? 'entry' : 'entries'}`)
   const scope = `${who ? ` for ${full(who)}` : ''}${period ? ` ${whenText(period)}` : ''}`
   const head = kind === 'in' ? `**${r.moneyIn}** deposited${scope}.` : kind === 'withdrawals' ? `**${r.moneyOut}** withdrawn${scope}.` : direction === 'in' ? `**${r.moneyIn}** came in${scope}.` : direction === 'out' ? `**${r.moneyOut}** went out${scope}.` : `**${r.moneyIn}** in and ${r.moneyOut} out${scope}.`
-  if (!r.count) return tell(kind === 'in' ? `No deposits${scope}.` : kind === 'withdrawals' ? `No withdrawals${scope}.` : direction === 'in' ? `Nothing came in${scope}.` : direction === 'out' ? `Nothing went out${scope}.` : `No money moved${scope}.`)
+  if (!r.count) return tell(`${kind === 'in' ? `No deposits${scope}.` : kind === 'withdrawals' ? `No withdrawals${scope}.` : direction === 'in' ? `Nothing came in${scope}.` : direction === 'out' ? `Nothing went out${scope}.` : `No money moved${scope}.`}${period ? `\n${datesRow(period)}` : ''}`)
   return tell([
     head,
     ...(r.entries ?? []).slice(0, 8).map((e) => `- ${e.lender}: ${e.direction === 'in' ? '' : '−'}${e.amount} | ${e.what} · ${e.date ? spellDate(e.date) : ''}`),
+    ...(period ? [datesRow(period)] : []),
     ...(r.count! > 8 ? [`Showing 8 of ${r.count}. The Money history page has them all.`] : []),
   ].join('\n'))
 }
@@ -967,9 +968,10 @@ async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
   const when = period.label === 'that time' ? `from ${spellDate(period.from)} to ${spellDate(period.to)}` : /^(this|last|today|yesterday)\b/.test(period.label) ? period.label : `in ${period.label}`
   return tell([
     `**${r.earned}** earned by ${r.name} ${when}.`,
-    `- Loans repaid: ${r.loansRepaid ?? 0}`,
+    // On the Admin's pot most of it is the cut on other lenders' loans, so that comes first and the loans are "own" ones.
+    ...(r.includesAdminCut ? [`- From the Admin's cut: ${r.includesAdminCut}`] : []),
+    `- ${r.includesAdminCut ? 'Own loans repaid' : 'Loans repaid'}: ${r.loansRepaid ?? 0}`,
     ...(r.weeksOfInterestCollected ? [`- Weeks of interest collected: ${r.weeksOfInterestCollected}`] : []),
-    ...(r.includesAdminCut ? [`- Admin's cut included: ${r.includesAdminCut}`] : []),
     `- Dates: ${spellDate(period.from)} to ${spellDate(period.to)}`,
   ].join('\n'))
 }
