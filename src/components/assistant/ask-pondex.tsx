@@ -597,9 +597,15 @@ export function AskPondex() {
           onMouseEnter={() => !open && showBubbleFor(3000)}
           aria-label={open ? 'Close Dex-E' : 'Open Dex-E'}
           aria-expanded={open}
-          className="cursor-pointer rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
+          className="relative isolate cursor-pointer rounded-full transition-transform hover:-translate-y-0.5 hover:scale-105"
         >
-          <PondexMascot mood={mood} size={84} className="size-16 md:size-[84px]" />
+          {/* A soft glow behind the mascot, just enough to catch the eye on a light or a dark page
+              (a little stronger on dark, where the navy mascot would otherwise fade in). */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -inset-3 -z-10 rounded-full bg-[radial-gradient(circle,rgb(58_102_227/0.22)_0%,rgb(58_102_227/0.08)_45%,transparent_70%)] dark:bg-[radial-gradient(circle,rgb(120_150_255/0.38)_0%,rgb(120_150_255/0.14)_45%,transparent_70%)]"
+          />
+          <PondexMascot mood={mood} size={96} className="size-[88px] md:size-[96px]" />
         </button>
       </div>
     </>
