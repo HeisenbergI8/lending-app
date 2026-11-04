@@ -19,6 +19,7 @@
     "db:create-admin": "node --env-file=.env prisma/seed/create-admin.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "@react-pdf/renderer": "^4.9.0",

@@ -11,11 +11,10 @@ await p.route('**/api/assistant', async (route: any) => {
 })
 await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(1500)
 await p.fill('#ask-pondex-input', 'x'); await p.keyboard.press('Enter'); await p.waitForTimeout(2500)
-// Now every model rests: the input locks, but the card already on screen does not need the AI.
+// Now every model rests: the card already on screen does not need the AI.
 usage = { status: 'out', inUse: null, questionsLeft: 0, coolUntil: new Date(Date.now() + 10 * 60_000).toISOString(), models: [] }
 await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(2000)
-const locked = await p.locator('#ask-pondex-input').isDisabled()
 await p.getByRole('button', { name: 'Confirm' }).last().click(); await p.waitForTimeout(4000)
 const saved = await db.borrower.count({ where: { userId: demo.id, firstName: 'Resting', lastName: 'Confirm' } })
-console.log(locked && saved === 1 ? 'PASS' : 'FAIL', 'LIM-08 Confirm works while the AI rests'.padEnd(52), `input locked: ${locked}, saved: ${saved}`)
+console.log(saved === 1 ? 'PASS' : 'FAIL', 'LIM-08 Confirm works while the AI rests'.padEnd(52), `saved: ${saved}`)
 await s.browser.close(); await db.$disconnect()

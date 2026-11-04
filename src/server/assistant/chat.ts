@@ -4,6 +4,7 @@ import { manilaToday } from './today.ts'
 import { runTool, TOOLS } from './tools.ts'
 import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.ts'
 import { matchOffLimits, matchQuick, OUT_OF_SCOPE, sayQuick } from '../../lib/quick-answers.ts'
+import { type Choice, serverReply } from './server-cards.ts'
 import { spellDatesIn } from '../../lib/dates.ts'
 import { tidyAnswer } from '../../lib/answer-tidy.ts'
 
@@ -50,7 +51,7 @@ const MAX_OUTPUT_TOKENS = 1500
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string }
 export type ChatResult =
-  | { ok: true; answer: string; tools: string[]; model: string; tokens: number; proposal: Proposal | null; usage: UsageSummary; quick?: boolean }
+  | { ok: true; answer: string; tools: string[]; model: string; tokens: number; proposal: Proposal | null; usage: UsageSummary; quick?: boolean; choices?: Choice[] }
   | { ok: false; error: string; usage: UsageSummary | null }
 
 type GroqMessage =
@@ -437,6 +438,23 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
     if (answer) {
       console.info('[ask-pondex]', { model: 'server', quick: quick.kind })
       return { ok: true, answer, tools: [quick.tool], model: 'server', tokens: 0, proposal: null, usage: await currentUsage(), quick: true }
+    }
+  }
+  // Common changes and per-person checks the server reads itself, with no AI: a card to
+  // confirm, or a question with buttons when a detail is missing (server-cards.ts).
+  const server = await serverReply(userId, history, (text, state = 'done') => onStep({ id: ++stepId, text, state }))
+  if (server) {
+    console.info('[ask-pondex]', { model: 'server', card: server.kind })
+    return {
+      ok: true,
+      answer: server.answer,
+      tools: [],
+      model: 'server',
+      tokens: 0,
+      proposal: server.kind === 'card' ? server.proposal : null,
+      usage: await currentUsage(),
+      quick: true,
+      ...(server.kind === 'ask' && server.choices.length > 0 ? { choices: server.choices } : {}),
     }
   }
   // Plan first, the way a person would: for a change request, the server looks

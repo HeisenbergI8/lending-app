@@ -10,7 +10,6 @@ import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 import { AnswerText } from './answer-text.tsx'
 import { DoneSteps, LiveSteps, WRITING_STEP } from './step-list.tsx'
 import type { Step } from '@/lib/assistant-steps'
-import { matchQuick } from '@/lib/quick-answers'
 
 /**
  * Dex-E: the chat that lives on every signed-in screen.
@@ -27,7 +26,7 @@ import { matchQuick } from '@/lib/quick-answers'
  * from the app's own numbers, with no AI (lib/quick-answers.ts), so those
  * buttons keep working while the AI rests.
  *
- * When every model is resting, the input is locked and a countdown says when
+ * When every model is resting, a banner and a countdown say when
  * Pondex is back, instead of letting a question fail.
  *
  * A launcher, not a sidebar item: the chat is a helper you call up over the page
@@ -39,7 +38,7 @@ import { matchQuick } from '@/lib/quick-answers'
 type Card = { proposal: ProposalView; status: CardStatus; error: string | null }
 type Message =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[]; thoughtMs?: number; quick?: boolean }
+  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[]; thoughtMs?: number; quick?: boolean; choices?: Choice[] }
 
 /** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
 type ModelFigures = {
@@ -62,9 +61,11 @@ const SAMPLES = [
   'What makes a borrower Good, Okay or Bad?',
 ]
 
-type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean }
+/** A button under Dex-E's question: the label, and the whole sentence it sends. */
+type Choice = { label: string; send: string }
+type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean; choices?: Choice[] }
 
-type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean } | { ok: false; error: string; usage: Usage | null }
+type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean; choices?: Choice[] } | { ok: false; error: string; usage: Usage | null }
 
 /** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
 async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void): Promise<Answer> {
@@ -99,7 +100,7 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
     }
     if (!data) throw new Error('No answer')
     return data.ok
-      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took(), quick: data.quick }
+      ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took(), quick: data.quick, choices: data.choices }
       : { text: data.error, failed: true, proposal: null, usage: data.usage, thoughtMs: took() }
   } catch {
     return { text: 'Could not reach Pondex. Check your connection and try again.', failed: true, proposal: null, usage: null, thoughtMs: took() }
@@ -209,8 +210,9 @@ export function AskPondex() {
 
   async function ask(question: string) {
     const q = question.trim()
-    // While the AI rests, only questions the server answers itself go through.
-    if (!q || thinking || writing || (resting && !matchQuick(q))) return
+    // While the AI rests the input stays open: common checks and changes are the server's,
+    // and anything that needs the AI gets a clear "used up" reply instead.
+    if (!q || thinking || writing) return
     const id = nextId.current
     nextId.current += 2
 
@@ -229,7 +231,7 @@ export function AskPondex() {
 
     // A step comes twice: once as it starts, again when it is back.
     let steps: Step[] = []
-    const { text: a, failed, proposal, usage: latest, thoughtMs, quick } = await fetchAnswer(history, (step) => {
+    const { text: a, failed, proposal, usage: latest, thoughtMs, quick, choices } = await fetchAnswer(history, (step) => {
       steps = steps.some((s) => s.id === step.id) ? steps.map((s) => (s.id === step.id ? step : s)) : [...steps, step]
       setLiveSteps(steps)
     })
@@ -248,7 +250,7 @@ export function AskPondex() {
               : m,
           )
         : ms),
-      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing'), thoughtMs, quick },
+      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing'), thoughtMs, quick, choices },
     ])
     let n = 0
     const tick = () => {
@@ -262,6 +264,8 @@ export function AskPondex() {
   }
 
   const empty = messages.length === 0 && !thinking
+  // Answer buttons only on Dex-E's latest message: an older question has moved on.
+  const lastBotId = messages.findLast((m) => m.role === 'bot')?.id
 
   return (
     <>
@@ -402,6 +406,20 @@ export function AskPondex() {
                         failed={m.failed}
                         caret={!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
                       />
+                      {m.done && m.choices && m.id === lastBotId && !thinking && (
+                        <div className="animate-ask-rise flex flex-wrap gap-2">
+                          {m.choices.map((c) => (
+                            <button
+                              key={c.label}
+                              type="button"
+                              onClick={() => ask(c.send)}
+                              className="border-brand-line bg-brand-bg text-brand hover:border-brand focus-visible:ring-brand/40 min-h-10 cursor-pointer rounded-full border px-3.5 text-left text-sm font-medium outline-none focus-visible:ring-2"
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {m.done && m.card && (
                         <ActionCard
                           proposal={m.card.proposal}
@@ -441,14 +459,14 @@ export function AskPondex() {
                     {usage?.status === 'out' ? (
                       <>
                         Dex-E used up today&apos;s free AI. Back at{' '}
-                        <span className="text-brand font-semibold tabular-nums">{manilaTime(new Date(usage.coolUntil!))}</span>. The
-                        quick questions below still work.
+                        <span className="text-brand font-semibold tabular-nums">{manilaTime(new Date(usage.coolUntil!))}</span>. Common
+                        checks and changes still work.
                       </>
                     ) : (
                       <>
                         Dex-E is busy (free plan, per minute). Ready again in{' '}
-                        <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>. The quick
-                        questions below still work.
+                        <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>. Common
+                        checks and changes still work.
                       </>
                     )}
                   </p>
@@ -482,15 +500,13 @@ export function AskPondex() {
                   id="ask-pondex-input"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder={resting ? (usage?.status === 'out' ? `Dex-E is resting. Back at ${manilaTime(new Date(usage.coolUntil!))}.` : 'Dex-E is busy. Try again shortly.') : 'Ask, or say what to change…'}
-                  disabled={resting}
+                  placeholder={resting ? 'Common checks and changes still work…' : 'Ask, or say what to change…'}
                   autoComplete="off"
                   className="min-w-0 flex-1 bg-transparent py-2.5 text-base outline-none md:text-sm"
                 />
                 <button
                   type="submit"
                   aria-label="Send"
-                  disabled={resting}
                   className="bg-brand text-brand-foreground hover:bg-brand-strong flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl disabled:cursor-default disabled:opacity-50"
                 >
                   <ArrowUp className="size-5" />

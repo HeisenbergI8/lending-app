@@ -44,7 +44,8 @@ usage = { status: 'busy', inUse: null, questionsLeft: 0, coolUntil: new Date(Dat
 await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Dex-E/ }).click(); await p.waitForTimeout(2000)
 const h1 = await header()
 ok('countdown shown', /Busy · ready again in 1:0\d/.test(h1), h1)
-ok('input locked while resting', await p.locator('#ask-pondex-input').isDisabled())
+// The input stays open while resting (2026-11-04): common checks and changes are answered by the server.
+ok('input open while resting, banner says what still works', !(await p.locator('#ask-pondex-input').isDisabled()) && /still work/.test(await p.locator('section[aria-label="Dex-E"] [role="status"]').first().innerText()))
 await p.waitForTimeout(3000)
 const h2 = await header()
 ok('countdown ticks', h1 !== h2, `${h1} -> ${h2}`)
