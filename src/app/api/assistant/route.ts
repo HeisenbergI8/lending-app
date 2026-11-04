@@ -5,7 +5,8 @@ import { getCurrentUser } from '@/server/auth/guard.ts'
  * Dex-E: the chat's endpoint.
  *
  * POST: the browser sends the conversation so far; the answer comes back as
- * JSON, with a card to confirm when the answer is a change. GET: how many
+ * JSON, with a card to confirm when the answer is a change. With stream: true,
+ * each lookup comes first as its own line, so the chat can show the steps live. GET: how many
  * questions are left today, and when the AI is free again if it is resting.
  * Who is asking comes from the session cookie, never from the body, so the
  * tools can only ever read the signed-in account's loans.
@@ -39,5 +40,21 @@ export async function POST(request: Request) {
   const history = turns.map((t) => ({ role: t.role, text: clip(t.text) }))
   if (history.at(-1)?.role !== 'user') return Response.json({ ok: false, error: 'Bad request.' }, { status: 400 })
 
-  return Response.json(await ask(user.id, history))
+  if ((body as { stream?: unknown }).stream !== true) return Response.json(await ask(user.id, history))
+
+  // Streamed: one JSON line per step as Dex-E works ("Looking for Angel…",
+  // "Found Angel Dela Cruz"), then a last line with the answer.
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (line: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
+      try {
+        send({ type: 'result', result: await ask(user.id, history, (step) => send({ type: 'step', step })) })
+      } catch {
+        send({ type: 'result', result: { ok: false, error: 'Dex-E could not answer just now. Try again.', usage: null } })
+      }
+      controller.close()
+    },
+  })
+  return new Response(stream, { headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' } })
 }

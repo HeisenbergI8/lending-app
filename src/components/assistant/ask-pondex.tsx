@@ -7,13 +7,16 @@ import { cn } from '@/lib/utils'
 import { clock, manilaTime, modelLines, type Status, statusLine } from '@/lib/assistant-status'
 import { ActionCard, type CardStatus, type ProposalView } from './action-card.tsx'
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
+import { DoneSteps, LiveSteps, WRITING_STEP } from './step-list.tsx'
+import type { Step } from '@/lib/assistant-steps'
 
 /**
  * Dex-E: the chat that lives on every signed-in screen.
  *
  * Each question goes to /api/assistant with the conversation so far. The
- * server picks which lookups to run and sends back one answer, which is then
- * typed out here so the mascot can "talk" while it appears. When the answer is
+ * server picks which lookups to run, tells the chat about each one as it goes
+ * (shown live under "Thinking", then folded above the answer), and sends back
+ * one answer, which is then typed out here so the mascot can "talk" while it appears. When the answer is
  * a change, it comes with a card the Admin confirms (see action-card.tsx).
  *
  * The header says whether Pondex can answer now and which model will (see
@@ -30,7 +33,7 @@ import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 type Card = { proposal: ProposalView; status: CardStatus; error: string | null }
 type Message =
   | { id: number; role: 'user'; text: string }
-  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card }
+  | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card; steps?: Step[] }
 
 /** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
 type ModelFigures = {
@@ -55,16 +58,38 @@ const SAMPLES = [
 
 type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null }
 
-async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[]): Promise<Answer> {
+type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage } | { ok: false; error: string; usage: Usage | null }
+
+/** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
+async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void): Promise<Answer> {
   try {
     const response = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: history }),
+      body: JSON.stringify({ messages: history, stream: true }),
     })
-    const data = (await response.json()) as
-      | { ok: true; answer: string; proposal: ProposalView | null; usage: Usage }
-      | { ok: false; error: string; usage: Usage | null }
+    let data: Reply | null = null
+    if (!response.body || !response.headers.get('content-type')?.includes('ndjson')) {
+      // Refusals (signed out, bad request) come back as plain JSON.
+      data = (await response.json()) as Reply
+    } else {
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines.filter(Boolean)) {
+          const event = JSON.parse(line) as { type: 'step'; step: Step } | { type: 'result'; result: Reply }
+          if (event.type === 'step') onStep(event.step)
+          else data = event.result
+        }
+        if (done) break
+      }
+    }
+    if (!data) throw new Error('No answer')
     return data.ok
       ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage }
       : { text: data.error, failed: true, proposal: null, usage: data.usage }
@@ -91,6 +116,7 @@ export function AskPondex() {
   const [open, setOpen] = useState(false)
   const [full, setFull] = useState(false)
   const [thinking, setThinking] = useState(false)
+  const [liveSteps, setLiveSteps] = useState<Step[]>([])
   const [poked, setPoked] = useState(false)
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -143,7 +169,7 @@ export function AskPondex() {
 
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight })
-  }, [messages, thinking])
+  }, [messages, thinking, liveSteps])
 
   // The jump is a one-shot animation, so a second click has to take the class
   // off and put it back, or the browser sees no change and nothing plays.
@@ -189,10 +215,17 @@ export function AskPondex() {
 
     setDraft('')
     setThinking(true)
+    setLiveSteps([])
     setMessages((ms) => [...ms, { id, role: 'user', text: q }])
 
-    const { text: a, failed, proposal, usage: latest } = await fetchAnswer(history)
+    // A step comes twice: once as it starts, again when it is back.
+    let steps: Step[] = []
+    const { text: a, failed, proposal, usage: latest } = await fetchAnswer(history, (step) => {
+      steps = steps.some((s) => s.id === step.id) ? steps.map((s) => (s.id === step.id ? step : s)) : [...steps, step]
+      setLiveSteps(steps)
+    })
     setThinking(false)
+    setLiveSteps([])
     // The countdown corrects its clock on its first tick, a second from now.
     if (latest) setUsage(latest)
     const card: Card | undefined = proposal ? { proposal, status: 'ready', error: null } : undefined
@@ -206,7 +239,7 @@ export function AskPondex() {
               : m,
           )
         : ms),
-      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card },
+      { id: id + 1, role: 'bot', text: '', full: a, done: false, failed, card, steps: steps.filter((s) => s.state !== 'doing') },
     ])
     let n = 0
     const tick = () => {
@@ -264,7 +297,7 @@ export function AskPondex() {
                 >
                   <span className="truncate">
                     {thinking
-                      ? 'Looking through your loans…'
+                      ? `${liveSteps.findLast((s) => s.state === 'doing')?.text ?? (liveSteps.length > 0 ? WRITING_STEP : 'Looking through your loans')}…`
                       : writing
                         ? 'Writing an answer…'
                         : usage
@@ -355,6 +388,7 @@ export function AskPondex() {
                   <div key={m.id} className="animate-ask-rise flex max-w-[94%] items-start gap-2.5">
                     <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="shrink-0" />
                     <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
+                      {m.steps && <DoneSteps steps={m.steps} />}
                       <p className={cn('text-sm leading-relaxed whitespace-pre-line', m.failed && 'text-muted-foreground')}>
                         {m.text}
                         {!m.done && <span className="bg-brand animate-ask-caret ml-0.5 inline-block h-[1em] w-0.5 align-[-2px]" />}
@@ -373,14 +407,19 @@ export function AskPondex() {
               )}
 
               {thinking && (
-                <div className="animate-ask-rise flex items-center gap-2.5">
-                  <PondexMascot mood="think" size={62} />
-                  <span className="text-muted-foreground text-sm">Thinking</span>
-                  <span className="flex gap-1">
-                    <span className="bg-brand animate-ask-dot size-1.5 rounded-full" />
-                    <span className="bg-brand animate-ask-dot size-1.5 rounded-full [animation-delay:.18s]" />
-                    <span className="bg-brand animate-ask-dot size-1.5 rounded-full [animation-delay:.36s]" />
-                  </span>
+                <div className="animate-ask-rise flex flex-col gap-1">
+                  <div className="flex items-center gap-2.5">
+                    <PondexMascot mood="think" size={62} />
+                    <span className="text-muted-foreground text-sm">Thinking</span>
+                    <span className="flex gap-1">
+                      <span className="bg-brand animate-ask-dot size-1.5 rounded-full" />
+                      <span className="bg-brand animate-ask-dot size-1.5 rounded-full [animation-delay:.18s]" />
+                      <span className="bg-brand animate-ask-dot size-1.5 rounded-full [animation-delay:.36s]" />
+                    </span>
+                  </div>
+                  <div className="pl-[72px]">
+                    <LiveSteps steps={liveSteps} />
+                  </div>
                 </div>
               )}
             </div>

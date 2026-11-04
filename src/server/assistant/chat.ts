@@ -2,6 +2,7 @@ import { type Proposal } from './proposal.ts'
 import { looksLikeChangeVerb } from './names.ts'
 import { manilaToday } from './today.ts'
 import { runTool, TOOLS } from './tools.ts'
+import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.ts'
 
 export { manilaToday }
 import { parseRefusal, readGroqHeaders, recordCall, recordHeaders, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
@@ -381,7 +382,19 @@ export function withoutIds(answer: string): string {
 /** Nulls dropped: an absent field says the same thing for fewer tokens. */
 const compact = (value: unknown) => JSON.stringify(value, (_key, v: unknown) => (v === null ? undefined : v))
 
-export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResult> {
+/** Called as each lookup starts and again when it is back, so the chat can show the steps live. */
+export type OnStep = (step: Step) => void
+
+export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}): Promise<ChatResult> {
+  let stepId = 0
+  // Runs a lookup and tells the chat about it in plain words, before and after.
+  const lookup = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
+    const id = ++stepId
+    onStep({ id, text: stepStarted(name, args), state: 'doing' })
+    const result = await runTool(userId, name, args).catch(() => ({ error: 'That lookup failed.' }))
+    onStep({ id, ...stepFinished(name, args, result) })
+    return result
+  }
   // A change anywhere in the conversation keeps the action tools: "ok go ahead" follows a request.
   let mode: Mode = history.some((t) => t.role === 'user' && isChangeRequest(t.text)) ? 'change' : 'read'
   const messages: GroqMessage[] = [
@@ -393,7 +406,7 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
   // not have to remember to. It still picks the action and fills it in.
   const lastAsk = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
   if (isChangeRequest(lastAsk)) {
-    const fitting = (await runTool(userId, 'find_action', { what: lastAsk }).catch(() => null)) as { actions?: unknown[] } | null
+    const fitting = (await lookup('find_action', { what: lastAsk })) as { actions?: unknown[] } | null
     if (fitting?.actions && fitting.actions.length > 0) {
       messages.push({
         role: 'system',
@@ -459,9 +472,7 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
           // The tool checks the card's amounts and people against the Admin's own words.
           args._said = saidByAdmin
         }
-        const result = await runTool(userId, call.function.name, args).catch(() => ({
-          error: 'That lookup failed.',
-        }))
+        const result = await lookup(call.function.name, args)
 
         // A ready proposal ends the turn here. The card says what will change,
         // so another model call to describe it would only spend tokens.
