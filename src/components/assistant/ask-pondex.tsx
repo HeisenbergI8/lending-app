@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowUp, ChevronDown, Hourglass, Maximize2, Minimize2 } from 'lucide-react'
+import { ArrowUp, CalendarClock, ChevronDown, HandCoins, Hourglass, Maximize2, Minimize2, PiggyBank, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { clock, manilaTime, modelLines, type Status, statusLine } from '@/lib/assistant-status'
 import { ActionCard, type CardStatus, type ProposalView } from './action-card.tsx'
@@ -53,13 +53,20 @@ type ModelFigures = {
 }
 type Usage = { status: Status; inUse: string | null; coolUntil: string | null; local?: boolean; models: ModelFigures[] }
 
-/** Starters shown on an empty chat. Real questions, answered from real data. */
+/**
+ * Starters: a short label to tap (shorter still in the row above the input, so all
+ * four fit), and the full question it sends. All four are
+ * answered by the server from real data, instantly and with no AI.
+ */
 const SAMPLES = [
-  'How much is out on loan right now?',
-  'Who is overdue right now?',
-  'How much is floating in each pot?',
-  'What makes a borrower Good, Okay or Bad?',
+  { icon: HandCoins, label: 'Out on loan', chip: 'Out on loan', ask: 'How much is out on loan right now?' },
+  { icon: TriangleAlert, label: 'Who is overdue', chip: 'Overdue', ask: 'Who is overdue right now?' },
+  { icon: PiggyBank, label: 'Pot balances', chip: 'Pots', ask: 'How much is floating in each pot?' },
+  { icon: CalendarClock, label: 'Due this week', chip: 'This week', ask: "What's due this week?" },
 ]
+
+/** How long the launcher's "Hi" bubble stays before it tucks itself away. */
+const BUBBLE_MS = 6000
 
 /** A button under Dex-E's question: the label, and the whole sentence it sends. */
 type Choice = { label: string; send: string }
@@ -150,6 +157,21 @@ export function AskPondex() {
   const router = useRouter()
   const [usage, setUsage] = useState<Usage | null>(null)
   const [details, setDetails] = useState(false)
+  // The launcher's "Hi" bubble says hello for a few seconds after the page loads, then hides.
+  // Hovering the mascot brings it back for a moment.
+  const [bubble, setBubble] = useState(true)
+  const bubbleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showBubbleFor = useCallback((ms: number) => {
+    setBubble(true)
+    if (bubbleTimer.current) clearTimeout(bubbleTimer.current)
+    bubbleTimer.current = setTimeout(() => setBubble(false), ms)
+  }, [])
+  useEffect(() => {
+    bubbleTimer.current = setTimeout(() => setBubble(false), BUBBLE_MS)
+    return () => {
+      if (bubbleTimer.current) clearTimeout(bubbleTimer.current)
+    }
+  }, [])
   // Shown in the header so a tester can see the AI is switched off. Read when the chat opens: it lives in the tab's storage.
   const [testMode, setTestMode] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -384,27 +406,34 @@ export function AskPondex() {
 
             <div ref={list} aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5">
               {empty && (
-                <div className="m-auto flex max-w-md flex-col items-center gap-3 text-center">
+                <div className="m-auto flex w-full max-w-md flex-col items-center gap-2.5 text-center">
                   <button type="button" onClick={poke} aria-label="Say hi to Dex-E" className="cursor-pointer rounded-3xl">
-                    <PondexMascot mood={mood} size={160} />
+                    <PondexMascot mood={mood} size={104} />
                   </button>
-                  <h2 className="text-xl font-semibold">Hi, I’m Dex-E.</h2>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    I read your loans, payments and notes, and answer in plain words. I can also add, edit or pay
-                    things, but only after you tap Confirm.
+                  <h2 className="text-lg font-semibold">Hi, I’m Dex-E.</h2>
+                  <p className="text-muted-foreground max-w-xs text-sm leading-relaxed">
+                    Ask about your loans, or tell me what to change. Nothing is saved until you tap Confirm.
                   </p>
-                  <div className="mt-1 flex w-full flex-col gap-2">
-                    {SAMPLES.map((s) => (
+                  {/* Two by two, short labels: the whole question goes when one is tapped. */}
+                  <div className="mt-2 grid w-full grid-cols-2 gap-2">
+                    {SAMPLES.map(({ icon: Icon, label, ask: question }) => (
                       <button
-                        key={s}
+                        key={label}
                         type="button"
-                        onClick={() => ask(s)}
-                        className="border-border bg-muted/40 hover:bg-accent hover:border-brand-line min-h-11 cursor-pointer rounded-2xl border px-4 py-2.5 text-left text-sm disabled:cursor-default disabled:opacity-50"
+                        onClick={() => ask(question)}
+                        title={question}
+                        className="border-border bg-card hover:border-brand-line hover:bg-brand-bg focus-visible:ring-brand/40 group flex cursor-pointer items-center gap-2.5 rounded-2xl border p-3 text-left text-sm font-medium shadow-sm transition-[transform,background-color,border-color] outline-none hover:-translate-y-0.5 focus-visible:ring-2"
                       >
-                        {s}
+                        <span className="bg-brand-bg text-brand group-hover:bg-brand group-hover:text-brand-foreground flex size-8 shrink-0 items-center justify-center rounded-xl transition-colors">
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="leading-tight">{label}</span>
                       </button>
                     ))}
                   </div>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Or type a change, like <span className="text-foreground">“Maria deposited 5k”</span>
+                  </p>
                 </div>
               )}
 
@@ -493,15 +522,17 @@ export function AskPondex() {
                 </div>
               )}
               {!empty && (
-                <div className="flex gap-2 overflow-x-auto pb-0.5">
-                  {SAMPLES.map((s) => (
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+                  {SAMPLES.map(({ icon: Icon, chip, ask: question }) => (
                     <button
-                      key={s}
+                      key={chip}
                       type="button"
-                      onClick={() => ask(s)}
-                      className="border-border hover:bg-accent min-h-10 shrink-0 cursor-pointer rounded-full border px-3 text-xs whitespace-nowrap"
+                      onClick={() => ask(question)}
+                      title={question}
+                      className="border-border text-muted-foreground hover:text-brand hover:border-brand-line hover:bg-brand-bg focus-visible:ring-brand/40 flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap outline-none focus-visible:ring-2"
                     >
-                      {s}
+                      <Icon className="size-3.5" />
+                      {chip}
                     </button>
                   ))}
                 </div>
@@ -549,13 +580,20 @@ export function AskPondex() {
         )}
       >
         {!open && (
-          <div className="animate-ask-bubble bg-brand text-brand-foreground shadow-brand/30 hidden rounded-[16px_16px_4px_16px] px-3.5 py-2.5 text-sm font-medium whitespace-nowrap shadow-xl sm:block">
+          <div
+            aria-hidden={!bubble}
+            className={cn(
+              'bg-brand text-brand-foreground shadow-brand/30 hidden rounded-[16px_16px_4px_16px] px-3.5 py-2.5 text-sm font-medium whitespace-nowrap shadow-xl transition-[opacity,transform] duration-500 sm:block',
+              bubble ? 'animate-ask-bubble opacity-100' : 'pointer-events-none translate-x-2 opacity-0',
+            )}
+          >
             Hi! Ask me about your loans.
           </div>
         )}
         <button
           type="button"
           onClick={toggleOpen}
+          onMouseEnter={() => !open && showBubbleFor(3000)}
           aria-label={open ? 'Close Dex-E' : 'Open Dex-E'}
           aria-expanded={open}
           className="cursor-pointer rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
