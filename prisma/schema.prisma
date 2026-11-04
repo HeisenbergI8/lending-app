@@ -657,6 +657,14 @@ model AssistantUsage {
   tokenLimit Int?
   /// When Groq said this model can be used again. Null or past means it is free.
   coolUntil  DateTime?
+  /// Groq's own figures from the last answer's headers: requests left today and
+  /// the day's request cap, tokens left this minute, and when that minute resets.
+  requestsLeft     Int?
+  requestLimit     Int?
+  minuteTokensLeft Int?
+  minuteResetAt    DateTime?
+  /// When this model last answered, to show which model is in use.
+  lastUsedAt       DateTime?
   updatedAt  DateTime  @updatedAt
 
   @@unique([day, model])

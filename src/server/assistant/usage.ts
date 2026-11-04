@@ -1,4 +1,7 @@
 import { db } from '../db.ts'
+import { type GroqHeaders, type ModelRow, type UsageSummary, summarize } from '../../lib/assistant-status.ts'
+
+export { parseDuration, readGroqHeaders, type UsageSummary } from '../../lib/assistant-status.ts'
 
 /**
  * How much of the free Groq allowance Ask Pondex has left, and when a tired
@@ -14,22 +17,6 @@ import { db } from '../db.ts'
  * estimate can be generous; the refusal's own wait is what the countdown shows.
  */
 
-/** Groq's published free daily token limit, used until a refusal states the real one. */
-const DEFAULT_DAILY_TOKENS = 200_000
-/** What a question costs before there is any history to average. Measured 2026-11-03: ~2,200. */
-const DEFAULT_TOKENS_PER_QUESTION = 2_500
-
-export type ModelUsage = { model: string; used: number; limit: number; coolUntil: Date | null }
-export type UsageSummary = {
-  /** About how many more questions fit in today's allowance, across every model. */
-  questionsLeft: number
-  /** When the first model is free again, or null when one is free now. */
-  coolUntil: Date | null
-  models: ModelUsage[]
-  /** True when the chat runs on the Mac's own model, which has no daily limit. */
-  local?: boolean
-}
-
 function today(): Date {
   const now = new Date()
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
@@ -44,6 +31,12 @@ export async function recordCall(model: string, tokens: number, finishedQuestion
     create: { day: today(), model, calls: 1, tokens, questions: finishedQuestion ? 1 : 0 },
     update: { calls: { increment: 1 }, tokens: { increment: tokens }, questions: { increment: finishedQuestion ? 1 : 0 } },
   })
+}
+
+/** Groq's figures from the latest answer, and that this model just answered. */
+export async function recordHeaders(model: string, figures: GroqHeaders) {
+  const set = { ...figures, lastUsedAt: new Date() }
+  await db.assistantUsage.upsert({ where: key(model), create: { day: today(), model, ...set }, update: set })
 }
 
 export type Refusal = { daily: boolean; waitS: number; used: number | null; limit: number | null }
@@ -82,37 +75,12 @@ export async function recordRefusal(model: string, refusal: Refusal) {
   })
 }
 
-/** Today's figures for the given models, in the order given. */
+/** Today's figures for the given models, in the order given, and what the chat header should say. */
 export async function usageSummary(models: string[]): Promise<UsageSummary> {
-  const rows = await db.assistantUsage.findMany({ where: { day: today(), model: { in: models } } })
-  const byModel = new Map(rows.map((row) => [row.model, row]))
-  const now = Date.now()
-
-  const perModel: ModelUsage[] = models.map((model) => {
-    const row = byModel.get(model)
-    const cool = row?.coolUntil && row.coolUntil.getTime() > now ? row.coolUntil : null
-    return { model, used: row?.tokens ?? 0, limit: row?.tokenLimit ?? DEFAULT_DAILY_TOKENS, coolUntil: cool }
-  })
-
-  // The average comes from rows this app counted itself. A row a refusal
-  // overwrote holds Groq's rolling total, which includes tokens from before
-  // the row existed, so dividing it by today's questions overstates a question.
-  const counted = rows.filter((row) => row.tokenLimit === null)
-  const questions = counted.reduce((n, row) => n + row.questions, 0)
-  const tokens = counted.reduce((n, row) => n + row.tokens, 0)
-  const perQuestion = questions >= 3 ? Math.max(500, tokens / questions) : DEFAULT_TOKENS_PER_QUESTION
-
-  // A model resting for more than a few minutes was refused for the DAY, so it
-  // has nothing left whatever the count says. A per-minute rest is seconds.
-  const left = perModel.reduce(
-    (n, m) => n + (m.coolUntil && m.coolUntil.getTime() - now > 5 * 60_000 ? 0 : Math.max(0, m.limit - m.used)),
-    0,
-  )
-  const free = perModel.some((m) => m.coolUntil === null)
-
-  return {
-    questionsLeft: Math.floor(left / perQuestion),
-    coolUntil: free ? null : new Date(Math.min(...perModel.map((m) => m.coolUntil!.getTime()))),
-    models: perModel,
-  }
+  const day = today()
+  const yesterday = new Date(day.getTime() - 86_400_000)
+  const rows = await db.assistantUsage.findMany({ where: { day: { gte: yesterday }, model: { in: models } } })
+  // Groq's day is a rolling 24 hours: a rest set late yesterday (UTC) can still be running.
+  const earlierCool = new Map(rows.filter((r) => r.day.getTime() < day.getTime() && r.coolUntil).map((r) => [r.model, r.coolUntil!]))
+  return summarize(models, rows.filter((r) => r.day.getTime() === day.getTime()) as ModelRow[], Date.now(), earlierCool)
 }

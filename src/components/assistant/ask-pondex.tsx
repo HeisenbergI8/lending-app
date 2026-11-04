@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowUp, ChevronDown, Hourglass, Maximize2, Minimize2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { clock, manilaTime, shortModel, type Status, statusLine } from '@/lib/assistant-status'
 import { ActionCard, type CardStatus, type ProposalView } from './action-card.tsx'
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 
@@ -15,9 +16,10 @@ import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
  * typed out here so the mascot can "talk" while it appears. When the answer is
  * a change, it comes with a card the Admin confirms (see action-card.tsx).
  *
- * The header says roughly how many questions are left in today's free AI
- * allowance. When every model is resting, the input is locked and a countdown
- * says when Pondex is back, instead of letting a question fail.
+ * The header says whether Pondex can answer now and which model will (see
+ * lib/assistant-status.ts); tapping it shows Groq's own figures per model.
+ * When every model is resting, the input is locked and a countdown says when
+ * Pondex is back, instead of letting a question fail.
  *
  * A launcher, not a sidebar item: the chat is a helper you call up over the page
  * you are on, so it opens on top of that page instead of replacing it. On a
@@ -31,7 +33,17 @@ type Message =
   | { id: number; role: 'bot'; text: string; full: string; done: boolean; failed?: boolean; card?: Card }
 
 /** Today's allowance, from /api/assistant. coolUntil is when a model is free again, or null. */
-type Usage = { questionsLeft: number; coolUntil: string | null; local?: boolean }
+type ModelFigures = {
+  model: string
+  used: number
+  limit: number
+  exact: boolean
+  coolUntil: string | null
+  requestsLeft: number | null
+  requestLimit: number | null
+  minuteTokensLeft: number | null
+}
+type Usage = { status: Status; inUse: string | null; coolUntil: string | null; local?: boolean; models: ModelFigures[] }
 
 /** Starters shown on an empty chat. Real questions, answered from real data. */
 const SAMPLES = [
@@ -71,14 +83,6 @@ function cardNote(card: Card): string {
   return `${what} Not confirmed yet.`
 }
 
-/** "12:05" under an hour, "2:03:09" over one. */
-function clock(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const sec = String(total % 60).padStart(2, '0')
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
-}
 
 const TYPE_MS = 26
 const CHARS_PER_TICK = 3
@@ -96,6 +100,7 @@ export function AskPondex() {
   const nextId = useRef(1)
   const router = useRouter()
   const [usage, setUsage] = useState<Usage | null>(null)
+  const [details, setDetails] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
   const coolMs = usage?.coolUntil ? new Date(usage.coolUntil).getTime() - now : 0
@@ -104,7 +109,10 @@ export function AskPondex() {
   const loadUsage = useCallback(async () => {
     try {
       const response = await fetch('/api/assistant')
-      if (response.ok) setUsage((await response.json()) as Usage)
+      if (response.ok) {
+        setUsage((await response.json()) as Usage)
+        setNow(Date.now())
+      }
     } catch {
       // The counter is a nicety; a failed fetch leaves the chat usable.
     }
@@ -243,19 +251,24 @@ export function AskPondex() {
               </button>
               <div className="min-w-0 flex-1">
                 <p className="text-base font-semibold">Pondex</p>
-                <p className="text-muted-foreground truncate text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNow(Date.now())
+                    setDetails((d) => !d)
+                  }}
+                  disabled={!usage || usage.local}
+                  aria-expanded={details}
+                  className="text-muted-foreground hover:text-foreground block max-w-full cursor-pointer truncate text-left text-xs disabled:cursor-default disabled:hover:text-muted-foreground"
+                >
                   {thinking
                     ? 'Looking through your loans…'
                     : writing
                       ? 'Writing an answer…'
-                      : resting
-                        ? `Resting · back in ${clock(coolMs)}`
-                        : usage?.local
-                          ? "Running on this Mac's AI · no daily limit"
-                          : usage
-                            ? `About ${usage.questionsLeft} questions left today`
-                          : 'Answers from your loans'}
-                </p>
+                      : usage
+                        ? statusLine(usage, now)
+                        : 'Answers from your loans'}
+                </button>
               </div>
               <button
                 type="button"
@@ -274,6 +287,31 @@ export function AskPondex() {
                 <ChevronDown className="size-5" />
               </button>
             </header>
+
+            {details && usage && !usage.local && (
+              <div className="border-border/70 bg-muted/40 border-b px-4 py-3 text-xs">
+                <p className="text-muted-foreground mb-2">Groq free plan, per model. Requests and this minute are Groq&apos;s own figures.</p>
+                <dl className="flex flex-col gap-1.5">
+                  {usage.models.map((m) => {
+                    const cool = m.coolUntil ? new Date(m.coolUntil) : null
+                    const state = cool && cool.getTime() > now
+                      ? cool.getTime() - now > 5 * 60_000 ? `out until ${manilaTime(cool)}` : `busy, ${clock(cool.getTime() - now)}`
+                      : m.model === usage.inUse ? 'in use' : 'ready'
+                    return (
+                      <div key={m.model} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                        <dt className="font-medium">{shortModel(m.model)} <span className="text-muted-foreground font-normal">· {state}</span></dt>
+                        <dd className="text-muted-foreground tabular-nums">
+                          {m.requestsLeft !== null ? `${m.requestsLeft}/${m.requestLimit ?? '?'} requests` : 'requests not seen yet'}
+                          {m.minuteTokensLeft !== null ? ` · ${m.minuteTokensLeft.toLocaleString()} tokens this min` : ''}
+                          {` · ${m.exact ? '' : 'about '}${m.used.toLocaleString()}/${m.limit.toLocaleString()} today`}
+                        </dd>
+                      </div>
+                    )
+                  })}
+                </dl>
+                <p className="text-muted-foreground mt-2">Groq counts the last 24 hours, so &quot;today&quot; is exact only after Groq refuses.</p>
+              </div>
+            )}
 
             <div ref={list} aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5">
               {empty && (
@@ -349,8 +387,17 @@ export function AskPondex() {
                 <div role="status" className="bg-brand/8 text-foreground flex items-center gap-3 rounded-2xl px-3.5 py-2.5">
                   <Hourglass className="text-brand size-5 shrink-0" />
                   <p className="min-w-0 flex-1 text-sm leading-snug">
-                    Pondex used up its free AI for now. Back in{' '}
-                    <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>.
+                    {usage?.status === 'out' ? (
+                      <>
+                        Pondex used up today&apos;s free AI. Back at{' '}
+                        <span className="text-brand font-semibold tabular-nums">{manilaTime(new Date(usage.coolUntil!))}</span>.
+                      </>
+                    ) : (
+                      <>
+                        Pondex is busy (free plan, per minute). Ready again in{' '}
+                        <span className="text-brand font-semibold tabular-nums">{clock(coolMs)}</span>.
+                      </>
+                    )}
                   </p>
                 </div>
               )}
@@ -382,7 +429,7 @@ export function AskPondex() {
                   id="ask-pondex-input"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder={resting ? 'Pondex is resting…' : 'Ask, or say what to change…'}
+                  placeholder={resting ? (usage?.status === 'out' ? `Pondex is resting. Back at ${manilaTime(new Date(usage.coolUntil!))}.` : 'Pondex is busy. Try again shortly.') : 'Ask, or say what to change…'}
                   disabled={resting}
                   autoComplete="off"
                   className="min-w-0 flex-1 bg-transparent py-2.5 text-base outline-none md:text-sm"

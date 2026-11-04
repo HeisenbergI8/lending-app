@@ -13,7 +13,8 @@ ok('local counter text', (await header()).includes("Running on this Mac's AI"), 
 await p.getByRole('button', { name: 'Close chat' }).click()
 
 // 2. Groq counter and countdown (faked server answers).
-let usage = { questionsLeft: 87, coolUntil: null, models: [] }
+const MODELS = [{ model: 'openai/gpt-oss-120b', used: 12000, limit: 200000, exact: false, coolUntil: null, requestsLeft: 990, requestLimit: 1000, minuteTokensLeft: 6400 }, { model: 'openai/gpt-oss-20b', used: 0, limit: 200000, exact: false, coolUntil: null, requestsLeft: null, requestLimit: null, minuteTokensLeft: null }]
+let usage = { status: 'ready', inUse: 'openai/gpt-oss-120b', questionsLeft: 87, coolUntil: null, models: MODELS }
 let n = 0
 const card = (amount) => ({ action: 'create_loan', title: 'Make a new loan', fields: {}, funders: [], files: { required: true, label: 'Screenshot of the money being sent' }, lines: [{ label: 'Amount', value: amount }] })
 await p.route('**/api/assistant', async (route) => {
@@ -22,7 +23,11 @@ await p.route('**/api/assistant', async (route) => {
   return route.fulfill({ json: { ok: true, answer: 'Here is the change. Check it, then tap Confirm.', tools: [], model: 'x', tokens: 0, usage, proposal: card(n === 1 ? '₱5,000.00' : '₱6,000.00') } })
 })
 await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
-ok('groq counter text', (await header()).includes('About 87 questions left today'), await header())
+ok('groq status text names the model', (await header()).includes('Ready · gpt-oss-120b'), await header())
+await p.getByRole('button', { name: /Ready · gpt-oss-120b/ }).click(); await p.waitForTimeout(500)
+const details = await p.locator('section[aria-label="Ask Pondex"]').innerText()
+ok("details show Groq's own figures", details.includes('990/1000 requests') && details.includes('6,400 tokens this min') && details.includes('in use'), details.slice(0, 300).replace(/\n/g, ' '))
+await p.getByRole('button', { name: /Ready · gpt-oss-120b/ }).click()
 
 // 3. A newer card retires the older one.
 await p.fill('#ask-pondex-input', 'Lend 5k to Rico'); await p.keyboard.press('Enter'); await p.waitForTimeout(2500)
@@ -34,10 +39,10 @@ ok('only one card can be confirmed', confirmButtons === 1, String(confirmButtons
 await p.screenshot({ path: `${out}/ui-replaced.png` })
 
 // 4. Countdown when every model is resting.
-usage = { questionsLeft: 0, coolUntil: new Date(Date.now() + 65_000).toISOString(), models: [] }
+usage = { status: 'busy', inUse: null, questionsLeft: 0, coolUntil: new Date(Date.now() + 65_000).toISOString(), models: MODELS }
 await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(2000)
 const h1 = await header()
-ok('countdown shown', /Resting · back in 1:0\d/.test(h1), h1)
+ok('countdown shown', /Busy · ready again in 1:0\d/.test(h1), h1)
 ok('input locked while resting', await p.locator('#ask-pondex-input').isDisabled())
 await p.waitForTimeout(3000)
 const h2 = await header()
@@ -45,11 +50,18 @@ ok('countdown ticks', h1 !== h2, `${h1} -> ${h2}`)
 await p.screenshot({ path: `${out}/ui-resting.png` })
 
 // 5. When the countdown ends, the chat asks again and unlocks.
-usage = { questionsLeft: 40, coolUntil: new Date(Date.now() + 2_000).toISOString(), models: [] }
+usage = { status: 'busy', inUse: null, questionsLeft: 40, coolUntil: new Date(Date.now() + 2_000).toISOString(), models: MODELS }
 await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(800)
-usage = { questionsLeft: 40, coolUntil: null, models: [] }
+usage = { status: 'backup', inUse: 'openai/gpt-oss-20b', questionsLeft: 40, coolUntil: null, models: MODELS }
 await p.waitForTimeout(3500)
-ok('unlocks after countdown', !(await p.locator('#ask-pondex-input').isDisabled()) && (await header()).includes('About 40'), await header())
+ok('unlocks after countdown', !(await p.locator('#ask-pondex-input').isDisabled()) && (await header()).includes('Ready · backup model gpt-oss-20b'), await header())
+
+// 6. Every model out for the day: the time it comes back, in Manila.
+usage = { status: 'out', inUse: null, questionsLeft: 0, coolUntil: new Date(Date.now() + 4 * 3600_000).toISOString(), models: MODELS }
+await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
+const h3 = await header()
+ok('out for today shows the time back', /Out for today · back at \d{1,2}:\d{2} (AM|PM)/.test(h3), h3)
+await p.screenshot({ path: `${out}/ui-out.png` })
 
 await s.browser.close()
 for (const [name, pass, d] of res) console.log(pass ? 'PASS' : 'FAIL', name.padEnd(40), pass ? '' : d)

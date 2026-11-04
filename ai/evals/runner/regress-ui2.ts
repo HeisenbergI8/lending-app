@@ -10,8 +10,8 @@ const ok = (n: string, pass: boolean, d = '') => res.push([n, pass, d])
 const section = () => p.locator('section[aria-label="Ask Pondex"]')
 let next: any = null
 await p.route('**/api/assistant', async (route) => {
-  if (route.request().method() === 'GET') return route.fulfill({ json: { questionsLeft: 50, coolUntil: null, models: [] } })
-  return route.fulfill({ json: { ok: true, answer: 'Here is the change. Check it, then tap Confirm.', tools: [], model: 'x', tokens: 0, usage: { questionsLeft: 50, coolUntil: null, models: [] }, proposal: next } })
+  if (route.request().method() === 'GET') return route.fulfill({ json: { status: 'ready', inUse: 'openai/gpt-oss-120b', questionsLeft: 50, coolUntil: null, models: [] } })
+  return route.fulfill({ json: { ok: true, answer: 'Here is the change. Check it, then tap Confirm.', tools: [], model: 'x', tokens: 0, usage: { status: 'ready', inUse: 'openai/gpt-oss-120b', questionsLeft: 50, coolUntil: null, models: [] }, proposal: next } })
 })
 const askFor = async (proposal: any) => { next = proposal; await p.fill('#ask-pondex-input', 'x'); await p.keyboard.press('Enter'); await p.waitForTimeout(2500) }
 await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)

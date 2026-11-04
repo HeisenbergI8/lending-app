@@ -3,7 +3,7 @@ import { manilaToday } from './today.ts'
 import { runTool, TOOLS } from './tools.ts'
 
 export { manilaToday }
-import { parseRefusal, recordCall, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
+import { parseRefusal, readGroqHeaders, recordCall, recordHeaders, recordRefusal, type UsageSummary, usageSummary } from './usage.ts'
 
 /**
  * The agent loop behind Ask Pondex.
@@ -82,6 +82,30 @@ export function models(): string[] {
   if (local) return [local]
   const list = (process.env.GROQ_MODELS || process.env.GROQ_MODEL || '').split(',').map((m) => m.trim()).filter(Boolean)
   return list.length > 0 ? list : DEFAULT_MODELS
+}
+
+/**
+ * The model for a plain lookup ("how much is out on loan?"). Smaller and
+ * cheaper, so the main model's daily allowance is kept for changes, rules and
+ * conversations. Used only when it is in the list; GROQ_LIGHT_MODEL changes it.
+ */
+export function lightModel(list = models()): string | null {
+  const light = process.env.GROQ_LIGHT_MODEL?.trim() || 'openai/gpt-oss-20b'
+  return list.includes(light) && list[0] !== light ? light : null
+}
+
+/** Longest question still treated as a plain lookup. */
+const SIMPLE_MAX_CHARS = 80
+
+/**
+ * A plain lookup: one short question, nothing to change, no rule to read, and
+ * no earlier turns it depends on. Anything else goes to the main model.
+ * Seen in the Groq rerun: the smaller model missed rules questions and sums
+ * (RULE-11, NAME-05) and made a card where it should have asked (LOANX-05).
+ */
+export function isSimpleQuestion(question: string, userTurns: number): boolean {
+  const q = question.trim()
+  return userTurns === 1 && q.length > 0 && q.length <= SIMPLE_MAX_CHARS && !isChangeRequest(q) && !RULES_QUESTION.test(q) && !/\b(and|also|then|compare|vs|versus|why|interest|rate)\b|%/i.test(q)
 }
 
 /** Longest message kept. A real question is a sentence; this stops pasted essays costing tokens. */
@@ -189,6 +213,7 @@ async function complete(model: string, messages: GroqMessage[], retries = 1): Pr
   }
   if (!response.ok) throw new Error(`Groq answered ${response.status} for ${model}: ${(await response.text()).slice(0, 300)}`)
 
+  if (!local) await recordHeaders(model, readGroqHeaders((name) => response.headers.get(name)))
   const data = (await response.json()) as { choices: { message: GroqReply }[]; usage?: { total_tokens?: number } }
   return { reply: data.choices[0].message, tokens: data.usage?.total_tokens ?? 0 }
 }
@@ -228,7 +253,10 @@ async function nextTurn(messages: GroqMessage[], preferred: string | null) {
 /** Today's allowance; on the Mac there is none to count, so the counter says so. */
 export async function currentUsage(): Promise<UsageSummary> {
   const local = localModel()
-  if (local) return { questionsLeft: 0, coolUntil: null, models: [{ model: local, used: 0, limit: 0, coolUntil: null }], local: true }
+  if (local) {
+    const model = { model: local, used: 0, limit: 0, exact: false, coolUntil: null, requestsLeft: null, requestLimit: null, minuteTokensLeft: null, lastUsedAt: null }
+    return { status: 'local', inUse: local, questionsLeft: 0, coolUntil: null, models: [model], local: true }
+  }
   return usageSummary(models())
 }
 
@@ -365,7 +393,8 @@ export async function ask(userId: string, history: ChatTurn[]): Promise<ChatResu
 
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const turn = await nextTurn(messages, model)
+      // A plain lookup starts on the light model; the main model keeps its allowance for the rest.
+      const turn = await nextTurn(messages, model ?? (isSimpleQuestion(question, history.filter((t) => t.role === 'user').length) ? lightModel() : null))
       model = turn.model
       tokens += turn.tokens
       const calls = turn.reply.tool_calls ?? []

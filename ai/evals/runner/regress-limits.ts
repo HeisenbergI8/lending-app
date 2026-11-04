@@ -10,7 +10,7 @@ const section = () => p.locator('section[aria-label="Ask Pondex"]')
 
 // CARD-06: a card whose file is optional can be confirmed without one.
 const rico = (await db.loan.findFirst({ where: { userId: demo.id, status: 'ACTIVE', borrower: { firstName: 'Rico' } } }))!
-let usage: any = { questionsLeft: 50, coolUntil: null, models: [] }
+let usage: any = { status: 'ready', inUse: 'openai/gpt-oss-120b', questionsLeft: 50, coolUntil: null, models: [] }
 await p.route('**/api/assistant', async (route: any) => {
   if (route.request().method() === 'GET') return route.fulfill({ json: usage })
   return route.fulfill({ json: { ok: true, answer: 'Here is the change. Check it, then tap Confirm.', tools: [], model: 'x', tokens: 0, usage,
@@ -25,13 +25,13 @@ ok('CARD-06 optional file: Confirm enabled with no file', await confirm.isEnable
 const A = 'test/limit-model-a'
 try {
   const before = (await usageSummary([A])).questionsLeft
-  for (let i = 0; i < 3; i++) await recordCall(A, 2500, true)
+  for (let i = 0; i < 3; i++) await recordCall(A, 6000, true)
   const after = (await usageSummary([A])).questionsLeft
   ok('LIM-04 questions left goes down after questions', after < before, `${before} -> ${after}`)
-  usage = { questionsLeft: after, coolUntil: null, models: [] }
+  usage = await usageSummary([A])
   await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
   const header = await section().locator('header').innerText()
-  ok('LIM-04 header shows the new count', header.includes(`About ${after} questions left today`), header.replace(/\n/g, ' '))
+  ok('LIM-04 header shows the status from the server', header.includes('Ready · limit-model-a'), header.replace(/\n/g, ' '))
 } finally {
   await db.assistantUsage.deleteMany({ where: { model: A } })
 }

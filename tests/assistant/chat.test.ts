@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clip, dropUnasked, isChangeRequest, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { clip, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -118,4 +118,26 @@ describe('change requests are planned by the server', () => {
   test('"rico pd today" is a change request', () => assert.equal(isChangeRequest('rico pd today'), true))
   test('"can borrowers pay in parts?" is a question', () => assert.equal(isChangeRequest('can borrowers pay in parts?'), false))
   test('"how much does bea owe" is a question', () => assert.equal(isChangeRequest('how much does bea owe'), false))
+})
+
+describe('which model answers (plain lookups go to the light model)', () => {
+  test('a short lookup is simple', () => {
+    assert.equal(isSimpleQuestion('How much is out on loan right now?', 1), true)
+    assert.equal(isSimpleQuestion('who is overdue', 1), true)
+  })
+  test('a change is not simple', () => assert.equal(isSimpleQuestion('lend Bea 3k from the admin pot for 3 days', 1), false))
+  test('a rules question is not simple', () => {
+    assert.equal(isSimpleQuestion('is dan bad?', 1), false)
+    assert.equal(isSimpleQuestion('how much interest on 20k at 7% for 3 weeks', 1), false)
+  })
+  test('a follow-up in a conversation is not simple', () => assert.equal(isSimpleQuestion('and jun?', 2), false))
+  test('a long or compound question is not simple', () => {
+    assert.equal(isSimpleQuestion('how much does Rico owe and when is it due', 1), false)
+    assert.equal(isSimpleQuestion('x'.repeat(81), 1), false)
+  })
+  test('the light model is used only when it is in the list and not already first', () => {
+    assert.equal(lightModel(['openai/gpt-oss-120b', 'openai/gpt-oss-20b']), 'openai/gpt-oss-20b')
+    assert.equal(lightModel(['openai/gpt-oss-120b']), null)
+    assert.equal(lightModel(['openai/gpt-oss-20b', 'openai/gpt-oss-120b']), null)
+  })
 })
