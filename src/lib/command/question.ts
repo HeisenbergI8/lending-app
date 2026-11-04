@@ -126,3 +126,35 @@ export function countCondition(text: string): 'overdue' | 'paid' | 'owing' | 'ma
   if (/\b(made|started|new|given|released|lent)\b/.test(t)) return 'made'
   return null
 }
+
+/**
+ * What a question asks about one lender's page, beyond a single figure:
+ *
+ *   statement   "lender statement for John Ross", "Maria's report", "tell me about Maria's pot"
+ *   breakdown   "where is Maria's money", "breakdown of my pot", "Maria's pot total"
+ *   loans       "who has Maria's money", "Maria's loans", "which loans does Maria fund"
+ *   repaid      "Maria's repaid loans", "loans Maria funded that were paid back"
+ *   rate        "what rate does Maria earn", "Maria's interest rate"
+ *   capital     "Maria's starting capital history", "when did my capital change"
+ *   cut         "where does my cut come from", "Admin cut breakdown"
+ *   list        "show my lenders", "who are my lenders", "list of pots"
+ *
+ * Typos and Taglish are part of the words. Null for anything else, so plain
+ * figures ("how much did Maria earn") stay with readQuestion.
+ */
+export type LenderTopic = 'statement' | 'breakdown' | 'loans' | 'repaid' | 'rate' | 'capital' | 'cut' | 'list'
+
+export function lenderTopic(text: string): LenderTopic | null {
+  const t = clean(text).replace(/[?.!]+$/, '')
+  // "How many loans did Maria fund" is a count.
+  if (/\b(how many|ilan)\b/.test(t)) return null
+  if (/^(show|list|see|give me|view)?\s*(me\s+)?(all\s+|my\s+|the\s+)*(lenders|pots|investors|funders)(\s+list)?$|\b(who are|sino( ang| yung)?) (my |the |mga )*(lenders|investors|funders|nagpautang)\b|\b(list|lista) (of )?(my |the |mga )*(lenders|pots|investors)\b/.test(t)) return 'list'
+  if (/\b(cut|commission|komisyon)\b.*\b(come from|comes from|from where|where|which loans|sources?|breakdown|break down|galing)\b|\bwhere\b.*\b(cut|commission)\b/.test(t)) return 'cut'
+  if (/\b(starting capital|initial capital|capital|puhunan)\b.*\b(history|changes?|changed|versions?|past|before|when|kailan)\b|\b(history|changes) (of|sa) .*\b(capital|puhunan)\b/.test(t)) return 'capital'
+  if (/\b(statement|statment|statemnt|staement|report|reprot|repot|summary|overview|profile|rundown|run down|full details|details|detail|info|information|everything about|all about|tell me about|kumusta|kamusta)\b/.test(t)) return 'statement'
+  if (/\b(breakdown|break down|broken down|pot total|total pot|whole pot|split|parts)\b|\bwhere\b.*\b(money|pera|pot|capital|funds)\b|\b(saan|nasaan)\b.*\b(pera|money|pot)\b/.test(t)) return 'breakdown'
+  if (/\b(interest rate|rates?|percent|percentage|patong)\b|%/.test(t)) return 'rate'
+  if (/\b(paid back|repaid|settled|finished|completed|returned|natapos|tapos na|bayad na)\b.*\bloans?\b|\bloans?\b.*\b(paid back|repaid|settled|finished|completed|returned|natapos|bayad na)\b|\btrack record\b/.test(t)) return 'repaid'
+  if (/\b(loans?|fundings?|funds|funding|funded|financ\w*|out with|pinautang|napautang)\b|\bwho\b.*\b(has|have|is using|are using|using|borrowed|is holding|holds)\b|\bsino\b.*\b(may hawak|gumagamit|humiram|nangutang)\b/.test(t)) return 'loans'
+  return null
+}

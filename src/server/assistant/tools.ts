@@ -96,13 +96,19 @@ export const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: 'app_lookup',
+    description:
+      'Ask Pondex one plain question, the way the Admin would, and get the answer the app itself gives, from the same figures as its screens. Read only, never changes anything. Covers any figure for one person, each lender, each borrower or the Admin pot, for any dates, ranked or counted ("how much did each borrower pay in October?", "who earned the most last month?", "how many loans were made this week?"); lender pages ("lender statement for Maria this month", "where is Maria\'s money?", "who has Jun\'s money?", "Maria\'s repaid loans", "what rate does Maria earn?", "Maria\'s starting capital history", "where does my cut come from?", "show my lenders"); money history, floating on a future date, loans due, track records, Recently Deleted. Use it first for any of these; split a question that mixes two things into two plain ones. If found is false, use the other tools.',
+    parameters: { type: 'object', properties: { question: { type: 'string', description: 'One plain question, with full names and dates as said.' } }, required: ['question'] },
+  },
+  {
     name: 'get_lender',
     description: "One lender by name: id, floating, starting capital, and money in/out entries with ids.",
     parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
   },
   {
     name: 'lender_earnings',
-    description: 'What one lender earned between two dates (inclusive), the same figure as their statement on the Reports page: loans repaid in that time plus weekly interest collected in it. Use for "this month", "in October", "last week".',
+    description: 'What one lender earned between two dates (inclusive), the same figure as their Lender statement on the Reports page (every lender has one; the Admin pot too): loans repaid in that time plus weekly interest collected in it. Use for "this month", "in October", "last week".',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string' }, from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } },
@@ -1027,6 +1033,11 @@ export async function runTool(userId: string, name: string, args: Record<string,
       return findLoans(userId, args)
     case 'get_loan':
       return loanDetail(userId, str(args, 'loan_id'))
+    case 'app_lookup': {
+      // Loaded here, not at the top: the server's own answers use these tools too.
+      const { appLookup } = await import('./server-cards.ts')
+      return appLookup(userId, str(args, 'question'))
+    }
     case 'get_lender':
       return lenderDetail(userId, str(args, 'name'))
     case 'lender_earnings':

@@ -8,7 +8,7 @@ describe('Dex-E steps, in plain words', () => {
     assert.equal(stepStarted('find_loans', { name: 'rico' }), 'Looking at Rico’s loans')
   })
   test('no tool names reach the screen', () => {
-    for (const tool of ['read_rules', 'get_overview', 'list_lenders', 'find_loans', 'get_loan', 'list_pending', 'list_deleted', 'find_action', 'propose_action', 'search_notes', 'lender_earnings', 'period_summary', 'admin_cut', 'borrower_statement', 'money_history', 'floating_on', 'something_new']) {
+    for (const tool of ['read_rules', 'get_overview', 'list_lenders', 'find_loans', 'get_loan', 'list_pending', 'list_deleted', 'find_action', 'propose_action', 'search_notes', 'lender_earnings', 'period_summary', 'admin_cut', 'borrower_statement', 'money_history', 'floating_on', 'app_lookup', 'something_new']) {
       assert.doesNotMatch(stepStarted(tool, {}), /_/)
       assert.doesNotMatch(stepFinished(tool, {}, {}).text, /_/)
     }

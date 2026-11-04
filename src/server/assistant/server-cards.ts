@@ -1,9 +1,10 @@
 import { db } from '../db.ts'
 import { listBorrowerNames, listBorrowers } from '../borrowers/queries.ts'
 import { borrowerReport, lenderReport } from '../reports/queries.ts'
-import { BELONGS_TO, countCondition, type Metric, type Question, readQuestion } from '../../lib/command/question.ts'
-import { listLenderNames, listLenders } from '../lenders/queries.ts'
+import { BELONGS_TO, countCondition, lenderTopic, type Metric, type Question, readQuestion } from '../../lib/command/question.ts'
+import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
+import { toDateInput } from '../../lib/money/weeks.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
   amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
@@ -926,8 +927,8 @@ async function loansDueCheck(ctx: Ctx): Promise<ServerReply | null> {
 /** "What came in last week?", "Maria's deposits this month", "withdrawals in October". */
 async function moneyHistoryCheck(ctx: Ctx): Promise<ServerReply | null> {
   const t = clean(ctx.text)
-  if (!/\b(money in|money out|money history|deposits?|deposited|withdrawals?|withdrew|came in|went out|cash in|cash out|movements?|galaw)\b/.test(t)) return null
-  if (!isQuestion(ctx.text) && !/^(show|list)\b|'s (deposits|withdrawals|money)/.test(t)) return null
+  if (!/\b(money in|money out|money history|deposits?|deposited|withdrawals?|withdrew|came in|went out|cash in|cash out|movements?|galaw)\b|\bhistory\b.*\b(lent|paid back|repaid)\b|\b(lent|paid back|repaid)\b.*\bhistory\b/.test(t)) return null
+  if (!isQuestion(ctx.text) && !/^(show|list)\b|'s (deposits|withdrawals|money)|\bhistory\b/.test(t)) return null
   if (/\b(each|every|per|all lenders|bawat|most|least|highest|lowest)\b/.test(t)) return null
   const period = periodIn(ctx)
   const lenders = await listLenderNames(ctx.userId)
@@ -936,15 +937,17 @@ async function moneyHistoryCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (groups[0]?.length > 1) return whichPerson(ctx.text, groups[0], 'lender')
   const who = groups[0]?.[0]
   if (!period && !who) return null
-  const kind = /\b(deposits?|deposited)\b/.test(t) ? 'in' : /\b(withdrawals?|withdrew)\b/.test(t) ? 'withdrawals' : undefined
+  // The Money history filters: Money in, Withdrawals, Lent out, Paid back.
+  const listed = /\b(history|movements?|entries|galaw)\b/.test(t)
+  const kind = /\b(deposits?|deposited)\b/.test(t) ? 'in' : /\b(withdrawals?|withdrew)\b/.test(t) ? 'withdrawals' : listed && /\blent( out)?\b/.test(t) ? 'lent' : listed && /\b(paid back|repaid|came back|repayments?)\b/.test(t) ? 'back' : undefined
   // "What came in" is every peso that arrived (deposits and repayments); "what went out" every peso that left.
   const direction = kind ? undefined : /\b(came in|money in|cash in)\b/.test(t) ? 'in' : /\b(went out|money out|cash out)\b/.test(t) ? 'out' : undefined
   const r = (await moneyHistory(ctx.userId, { ...(who ? { name: full(who) } : {}), ...(period ? { from: period.from, to: period.to } : {}), ...(kind ? { kind } : {}), ...(direction ? { direction } : {}) })) as { found?: boolean; count?: number; moneyIn?: string; moneyOut?: string; entries?: { date: string | null; lender: string; what: string; amount: string; direction: string }[] }
   if (!r.found) return null
   ctx.say(`Read ${r.count} money ${r.count === 1 ? 'entry' : 'entries'}`)
   const scope = `${who ? ` for ${full(who)}` : ''}${period ? ` ${whenText(period)}` : ''}`
-  const head = kind === 'in' ? `**${r.moneyIn}** deposited${scope}.` : kind === 'withdrawals' ? `**${r.moneyOut}** withdrawn${scope}.` : direction === 'in' ? `**${r.moneyIn}** came in${scope}.` : direction === 'out' ? `**${r.moneyOut}** went out${scope}.` : `**${r.moneyIn}** in and ${r.moneyOut} out${scope}.`
-  if (!r.count) return tell(`${kind === 'in' ? `No deposits${scope}.` : kind === 'withdrawals' ? `No withdrawals${scope}.` : direction === 'in' ? `Nothing came in${scope}.` : direction === 'out' ? `Nothing went out${scope}.` : `No money moved${scope}.`}${period ? `\n${datesRow(period)}` : ''}`)
+  const head = kind === 'lent' ? `**${r.moneyOut}** lent out${scope}.` : kind === 'back' ? `**${r.moneyIn}** paid back${scope}.` : kind === 'in' ? `**${r.moneyIn}** deposited${scope}.` : kind === 'withdrawals' ? `**${r.moneyOut}** withdrawn${scope}.` : direction === 'in' ? `**${r.moneyIn}** came in${scope}.` : direction === 'out' ? `**${r.moneyOut}** went out${scope}.` : `**${r.moneyIn}** in and ${r.moneyOut} out${scope}.`
+  if (!r.count) return tell(`${kind === 'lent' ? `Nothing lent out${scope}.` : kind === 'back' ? `Nothing paid back${scope}.` : kind === 'in' ? `No deposits${scope}.` : kind === 'withdrawals' ? `No withdrawals${scope}.` : direction === 'in' ? `Nothing came in${scope}.` : direction === 'out' ? `Nothing went out${scope}.` : `No money moved${scope}.`}${period ? `\n${datesRow(period)}` : ''}`)
   return tell([
     head,
     ...(r.entries ?? []).slice(0, 8).map((e) => `- ${e.lender}: ${e.direction === 'in' ? '' : '−'}${e.amount} | ${e.what} · ${e.date ? spellDate(e.date) : ''}`),
@@ -1217,6 +1220,166 @@ async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
   ].join('\n'))
 }
 
+const pct = (bps: number) => `${(bps / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`
+const loansWord = (n: number) => `${n} ${n === 1 ? 'loan' : 'loans'}`
+
+/**
+ * Everything on a lender's page that is more than one figure, read from the
+ * same functions as the page itself (getLender, and lenderReport for the
+ * statement): the statement, where the money is, who has it, the loans repaid,
+ * the rate, the starting capital history, where the Admin cut comes from, and
+ * the Lenders list. The lender is matched by name, typos and all, or "my pot".
+ */
+async function lenderPageCheck(ctx: Ctx): Promise<ServerReply | null> {
+  const t = clean(ctx.text)
+  // "Change Maria's rate to 4%" is a change, not a look.
+  if (/^(fix|change|edit|update|correct|delete|remove|restore|undo|set|mark|add|record|rename|extend|lend|loan|give(?! me)|deposit|withdraw|pay|move|transfer|fund|approve|release|pahiram|ipahiram)\b/.test(t)) return null
+  if (!isQuestion(ctx.text) && amountsIn(ctx.text).length > 0) return null
+  const topic = lenderTopic(ctx.text)
+  if (!topic) return null
+  const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(ctx.userId), listBorrowerNames(ctx.userId)])
+  const saysLender = /\b(lenders?|pots?|investors?|funders?|nagpautang|capital|puhunan)\b/.test(t)
+
+  if (topic === 'list') {
+    const lenders = await listLenders(ctx.userId)
+    ctx.say('Read the Lenders page')
+    const floating = lenders.reduce((s, l) => s + l.position.floating, 0)
+    return tell([
+      `**${pesos(floating / 100)}** floating across ${lenders.length} ${lenders.length === 1 ? 'lender' : 'lenders'}.`,
+      ...lenders.map((l) => `- ${full(l)}${l.isSelf ? ' (Admin)' : ''}: ${pesos(l.position.floating / 100)} | out on loan ${pesos(l.position.outOnLoan / 100)} · earned ${pesos(l.position.earned / 100)}`),
+    ].join('\n'))
+  }
+
+  const self = lenderNames.find((l) => l.isSelf)
+  const named = mentions(ctx.text, lenderNames.filter((l) => !l.isSelf))
+  // "My statement" is the Admin's pot; "my overdue loans" is every loan, so loans need "my pot" or "admin".
+  const mine = self && (ADMIN_WORDS.test(ctx.text) || (topic !== 'loans' && topic !== 'repaid' && /\b(my|i|me|mine)\b/.test(t.replace(/\b(can|may) i see|let me see|i want to see|i'd like to see|i need to see|give me|show me|tell me\b/g, ' '))))
+  // A borrower's name ("Rico's loans", "Rico's statement") is the borrower's, unless a lender is plainly meant.
+  if (named.length === 0 && !mine) {
+    if (mentions(ctx.text, borrowerNames).length > 0) return null
+    // "Show me a lender statement": which one, as buttons.
+    if (saysLender && (topic === 'statement' || topic === 'breakdown' || topic === 'rate' || topic === 'capital')) {
+      return ask('Which lender?', lenderNames.map((l) => ({ label: full(l), send: plus(ctx.text, `for ${full(l)}`) })))
+    }
+    if (topic === 'cut' && self) return lenderPageAnswer(ctx, topic, self)
+    return null
+  }
+  if (named.length > 1) return null
+  if (named.length === 1 && mentions(ctx.text, borrowerNames).some((g) => g.some((b) => named[0].some((l) => full(l) === full(b)))) && !saysLender) return null
+  if (named[0]?.length > 1) return whichPerson(ctx.text, named[0], 'lender')
+  const lender = named[0]?.[0] ?? self!
+  return lenderPageAnswer(ctx, topic, lender)
+}
+
+async function lenderPageAnswer(ctx: Ctx, topic: Exclude<ReturnType<typeof lenderTopic>, null | 'list'>, who: Person): Promise<ServerReply | null> {
+  const period = periodIn(ctx)
+  const range = period ? { from: new Date(`${period.from}T00:00:00`), to: new Date(`${period.to}T00:00:00`) } : undefined
+  const lender = await getLender(ctx.userId, who.id, range)
+  if (!lender) return null
+  const name = full(lender)
+  ctx.say(`Found ${name}`)
+  const p = lender.position
+  const peso = (c: number) => pesos(c / 100)
+  const tail = period ? [datesRow(period)] : []
+
+  if (topic === 'statement') {
+    const span = period ?? ALL_TIME(ctx.today)
+    const report = await lenderReport(ctx.userId, lender.id, { from: new Date(`${span.from}T00:00:00`), to: new Date(`${span.to}T00:00:00`) })
+    if (!report) return null
+    ctx.say(`Read ${name}'s statement`)
+    const when = period ? ` ${whenText(period)}` : ' in all'
+    const fundedTotal = report.funded.reduce((s, r) => s + r.principal, 0)
+    return tell([
+      `**${peso(report.earnedInPeriod)}** earned by ${name}${when}. This is the lender statement.`,
+      `- Money put in: ${peso(report.putIn)}`,
+      `- Money taken out: ${peso(report.tookOut)}`,
+      `- Loans funded: ${peso(fundedTotal)} | ${loansWord(report.funded.length)}`,
+      `- Loans repaid: ${report.repaid.length}`,
+      ...(report.weeksPaid.length ? [`- Weeks of interest collected: ${report.weeksPaid.length}`] : []),
+      ...(lender.isSelf && report.adminCutInPeriod > 0 ? [`- From the Admin's cut: ${peso(report.adminCutInPeriod)}`] : []),
+      ...(period ? [`- Interest earned, spread by day: ${peso(lender.rangeInterest)} | as on the lender page`] : []),
+      `- Floating now: ${peso(p.floating)}`,
+      `- Out on loan now: ${peso(p.outOnLoan)} | ${loansWord(lender.fundings.length)}`,
+      `- Interest still coming: ${peso(p.pending - p.adminCutPending)}`,
+      ...tail,
+      'To preview or print it, open Reports, then Lender statement.',
+    ].join('\n'))
+  }
+
+  if (topic === 'breakdown') {
+    const overdue = lender.fundings.filter((f) => f.state === 'overdue').reduce((s, f) => s + f.principal, 0)
+    return tell([
+      `**${peso(p.floating + p.outOnLoan + p.pending)}** in ${name}'s pot in all.`,
+      `- Ready to lend: ${peso(p.floating)}`,
+      `- Out on loan, on time: ${peso(p.outOnLoan - overdue)}`,
+      `- Overdue: ${peso(overdue)}`,
+      `- Interest coming: ${peso(p.pending - p.adminCutPending)}`,
+      ...(lender.isSelf ? [`- Cut coming: ${peso(p.adminCutPending)}`] : []),
+      ...(period ? ['These are as of today.'] : []),
+    ].join('\n'))
+  }
+
+  if (topic === 'loans') {
+    const late = /\b(overdue|late|delayed|behind|atrasado|lagpas)\b/i.test(ctx.text)
+    const rows = late ? lender.fundings.filter((f) => f.state === 'overdue') : lender.fundings
+    if (rows.length === 0) return tell(late ? `No loan of ${name}'s money is overdue.` : `None of ${name}'s money is out on loan right now.`)
+    const toCollect = rows.reduce((s, f) => s + f.toCollect, 0)
+    return tell([
+      `**${loansWord(rows.length)}**${late ? ' overdue' : ''} out with ${name}'s money.`,
+      ...rows.slice(0, 10).map((f) => `- ${f.borrowerName}: ${peso(f.principal + f.toCollect)} | ${peso(f.principal)} capital · due ${spellDate(toDateInput(f.dueOn))}${f.state === 'overdue' ? ' · Overdue' : ''}`),
+      ...(rows.length > 10 ? [`Showing 10 of ${rows.length}.`] : []),
+      `- Interest left to collect: ${peso(toCollect)}`,
+    ].join('\n'))
+  }
+
+  if (topic === 'repaid') {
+    const rows = lender.settled.filter((f) => !period || (f.paidOn && toDateInput(f.paidOn) >= period.from && toDateInput(f.paidOn) <= period.to))
+    const when = period ? ` ${whenText(period)}` : ''
+    if (rows.length === 0) return tell([`No loan funded by ${name}'s money was repaid${when}.`, ...tail].join('\n'))
+    const earned = rows.reduce((s, f) => s + f.earnings, 0)
+    return tell([
+      `**${loansWord(rows.length)}** repaid${when}, earning ${name} ${peso(earned)}.`,
+      ...rows.slice(0, 10).map((f) => `- ${f.borrowerName}: ${peso(f.principal)} | earned ${peso(f.earnings)}${f.paidOn ? ` · paid ${spellDate(toDateInput(f.paidOn))}` : ''}`),
+      ...(rows.length > 10 ? [`Showing 10 of ${rows.length}.`] : []),
+      ...tail,
+    ].join('\n'))
+  }
+
+  if (topic === 'rate') {
+    const fixed = lender.fixedAmountLoans > 0 ? [`- Loans at a fixed amount, not a rate: ${lender.fixedAmountLoans}`] : []
+    if (lender.rates.length === 0) {
+      return tell([fixed.length ? `${name}'s loans all charge a fixed amount, not a rate.` : `${name}'s money has no loans yet, so there is no rate. The rate is set on each loan.`, ...fixed].join('\n'))
+    }
+    const low = lender.rates[0]
+    const high = lender.rates.at(-1)!
+    return tell([
+      `**${low === high ? pct(low) : `${pct(low)} to ${pct(high)}`}** a week on ${name}'s loans.`,
+      ...(low === high ? [] : [`- Rates used: ${lender.rates.map(pct).join(', ')}`]),
+      ...fixed,
+      'The rate is set on each loan, not on the lender.',
+    ].join('\n'))
+  }
+
+  if (topic === 'capital') {
+    const versions = lender.capitalVersions
+    if (versions.length === 0) return tell(`No starting capital is set for ${name}.`)
+    return tell([
+      `**${peso(lender.startingCapital)}** starting capital for ${name} now.`,
+      ...versions.slice(0, 10).map((v, i) => `- ${spellDate(toDateInput(v.savedAt))}: ${peso(v.amount)} | ${i === 0 ? 'current' : 'earlier'}${v.note ? ` · ${v.note}` : ''}`),
+    ].join('\n'))
+  }
+
+  // Where the Admin cut comes from: the Admin pot only.
+  if (!lender.isSelf) return tell(`Only the Admin's pot earns a cut. ${name}'s pot pays it on loans it funds.`)
+  const running = lender.adminCuts.running
+  return tell([
+    `**${peso(p.adminCutPending)}** cut still coming, from ${loansWord(running.length)} still running.`,
+    ...running.slice(0, 10).map((r) => `- ${r.borrowerName}: ${peso(r.cut)} | ${r.lenderName}'s money · due ${spellDate(toDateInput(r.dueOn))}`),
+    ...(running.length > 10 ? [`Showing 10 of ${running.length}.`] : []),
+    `- Already earned on repaid loans: ${peso(p.adminCutEarned)}`,
+  ].join('\n'))
+}
+
 /**
  * Plain checks on one person, answered from the app's own numbers: "how much
  * does Angel owe", "Rico's loans", "how much does Maria have". Only when the
@@ -1225,7 +1388,7 @@ async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
  */
 async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
   // The app's read-only screens, each answered from the same figures as the screen itself.
-  for (const check of [earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
+  for (const check of [lenderPageCheck, earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
     const answer = await check(ctx)
     if (answer) return answer
   }
@@ -1261,6 +1424,20 @@ async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
 }
 
 /**
+ * The server's own answer to one plain question, for the AI (its app_lookup
+ * tool): whatever the server can read, the AI can read the same way. Read
+ * only: only the checks run, never a change card.
+ */
+export async function appLookup(userId: string, question: string): Promise<{ found: boolean; answer?: string; choices?: string[] }> {
+  const [borrowerNames, lenderNames] = await Promise.all([listBorrowerNames(userId), listLenderNames(userId)])
+  const names = [...borrowerNames, ...lenderNames].flatMap((p) => wordsOf(full(p))).filter((w) => w.length > 1)
+  const ctx: Ctx = { userId, text: question, today: manilaToday(), say: () => {}, names }
+  const reply = await personCheck(ctx)
+  if (!reply || reply.kind === 'card') return { found: false }
+  return { found: true, answer: reply.answer, ...(reply.kind === 'ask' && reply.choices.length ? { choices: reply.choices.map((c) => c.label) } : {}) }
+}
+
+/**
  * Changes the server will not make in one go, said plainly instead of half done:
  * "everyone", "all loans", two changes in one message, a negative amount.
  */
@@ -1293,6 +1470,12 @@ export async function serverReply(userId: string, history: { role: 'user' | 'ass
   const ctx: Ctx = { userId, text: latest, today: manilaToday(), say, names }
   if (isQuestion(latest)) return personCheck(ctx)
 
+  // A look at a lender's page said without a question ("Maria's starting capital history", "loans Jun funded that were
+  // paid back"): no amount, so it cannot be a change. A borrower's name alone leaves it to the change rules.
+  if (amountsIn(latest).length === 0) {
+    const looked = (await lenderPageCheck(ctx)) ?? (await moneyHistoryCheck(ctx))
+    if (looked) return looked
+  }
   let intent = intentByRules(latest)
   let how = 'from your words'
   if (!intent) {
