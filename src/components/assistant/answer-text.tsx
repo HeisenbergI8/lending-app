@@ -56,8 +56,9 @@ function Row({ text }: { text: string }) {
       <dd className="font-medium tabular-nums">{inline(value)}</dd>
     </div>
   ) : (
-    // Label and value stay whole: on a narrow phone the value moves under the label instead of breaking mid-phrase.
-    <div className="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-0.5 px-3.5 py-2 text-sm">
+    // One line: on a phone the spacing is tighter and the text a touch smaller (13px, still easy to read).
+    // Only a phone too narrow even for that moves the value under its label; nothing breaks mid-phrase.
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-3 py-2 text-[13px] sm:gap-x-5 sm:px-3.5 sm:text-sm">
       <dt className="text-muted-foreground whitespace-nowrap">{inline(label)}</dt>
       <dd className="ml-auto text-right font-medium whitespace-nowrap tabular-nums">{inline(value)}</dd>
     </div>
