@@ -49,16 +49,20 @@ describe('instant answers: the words', () => {
     allLoansEver: { loans: 8, capital: '₱190,000.00' },
     owesMostNow: [{ borrower: 'Angel Dela Cruz', unpaidLoans: 1, toRepay: '₱38,400.00' }, { borrower: 'Rico Mendoza', unpaidLoans: 1, toRepay: '₱20,000.00' }],
   }
-  test('out on loan', () => assert.equal(sayQuick('outOnLoan', overview), '**₱95,000.00** is out on loan right now.\n- Borrowers owing: 5'))
+  test('out on loan', () => assert.equal(sayQuick('outOnLoan', overview), '**₱95,000.00** out on loan right now.\n- Borrowers owing: 5'))
   test('who is overdue, by name', () => {
-    assert.equal(sayQuick('overdue', overview), '1 borrower is overdue, **₱15,360.00** in all.\n- Dan Aquino: ₱15,360.00, was due October 28, 2026 (7 days late)')
+    assert.equal(sayQuick('overdue', overview), '**₱15,360.00** overdue, from 1 borrower.\n- Dan Aquino: ₱15,360.00 | 7 days late · was due October 28, 2026')
     assert.equal(sayQuick('overdue', { ...overview, overdue: { loans: 0, people: 0, amount: '₱0.00', who: [] } }), 'Nobody is overdue right now.')
   })
-  test('who owes the most', () => assert.equal(sayQuick('owesMost', overview), '**Angel Dela Cruz** owes the most right now: ₱38,400.00.\n- Next: Rico Mendoza, ₱20,000.00'))
-  test('each pot', () => assert.equal(sayQuick('floatingEach', [{ name: 'Maria Cruz', floating: '₱45,000.00' }]), 'Floating in each pot:\n- Maria Cruz: ₱45,000.00'))
+  test('who owes the most', () => assert.equal(sayQuick('owesMost', overview), '**₱38,400.00** owed by Angel Dela Cruz, the most right now.\n- Angel Dela Cruz: ₱38,400.00 | Owes the most\n- Rico Mendoza: ₱20,000.00 | 2nd'))
+  test('each pot', () => assert.equal(sayQuick('floatingEach', [{ name: 'Maria Cruz', floating: '₱45,000.00' }]), '**₱45,000.00** floating across 1 pot.\n- Maria Cruz: ₱45,000.00'))
   test('who is due next, from the list sorted by due date', () => {
     const loans = { loans: [{ borrower: 'Julia Dimaano', amount: '₱10,000.00', totalToRepay: '₱12,800.00', nextDue: '2026-11-04' }, { borrower: 'Rico Mendoza', amount: '₱20,000.00', totalToRepay: '₱25,600.00', nextDue: '2026-11-18' }] }
-    assert.equal(sayQuick('nextDue', loans), '**Julia Dimaano** is due next, on November 04, 2026.\n- Loan: ₱10,000.00 loan, ₱12,800.00 to repay')
+    assert.equal(sayQuick('nextDue', loans), '**November 04, 2026**: Julia Dimaano is due next.\n- Julia Dimaano: ₱12,800.00 | ₱10,000.00 loan')
+  })
+  test('due this week names the days, in one month or across two', () => {
+    assert.match(sayQuick('dueThisWeek', overview) ?? '', /^\*\*₱8,560\.00\*\* due this week, November 04 to 10, 2026\./)
+    assert.match(sayQuick('dueThisWeek', { ...overview, dueThisWeek: { ...overview.dueThisWeek, from: '2026-10-30', to: '2026-11-05' } }) ?? '', /October 30 to November 05, 2026/)
   })
   test('a failed lookup hands the question to the AI', () => assert.equal(sayQuick('outOnLoan', { error: 'That lookup failed.' }), null))
 })

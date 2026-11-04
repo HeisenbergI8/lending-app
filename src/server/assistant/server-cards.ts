@@ -759,8 +759,10 @@ async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
     if (!row) return null
     const unpaid = row.loans.filter((l) => l.state !== 'paid')
     // One total (what is still owed), then each unpaid loan by its amount and due date, so no two figures disagree.
-    const lines = unpaid.map((l) => `- ${l.amount} loan: due ${l.due ? spellDate(l.due) : 'not set'}${l.state === 'overdue' ? ' (overdue)' : ''}`)
-    return tell(unpaid.length === 0 ? `**${row.name}** owes nothing right now. ${row.loans.length} loan${row.loans.length === 1 ? '' : 's'}, all paid.` : [`**${row.name}** still owes ${row.stillOwes}.`, ...lines].join('\n'))
+    // The amount still owed leads (shown large); each unpaid loan is a row with its due date. No per-loan
+    // "to repay" figure: on a weekly loan it is more than what is still owed, and two figures would disagree.
+    const lines = unpaid.map((l) => `- ${l.amount} loan: due ${l.due ? spellDate(l.due) : 'not set'}${l.state === 'overdue' ? ' | Overdue' : ''}`)
+    return tell(unpaid.length === 0 ? `${row.name} owes nothing right now. ${row.loans.length} loan${row.loans.length === 1 ? '' : 's'}, all paid.` : [`**${row.stillOwes}** still owed by ${row.name}.`, ...lines].join('\n'))
   }
   const people = mentions(name, await listLenderNames(ctx.userId))
   if (people.length !== 1 || people[0].length !== 1) return null
@@ -769,7 +771,7 @@ async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
   const r = (await runTool(ctx.userId, 'get_lender', { name: full(l) })) as { found?: boolean; name?: string; floating?: string; outOnLoan?: string; startingCapital?: string }
   if (!r.found) return null
   // A starting capital of ₱0.00 means none was set; "₱0.00" next to a large first deposit reads as wrong.
-  return tell([`**${r.name}** has ${r.floating} floating, ready to lend.`, `- Out on loan: ${r.outOnLoan}`, ...(r.startingCapital && r.startingCapital !== '₱0.00' ? [`- Starting capital: ${r.startingCapital}`] : [])].join('\n'))
+  return tell([`**${r.floating}** floating in ${r.name}'s pot, ready to lend.`, `- Out on loan: ${r.outOnLoan}`, ...(r.startingCapital && r.startingCapital !== '₱0.00' ? [`- Starting capital: ${r.startingCapital}`] : [])].join('\n'))
 }
 
 /**

@@ -448,7 +448,7 @@ export function AskPondex() {
                 ) : (
                   <div key={m.id} className="animate-ask-rise flex max-w-full items-start gap-2 sm:max-w-[94%] sm:gap-2.5">
                     <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="size-8 shrink-0 sm:size-[46px]" />
-                    <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2.5 pt-2.5">
                       {m.steps && <DoneSteps steps={m.steps} thoughtMs={m.thoughtMs ?? 0} failed={m.failed} quick={m.quick} />}
                       <AnswerText
                         text={m.text}
