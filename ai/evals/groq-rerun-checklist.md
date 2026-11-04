@@ -1,0 +1,91 @@
+# Groq rerun of the 38 local-model failures (started 2026-11-04)
+
+The 38 scenarios that failed on the local `qwen3:8b` model (see `results-2026-11-04.md`), run again on
+Groq through the testing link, signed in as demo. Plan: run all 38 and record them, then fix the bugs,
+then retest the failures. No fixes until all 38 have run.
+
+How it runs: `runner/prep-scenario.ts <id>` resets the demo data and does the setup on this Mac;
+`runner/browser-turns.js` sends the chat turns from the signed-in testing-link tab.
+
+Code tested: commit `c7291cb`. Models: 120b = `openai/gpt-oss-120b` (main), 20b = `openai/gpt-oss-20b`,
+27b = `qwen/qwen3.8-27b` (backups).
+
+## Checklist
+
+Tested: 12 of 38. Passed 4, failed 8.
+
+| | Scenario | Status | Model | Result |
+|---|---|---|---|---|
+| [x] | READ-09 | Tested | 120b | Pass |
+| [x] | READ-15 | Tested | 120b | Fail |
+| [x] | READ-16 | Tested | 120b | Fail |
+| [x] | READ-21 | Tested | 120b | Fail |
+| [x] | RULE-02 | Tested | 120b | Fail |
+| [x] | RULE-03 | Tested | 20b | Pass |
+| [x] | RULE-08 | Tested | 20b | Pass |
+| [x] | RULE-11 | Tested | 20b | Fail |
+| [x] | NAME-05 | Tested | 20b | Fail |
+| [x] | LOANX-05 | Tested | 27b | Fail |
+| [x] | LOAN-02 | Tested | 20b | Pass |
+| [x] | LOAN-15 | Tested | 20b | Fail |
+| [ ] | LOAN-20 | Untested | | Tried 3 times, Groq refused every time (busy) |
+| [ ] | LOAN-24 | Untested | | |
+| [ ] | LOANX-01 | Untested | | |
+| [ ] | LOANX-11 | Untested | | |
+| [ ] | LOANX-12 | Untested | | |
+| [ ] | LOANX-14 | Untested | | |
+| [ ] | LOANX-15 | Untested | | Needs a reset and setup |
+| [ ] | PAY-01 | Untested | | |
+| [ ] | PAY-02 | Untested | | |
+| [ ] | PAY-04 | Untested | | Needs a reset and setup |
+| [ ] | PAY-05 | Untested | | Needs a reset and setup |
+| [ ] | PPL-01 | Untested | | |
+| [ ] | PPL-02 | Untested | | |
+| [ ] | PPL-04 | Untested | | |
+| [ ] | PPL-05 | Untested | | |
+| [ ] | PPL-09 | Untested | | Needs a reset and setup |
+| [ ] | PPL-13 | Untested | | |
+| [ ] | PPL-17 | Untested | | Needs a reset and setup |
+| [ ] | MON-01 | Untested | | |
+| [ ] | MON-08 | Untested | | |
+| [ ] | MON-09 | Untested | | Needs a reset and setup |
+| [ ] | REQ-01 | Untested | | |
+| [ ] | REQ-04 | Untested | | Needs a reset and setup |
+| [ ] | MT-08 | Untested | | Presses Confirm, needs a reset |
+| [ ] | MT-10 | Untested | | Presses Confirm, needs a reset |
+| [ ] | MT-12 | Untested | | |
+
+The untested ones with no note never press Confirm, so they can run together after one reset.
+
+## Failures found so far
+
+| Scenario | Model | What went wrong | Likely cause |
+|---|---|---|---|
+| READ-15 | 120b | "How much did Maria earn in October?" It said it can't tell, but never pointed to the lender page. | Model (small miss) |
+| READ-16 | 120b | Gave ₱95,000.00 (out on loan now) as the total of every loan ever made. Right answer: ₱190,000.00 over 8 loans. | Code: no tool gives an all-time total |
+| READ-21 | 120b | "Who's the biggest borrower?" It said it can't see each borrower's balance. Right answer: Angel, ₱38,400.00. | Code: no tool ranks borrowers by amount owed |
+| RULE-02 | 120b | Said Dan's Bad label matches the rule with 1 overdue loan. By the rule, 1 overdue is Okay. | Code: the lookup could give the label the rule would give, so the model doesn't have to work it out |
+| RULE-11 | 20b | Gave ₱4,200.00 interest but left out the ₱24,200.00 total. | Model |
+| NAME-05 | 20b | "How much does Cruz have?" Answered only for Angel Dela Cruz; never mentioned Maria Cruz the lender. | Model (the lookup already lists her as a lender) |
+| LOANX-05 | 27b | Made a delete card for Angel's active loan instead of asking which of her 3 loans. | Model |
+| LOAN-15 | 20b | Card right except the due date: "3 days" became Nov 11 (7 days) instead of Nov 7. | Code, to check: how a length in days becomes a due date |
+
+## Bugs already fixed during this run (commit `c7291cb`)
+
+1. A lender's name (Maria) made the AI offer to add her as a new borrower. The lookup now says she is a lender.
+2. The AI sometimes wrote "Proposed action ... Please confirm" as plain text with no real card. That is now caught and sent back.
+
+## Groq free plan findings
+
+- The main model (120b) ran out for the day after about 16 questions. Groq counts a rolling 24 hours, so yesterday's
+  tests still counted. Back about 6:13 PM Manila.
+- The 20b backup ran out next. Back about 3:07 PM Manila.
+- The last backup (27b) refuses partway through a question: its limit is 8,000 tokens a minute, and one question
+  that makes a change needs more than that. So once the first two models are used up, change requests fail on
+  the free plan. Worth knowing for the live app.
+
+## Next
+
+1. Run the 26 untested scenarios when a model is back (set to start about 3:08 PM Manila).
+2. Compile all failures, fix the code bugs, then retest every failure and run `npm run verify`.
+3. Put the final numbers in `results-2026-11-04.md`.
