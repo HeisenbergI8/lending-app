@@ -724,13 +724,6 @@ html.dark[data-accent='graphite'] {
    The reduced-motion rule above stops all of it: the mascot then holds still in
    its pose, and the status line in the panel header says what it is doing.
    ───────────────────────────────────────────────────────────────────────────── */
-/* In dark mode the mascot's navy outline melts into the background: a thin light
-   edge traces its shape and a soft shadow lifts it, so it reads at a glance. */
-.dark .mascot {
-  filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.9)) drop-shadow(0 0 0.5px rgb(255 255 255 / 0.9))
-    drop-shadow(0 6px 14px rgb(0 0 0 / 0.55));
-}
-
 .mascot-body {
   transform-box: view-box;
   transform-origin: 120px 178px;
