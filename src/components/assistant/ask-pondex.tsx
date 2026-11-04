@@ -599,13 +599,13 @@ export function AskPondex() {
           aria-expanded={open}
           className="relative isolate cursor-pointer rounded-full transition-transform hover:-translate-y-0.5 hover:scale-105"
         >
-          {/* A light disc behind the mascot, like an app's chat button: easy to spot on any page,
-              and on a dark page, where the navy mascot alone fades into the background. */}
+          {/* A soft glow behind the mascot, just enough to catch the eye on a light or a dark page
+              (a little stronger on dark, where the navy mascot would otherwise fade in). */}
           <span
             aria-hidden
-            className="ring-brand-line pointer-events-none absolute inset-1 -z-10 rounded-full bg-white shadow-[0_8px_24px_rgb(20_42_120/0.18)] ring-1 dark:bg-[#e3e9ff] dark:shadow-[0_0_0_4px_rgb(120_150_255/0.25),0_8px_24px_rgb(0_0_0/0.5)] dark:ring-0"
+            className="pointer-events-none absolute -inset-3 -z-10 rounded-full bg-[radial-gradient(circle,rgb(58_102_227/0.22)_0%,rgb(58_102_227/0.08)_45%,transparent_70%)] dark:bg-[radial-gradient(circle,rgb(120_150_255/0.38)_0%,rgb(120_150_255/0.14)_45%,transparent_70%)]"
           />
-          <PondexMascot mood={mood} size={84} className="size-[76px] md:size-[84px]" />
+          <PondexMascot mood={mood} size={96} className="size-[88px] md:size-[96px]" />
         </button>
       </div>
     </>
