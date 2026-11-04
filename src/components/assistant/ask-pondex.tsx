@@ -65,6 +65,20 @@ const SAMPLES = [
 type Choice = { label: string; send: string }
 type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean; choices?: Choice[] }
 
+/**
+ * Server-only test mode, for testing on the demo account without spending the AI's
+ * allowance: open any page with ?dexe-server-only and it stays on for that tab.
+ * The server refuses it for any other account.
+ */
+function serverOnlyTest(): boolean {
+  try {
+    if (new URLSearchParams(window.location.search).has('dexe-server-only')) sessionStorage.setItem('dexe-server-only', '1')
+    return sessionStorage.getItem('dexe-server-only') === '1'
+  } catch {
+    return false
+  }
+}
+
 type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean; choices?: Choice[] } | { ok: false; error: string; usage: Usage | null }
 
 /** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
@@ -75,7 +89,7 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
     const response = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: history, stream: true }),
+      body: JSON.stringify({ messages: history, stream: true, ...(serverOnlyTest() ? { serverOnly: true } : {}) }),
     })
     let data: Reply | null = null
     if (!response.body || !response.headers.get('content-type')?.includes('ndjson')) {

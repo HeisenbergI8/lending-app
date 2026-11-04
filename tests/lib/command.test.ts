@@ -45,6 +45,7 @@ describe('reading days and lengths', () => {
     assert.equal(rateSaid('at 8% a week'), 8)
     assert.equal(labelSaid('Angel is a bad payer'), 'BAD')
     assert.equal(labelSaid('clear her label'), '')
+    assert.equal(labelSaid("clear Lyn's label"), '')
   })
 })
 
@@ -82,6 +83,8 @@ describe('what the Admin wants, by rules (words, Taglish, typos)', () => {
     ['Lyn paid', 'paid_unclear'],
     ['undo Lyn week 2', 'undo_week_paid'],
     ['undo Dan payment', 'undo_payment'],
+    ['Dan did not really pay, reverse it', 'undo_payment'],
+    ['Dan payed', 'paid_unclear'],
     ['Maria deposited 5000', 'deposit'],
     ['Maria topped up 10k', 'deposit'],
     ['Jun withdrew 2000', 'withdraw'],

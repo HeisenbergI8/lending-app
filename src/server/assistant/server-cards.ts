@@ -515,7 +515,9 @@ async function updateMoney(ctx: Ctx): Promise<ServerReply | null> {
 }
 
 async function updateLoan(ctx: Ctx): Promise<ServerReply | null> {
-  const r = await borrowerLoanAction(ctx, 'update_loan', '{name} has no loan to fix.', () => true, { deletedAt: null })
+  // An unpaid loan is the one being fixed; a paid one only when there is no unpaid one.
+  const unpaid = await borrowerLoanAction(ctx, 'update_loan', '', () => true)
+  const r = unpaid.loan || (unpaid.reply && unpaid.reply.kind === 'ask') ? unpaid : await borrowerLoanAction(ctx, 'update_loan', '{name} has no loan to fix.', () => true, { deletedAt: null })
   if (!r.loan) return r.reply ?? null
   const after = /\bto\s+(.+)$/i.exec(ctx.text.replace(/\(the [^)]*\)/i, ''))?.[1] ?? ''
   const change: Record<string, unknown> = {}
@@ -766,7 +768,9 @@ async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
  */
 function oneAtATime(text: string): ServerReply | null {
   const t = clean(text)
-  if (/\b(everyone|everybody|all (the )?(loans|borrowers|lenders|of them|payments)|every (loan|borrower|lender)|lahat)\b/.test(t)) {
+  // "lahat" alone is "all", but "bayad na lahat" is one person paying everything.
+  const allOfThem = /\b(everyone|everybody|all (the )?(loans|borrowers|lenders|of them|payments)|every (loan|borrower|lender))\b/.test(t) || (/\blahat\b/.test(t) && !/\b(bayad|binayaran|binalik|ibinalik|nagbayad)\b/.test(t))
+  if (allOfThem) {
     return tell('For safety, I change one thing at a time. Tell me which one, for example "Dan fully paid".')
   }
   if (/(^|\s)-\s?₱?\d/.test(t)) return tell("An amount can't be negative. Say it as a plain amount, like \"5k\".")

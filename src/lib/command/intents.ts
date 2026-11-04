@@ -51,7 +51,7 @@ export function typoFixed(text: string): string {
   return clean(text).replace(/[a-z]+/g, (w) => fixChangeVerb(w))
 }
 
-const PAID = '(paid|pay|pays|payment|bayad|nagbayad|binayaran|bumayad|hulog|naghulog|nag-hulog|settled|settle|cleared|remit|remitted|sent (his|her|their|the) payment)'
+const PAID = '(paid|payed|pay|pays|payment|bayad|nagbayad|binayaran|bumayad|hulog|naghulog|nag-hulog|settled|settle|cleared|remit|remitted|sent (his|her|their|the) payment)'
 const LEND = '(lend|lent|loan|pahiram\\w*|ipahiram|pautang\\w*|front|fund|bigyan|give)'
 const DEPOSIT = '(deposit\\w*|top(ped)?[ -]?up|added|add|put|dagdag\\w*|nagdagdag|invest(ed)?|cash(ed)? in|hulog sa pot|capital in)'
 const WITHDRAW = '(withdr\\w*|took out|take out|taken out|pull(ed)? out|cash(ed)? out|kinuha|kumuha|bawi\\w*|get back|got back|encash)'
@@ -61,8 +61,9 @@ const WITHDRAW = '(withdr\\w*|took out|take out|taken out|pull(ed)? out|cash(ed)
  * Lyn's week 2 payment" must be an undo before it is a payment.
  */
 const RULES: [Intent, RegExp][] = [
-  ['undo_week_paid', /\b(undo|unmark|reverse|cancel|bawiin|alisin)\b.*\bweek/],
-  ['undo_payment', new RegExp(`\\b(undo|unmark|reverse|cancel|bawiin)\\b.*\\b${PAID}|\\b(not|hindi pa)\\s+(paid|bayad)\\b|\\bmark\\b.*\\bunpaid\\b`)],
+  // An undo is an undo wherever its word sits: "Dan did not really pay, reverse it" must never become a payment.
+  ['undo_week_paid', /^(?=.*\b(undo|unmark|reverse|cancel|bawiin|alisin)\b)(?=.*\bweek)/],
+  ['undo_payment', new RegExp(`^(?=.*\\b(undo|unmark|reverse|cancel|bawiin)\\b)(?=.*\\b${PAID}\\b)|\\b(not|never|didn'?t|did not|hindi( pa)?)\\b.{0,15}\\b(pay|paid|payed|bayad|nagbayad|magbayad)\\b|\\bmark\\b.*\\bunpaid\\b`)],
   ['restore', /\b(restore|undelete|bring back|ibalik|recover)\b/],
   // A note's own words can say anything ("asked for more time"), so a note is recognised before what it says.
   ['add_note', /\b(add|write|put|leave|save)\b.*\bnote\b|\bnote\b.*:|^(remember|tandaan)\b/],

@@ -407,7 +407,13 @@ const compact = (value: unknown) => JSON.stringify(value, (_key, v: unknown) => 
 /** Called as each lookup starts and again when it is back, so the chat can show the steps live. */
 export type OnStep = (step: Step) => void
 
-export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}): Promise<ChatResult> {
+/**
+ * The answer when testing the server alone: what the server could not handle is
+ * reported, not sent to the AI, so a test run spends none of Groq's allowance.
+ */
+export const SERVER_ONLY_FALLBACK = 'Test mode: the server could not handle this, so it would go to the AI. Nothing was sent to the AI.'
+
+export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}, options: { serverOnly?: boolean } = {}): Promise<ChatResult> {
   let stepId = 0
   // Runs a lookup and tells the chat about it in plain words, before and after.
   const lookup = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
@@ -456,6 +462,10 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
       quick: true,
       ...(server.kind === 'ask' && server.choices.length > 0 ? { choices: server.choices } : {}),
     }
+  }
+  if (options.serverOnly) {
+    console.info('[ask-pondex]', { model: 'none', serverOnly: true })
+    return { ok: true, answer: SERVER_ONLY_FALLBACK, tools: [], model: 'none', tokens: 0, proposal: null, usage: await currentUsage() }
   }
   // Plan first, the way a person would: for a change request, the server looks
   // up the fitting actions itself and hands them over, so a smaller model does

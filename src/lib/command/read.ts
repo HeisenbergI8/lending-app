@@ -111,7 +111,7 @@ export function rateSaid(text: string): number | null {
 /** Good, Okay or Bad, or '' to clear, or null when no label is said. */
 export function labelSaid(text: string): 'GOOD' | 'OKAY' | 'BAD' | '' | null {
   const t = clean(text)
-  if (/\b(clear|remove|no)\s+(the\s+|her\s+|his\s+|their\s+)?label\b|\bunlabel\b/.test(t)) return ''
+  if (/\b(clear|remove|unset|no)\b.*\blabel\b|\bunlabel\b/.test(t)) return ''
   if (/\b(bad|masama|pangit|delikado)\b/.test(t)) return 'BAD'
   if (/\b(okay|ok|okey|average|so-so|pwede na)\b/.test(t)) return 'OKAY'
   if (/\b(good|mabuti|maayos|reliable|great|trustworthy|trusted|mapagkakatiwalaan)\b/.test(t)) return 'GOOD'
