@@ -133,8 +133,8 @@ export function AskPondex() {
   }, [usage?.coolUntil, loadUsage])
 
   const writing = messages.some((m) => m.role === 'bot' && !m.done)
-  const working: MascotMood = thinking ? 'think' : writing ? 'talk' : 'idle'
-  const mood: MascotMood = poked ? 'happy' : working
+  // The header and the open button stay still; only the face beside the answer thinks or talks.
+  const mood: MascotMood = poked ? 'happy' : 'idle'
 
   useEffect(() => {
     const all = [timers.current, pokeTimers.current]
@@ -320,7 +320,7 @@ export function AskPondex() {
               {empty && (
                 <div className="m-auto flex max-w-md flex-col items-center gap-3 text-center">
                   <button type="button" onClick={poke} aria-label="Say hi to Dex-E" className="cursor-pointer rounded-3xl">
-                    <PondexMascot mood={poked ? 'happy' : 'idle'} size={160} />
+                    <PondexMascot mood={mood} size={160} />
                   </button>
                   <h2 className="text-xl font-semibold">Hi, I’m Dex-E.</h2>
                   <p className="text-muted-foreground text-sm leading-relaxed">
