@@ -101,10 +101,28 @@ export function ActionCard({
       </dl>
 
       {open && proposal.files && (
-        <label className="border-border/60 hover:bg-accent flex min-h-11 cursor-pointer items-center gap-2 border-t px-3.5 py-2.5 text-sm">
-          <Paperclip className="text-muted-foreground size-4 shrink-0" />
-          <span className={cn('min-w-0 flex-1 truncate', files.length === 0 && 'text-muted-foreground')}>
-            {files.length > 0 ? files.map((f) => f.name).join(', ') : proposal.files.label}
+        // The file is the next step when Confirm needs it, so the row says so and has its own button.
+        <label
+          className={cn(
+            'border-border/60 flex min-h-11 cursor-pointer items-center gap-2.5 border-t px-3.5 py-2.5 text-sm focus-within:ring-2 focus-within:ring-brand/40',
+            needsFile ? 'bg-brand-bg hover:bg-brand-bg/70' : 'hover:bg-accent',
+          )}
+        >
+          <Paperclip className={cn('size-4 shrink-0', needsFile ? 'text-brand' : 'text-muted-foreground')} />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className={cn(files.length > 0 ? 'truncate' : 'leading-snug', files.length === 0 && !needsFile && 'text-muted-foreground', needsFile && 'text-foreground font-medium')}>
+              {files.length > 0 ? files.map((f) => f.name).join(', ') : proposal.files.label}
+            </span>
+            {needsFile && <span className="text-muted-foreground text-xs">Needed to confirm</span>}
+          </span>
+          <span
+            aria-hidden
+            className={cn(
+              'shrink-0 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap',
+              files.length > 0 ? 'text-muted-foreground border-border border' : 'bg-brand text-brand-foreground',
+            )}
+          >
+            {files.length > 0 ? 'Change' : 'Choose file'}
           </span>
           <input
             type="file"
@@ -132,10 +150,15 @@ export function ActionCard({
             type="button"
             onClick={confirm}
             disabled={status === 'saving' || needsFile}
-            className="bg-brand text-brand-foreground hover:bg-brand-strong flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl text-sm font-medium disabled:cursor-default disabled:opacity-50"
+            // Waiting for a file, Confirm is plain grey (the file row above says why); not a faded blue that looks broken.
+            aria-label={needsFile ? 'Confirm (attach the file first)' : undefined}
+            className={cn(
+              'flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl text-sm font-medium whitespace-nowrap disabled:cursor-default',
+              needsFile ? 'bg-muted text-muted-foreground' : 'bg-brand text-brand-foreground hover:bg-brand-strong disabled:opacity-50',
+            )}
           >
             {status === 'saving' ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-            {status === 'saving' ? 'Saving…' : needsFile ? 'Attach the file first' : 'Confirm'}
+            {status === 'saving' ? 'Saving…' : 'Confirm'}
           </button>
         </div>
       )}
