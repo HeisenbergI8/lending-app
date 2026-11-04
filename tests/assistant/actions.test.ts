@@ -189,6 +189,11 @@ describe('the server does the calendar, not the model', () => {
   })
 })
 
+describe('find_action reads a slipped verb as the verb it was meant to be', () => {
+  test('"kend rico 10k" finds the new-loan action', () => assert.equal(findActions('kend rico 10k from maria for 3 weeks')[0]?.name, 'create_loan'))
+  test('"mrak lyn as paid" finds mark paid', () => assert.equal(findActions('mrak lyn as paid')[0]?.name, 'mark_paid'))
+})
+
 describe('find_action matches whole words', () => {
   test('"mark as good" finds the label, not a note ("remark")', () => assert.equal(findActions('mark Rico as good')[0]?.name, 'set_label'))
   test('"remove label" finds the label', () => assert.ok(findActions('remove label').some((a) => a.name === 'set_label')))

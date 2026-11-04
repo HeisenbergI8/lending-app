@@ -1,4 +1,5 @@
 import { type Proposal } from './proposal.ts'
+import { looksLikeChangeVerb } from './names.ts'
 import { manilaToday } from './today.ts'
 import { runTool, TOOLS } from './tools.ts'
 
@@ -312,9 +313,14 @@ const CHANGE_REQUEST = /\b(lend|loan (him|her|them)|add|added|create|new (borrow
 const CLAIMS_CARD = /\b(tap confirm|ready[\s-]to[\s-]confirm|check it, then tap|confirm (it|the card)|card (is )?ready|here is the .{0,30}card|review and confirm|confirm the changes?|(is|are) (now )?prepared|proposed action)\b/i
 
 /** A message asking for a change, not a question about one ("can borrowers pay in parts?" is a question). */
+/** "kend Rico 10k": a change verb typed with one slip still marks a change (see names.ts). */
+function misspeltChange(question: string): boolean {
+  return /\bpayed\b/i.test(question) || (question.toLowerCase().match(/[a-z]+/g) ?? []).some(looksLikeChangeVerb)
+}
+
 export function isChangeRequest(question: string): boolean {
   const asks = /\?\s*$/.test(question.trim()) || /^(can|could|do|does|is|are|was|what|how|why|when|who|which|may)\b/i.test(question.trim())
-  return CHANGE_REQUEST.test(question) && !asks
+  return (CHANGE_REQUEST.test(question) || misspeltChange(question)) && !asks
 }
 
 export function nudgeFor(answer: string, question: string, usedTools: string[], offeredNames: string[] = []): string | null {

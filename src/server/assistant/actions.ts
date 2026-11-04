@@ -1,5 +1,6 @@
 import { parsePesos } from '../../lib/money/centavos.ts'
 import { describeWeeksError, parseCalendarDate, weeksBetween } from '../../lib/money/weeks.ts'
+import { CHANGE_VERBS, fixChangeVerb } from './names.ts'
 import { addCalendarDays } from './today.ts'
 
 /**
@@ -243,15 +244,21 @@ const wordsOf = (text: string) => new Set(text.toLowerCase().split(/[^a-z]+/).fi
 /**
  * The actions whose name, title or words share the most WHOLE words with what
  * was asked. Whole words, because a substring match let "mark" find "remark"
- * and crowd the right action out. More matched words wins; on a tie, the
- * action whose name or title holds more of them.
+ * and crowd the right action out. More matched words wins, a verb counting
+ * double; on a tie, the action whose name or title holds more of them.
  */
+const VERBS = new Set(CHANGE_VERBS.map(stem))
+
 export function findActions(what: string, limit = 5): ActionSpec[] {
-  const asked = [...wordsOf(what)]
+  // "kend rico 10k" asks for a loan: a slipped verb is read as the verb it was meant to be.
+  const asked = [...wordsOf(what.replace(/[a-z]+/gi, fixChangeVerb))]
   return ACTIONS.map((a, index) => {
     const named = wordsOf(`${a.name.replace(/_/g, ' ')} ${a.title}`)
     const all = new Set([...named, ...wordsOf(a.words)])
-    return { a, index, score: asked.filter((w) => all.has(w)).length, named: asked.filter((w) => named.has(w)).length }
+    // The verb says what is wanted ("lend"); the rest are details ("3 weeks"), so a verb counts double.
+    const weight = (w: string) => (VERBS.has(w) ? 2 : 1)
+    const score = asked.filter((w) => all.has(w)).reduce((n, w) => n + weight(w), 0)
+    return { a, index, score, named: asked.filter((w) => named.has(w)).length }
   })
     .filter((x) => x.score > 0)
     .sort((x, y) => y.score - x.score || y.named - x.named || x.index - y.index)

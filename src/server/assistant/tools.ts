@@ -9,7 +9,7 @@ import { listDeleted, type DeletedSection } from '../deleted/queries.ts'
 import { listPendingLoans } from '../pending/queries.ts'
 import { ACTIONS, actionSpec, checkProposal, findActions, normalizeFields } from './actions.ts'
 import { borrowerPhotoUrls } from '../storage/borrower-photos.ts'
-import { amountsSaid, closestNames, nameSaid, type Named } from './names.ts'
+import { amountsSaid, closestNames, looksLikeChangeVerb, nameSaid, type Named } from './names.ts'
 import { manilaToday } from './today.ts'
 import { describeProposal } from './proposal.ts'
 import { readRules } from './knowledge.ts'
@@ -244,6 +244,19 @@ async function findBorrower(userId: string, name: string) {
     }
   }
 
+  // "kend rico", "mrak lyn": the model sometimes passes a misspelt verb as part of the
+  // name. Only tried when the name as typed found nobody, so a real "Mark Lopez" wins.
+  let dropped: string[] = []
+  if (matches.length === 0 && terms.length > 1 && terms.some(looksLikeChangeVerb)) {
+    const rest = terms.filter((t) => !looksLikeChangeVerb(t))
+    const retry = rest.length > 0 ? await search(rest) : []
+    if (retry.length > 0) {
+      dropped = terms.filter(looksLikeChangeVerb)
+      matches = retry
+      terms = rest
+    }
+  }
+
   if (matches.length === 0) {
     // Someone in Recently Deleted is not a stranger: offer the restore, not a new person.
     const deleted = await db.borrower.findMany({
@@ -274,7 +287,15 @@ async function findBorrower(userId: string, name: string) {
     }
     // A typo finds nobody by exact match. Offer the close names before the
     // model offers to add a new person, which would be a duplicate.
-    const didYouMean = closestNames(name, await listBorrowerNames(userId)).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))
+    const everyone = await listBorrowerNames(userId)
+    // "mrak lyn": one stray word (a typo of the verb, or of half the name) makes the
+    // whole name match nobody. People matching one of the words are offered too,
+    // as a question, never picked: "Juan Dela Cruz" must not quietly become Angel Dela Cruz.
+    const oneWord = terms.length > 1
+      ? everyone.filter((p) => terms.some((t) => t.length >= 3 && [p.firstName, p.lastName].some((part) => part.toLowerCase().split(/\s+/).includes(t.toLowerCase()))))
+      : []
+    const close = closestNames(name, everyone)
+    const didYouMean = [...close, ...oneWord.filter((p) => !close.some((c) => c.id === p.id))].slice(0, 3).map((p) => ({ id: p.id, name: `${p.firstName} ${p.lastName}` }))
     return didYouMean.length > 0
       ? { found: false, reason: `No borrower named exactly "${name}". Ask the Admin if they meant one of didYouMean before anything else.`, didYouMean }
       : { found: false, reason: `No borrower named "${name}". Ask the Admin whether to add them as a new borrower, with first and last name.` }
@@ -304,6 +325,7 @@ async function findBorrower(userId: string, name: string) {
   const notesOf = (loanId: string) => notes.filter((n) => n.loanId === loanId).map((n) => n.body)
   return {
     found: true,
+    ...(dropped.length > 0 ? { ignoredWords: dropped } : {}),
     ...several,
     ...alsoLenders,
     borrowers: people

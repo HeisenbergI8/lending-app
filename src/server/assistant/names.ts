@@ -102,3 +102,22 @@ export function nameSaid(text: string, person: { firstName: string; lastName: st
   const parts = norm(`${person.firstName} ${person.lastName}`).split(/\s+/).filter((p) => p.length > 1)
   return parts.some((part) => said.some((word) => word === part || (part.length >= 4 && word.length >= 3 && distance(word, part) <= 1)))
 }
+
+/**
+ * Change verbs a slip of the thumb can still be read as: "kend" is lend, "mrak"
+ * is mark, "delte" is delete. One wrong, missing or swapped letter, and only on
+ * words of four letters or more, so short words do not collide ("and" is not "add").
+ */
+export const CHANGE_VERBS = ['lend', 'mark', 'paid', 'delete', 'remove', 'restore', 'record', 'deposit', 'withdraw', 'rename', 'extend', 'convert', 'label', 'borrow', 'update', 'change', 'create', 'attach', 'undo', 'fund']
+
+export function looksLikeChangeVerb(word: string): boolean {
+  const w = word.toLowerCase()
+  return w.length >= 4 && CHANGE_VERBS.some((v) => Math.abs(v.length - w.length) <= 1 && distance(w, v) <= 1)
+}
+
+/** The change verb a slipped word was meant to be ("kend" → "lend"), or the word unchanged. */
+export function fixChangeVerb(word: string): string {
+  const w = word.toLowerCase()
+  if (w.length < 4 || CHANGE_VERBS.includes(w)) return word
+  return CHANGE_VERBS.find((v) => Math.abs(v.length - w.length) <= 1 && distance(w, v) <= 1) ?? word
+}

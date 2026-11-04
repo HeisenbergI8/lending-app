@@ -97,6 +97,26 @@ After these: `npm run verify` 697 pass, card checks 32/32, Confirm checks 49/49 
 - The borrower lookup's label fields are now savedLabel and ruleWouldGive. The first name ("labelByYourRule")
   made the small model think Lyn was already Good, so "mark Lyn as good" made no card. Now 3 of 3 make the card.
 
+## Typos in the action word (2026-11-04)
+
+Found by asking "what if someone types kend instead of lend": the app treated it as a plain question, the AI looked
+up a borrower called "kend rico", and said nobody was found. Nothing wrong was saved, but the answer was useless.
+
+Fixed on the server (checked directly, no AI needed):
+- A change word with one slipped letter still counts as a change: kend, mrak, delte, restor, payed.
+- The action search reads the slipped word as the real one, and an action word counts double, so "lend Rico 10k
+  ... 3 weeks" finds the new-loan action first (before, even correctly spelled, "mark a week paid" came first).
+- The name lookup drops a misspelt action word when the whole name finds nobody ("mrak lyn" finds Lyn), and offers
+  people matching one word of the name as a question ("Juan Dela Cruz": "did you mean Angel Dela Cruz?"), never a pick.
+
+Extra prompts for the Groq rerun (untested end to end; the Mac model is too unreliable to judge):
+
+| | Prompt | Expected |
+|---|---|---|
+| [ ] | kend Rico 10k from Maria for 3 weeks starting today | New-loan card for Rico, ₱10,000.00 from Maria |
+| [ ] | mrak lyn as paid | Mark-paid card for Lyn's loan (screenshot needed) |
+| [ ] | Lyn is good now, set it | Set-label card, Lyn Good |
+
 ## Groq free plan findings
 
 - The main model (120b) ran out for the day after about 16 questions. Groq counts a rolling 24 hours, so yesterday's

@@ -154,3 +154,14 @@ describe('sending only what a question needs (fewer tokens per call)', () => {
     assert.equal(isChangeRequest('update Rico to 6%'), true)
   })
 })
+
+describe('a change typed with a slip of the thumb is still a change', () => {
+  for (const q of ['kend Rico 10k from Maria for 3 weeks starting today', 'mrak lyn as paid', 'delte jun 5k withdrawl', 'rico payed today', 'restor Paolo'])
+    test(q, () => assert.equal(isChangeRequest(q), true))
+  test('plain questions with near words are not changes', () => {
+    assert.equal(isChangeRequest('how much is out on loan right now?'), false)
+    assert.equal(isChangeRequest('who is overdue'), false)
+    assert.equal(isChangeRequest('show lenders'), false)
+    assert.equal(isChangeRequest('total of all loans'), false)
+  })
+})

@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { amountsSaid, closestNames, distance, nameSaid, nameScore } from '../../src/server/assistant/names.ts'
+import { amountsSaid, closestNames, distance, looksLikeChangeVerb, nameSaid, nameScore } from '../../src/server/assistant/names.ts'
 
 /** The demo account's borrowers (prisma/seed/demo.ts). */
 const people = [
@@ -46,4 +46,11 @@ describe('what the Admin actually said', () => {
 describe('number words next to names', () => {
   test('"lend bea twenty thousand" is 20,000', () => assert.deepEqual(amountsSaid('lend bea twenty thousand from john ross'), [20000]))
   test('"lend twenty five thousand" is 25,000', () => assert.deepEqual(amountsSaid('lend twenty five thousand'), [25000]))
+})
+
+describe('a misspelt change verb (kend, mrak) is not part of a name', () => {
+  for (const w of ['kend', 'mrak', 'delte', 'restor', 'lned']) test(w, () => assert.equal(looksLikeChangeVerb(w), true))
+  test('names and short words are not verbs', () => {
+    for (const w of ['rico', 'lyn', 'maria', 'angel', 'and', 'from', 'weeks', 'lopez']) assert.equal(looksLikeChangeVerb(w), false, w)
+  })
 })
