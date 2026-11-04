@@ -77,7 +77,7 @@ function metricOf(t: string): Metric | null {
   if (/\b(deposits?|deposit|deposited|money in|cash in|put in|nilagay|naglagay|topped up|top ups?)\b/.test(t)) return 'deposits'
   if (/\b(withdrawals?|withdraw|withdrew|withdrawn|took out|taken out|cash out|cashed out|kinuha|money out)\b/.test(t)) return 'withdrawals'
   if (/\b(overdue|late|delayed|behind|lagpas|atrasado)\b/.test(t)) return 'overdue'
-  if (/\b(paid|pay|pays|payments?|bayad|binayaran|nagbayad|repaid|hulog|naghulog)\b/.test(t)) return 'paid'
+  if (/\b(paid|pay|pays|payments?|bayad|binayaran|nagbayad|repaid|paid back|returned|hulog|naghulog|naibalik|ibinalik|binalik)\b/.test(t)) return 'paid'
   if (/\b(borrow|borrowed|borrowing|hiram|hiniram|loaned)\b/.test(t)) return 'borrowed'
   if (/\b(owe|owes|owed|owing|utang|balance|balances|remaining|unpaid|still due)\b/.test(t)) return 'owes'
   if (/\b(floating|available|free|ready to lend|idle|cash on hand|natitira|left in|hawak|holding|holds|pots?)\b/.test(t)) return 'floating'
@@ -109,7 +109,8 @@ export function readQuestion(text: string, today: Day): Question | null {
     who,
     // "who" with a ranking is one row per person too: "who earned the most this month".
     each: EACH.test(t) || rank !== null || /\b(lenders|borrowers|pots|investors|clients)\b/.test(t) || (/^(who|sino)\b/.test(t) && metric !== 'count'),
-    admin: /\b(admin|my pot|my money|did i|have i|i earned|my earnings|my cut|akin|ko)\b/.test(t),
+    // The Admin speaking of themself: "I", "me", "my", "ko", "akin" ("how much interest will I still get?").
+    admin: /\b(admin|i|me|my|mine|akin|ko)\b/.test(t),
     rank,
     countOf,
     period: periodSaid(text, today),

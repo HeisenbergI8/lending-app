@@ -961,6 +961,16 @@ const FIGURE: Record<Exclude<Metric, 'count'>, { word: string; now: boolean; one
   paid: { word: 'paid', now: false, one: (n) => `paid by ${n}` },
   borrowed: { word: 'borrowed', now: false, one: (n) => `borrowed by ${n}` },
 }
+/** Names first, for a tie: "Angel and Bea borrowed the most, ₱75,000.00 each". */
+const VERB: Record<Exclude<Metric, 'count'>, string> = {
+  earned: 'earned', floating: 'have', outOnLoan: 'have out on loan', interestOwed: 'have interest still to come', startingCapital: 'started with',
+  deposits: 'deposited', withdrawals: 'withdrew', owes: 'owe', overdue: 'have overdue', paid: 'paid', borrowed: 'borrowed',
+}
+/** A tie at nothing: "Angel, Dan, Lyn and Rico paid nothing in October 2026." */
+const VERB_NONE: Record<Exclude<Metric, 'count'>, string> = {
+  earned: 'earned nothing', floating: 'have nothing floating', outOnLoan: 'have nothing out on loan', interestOwed: 'have no interest still to come', startingCapital: 'have no starting capital set',
+  deposits: 'deposited nothing', withdrawals: 'withdrew nothing', owes: 'owe nothing', overdue: 'have nothing overdue', paid: 'paid nothing', borrowed: 'borrowed nothing',
+}
 /** "All time" for a figure over a period: from long before the first loan to today. */
 const ALL_TIME = (today: string) => ({ from: '2000-01-01', to: today, label: 'all time' })
 
@@ -1051,9 +1061,12 @@ async function anyFigureCheck(ctx: Ctx): Promise<ServerReply | null> {
   const shown = rows.filter((r) => kind === 'lender' || r.value !== 0 || q.rank === 'least').sort((a, b) => (q.rank === 'least' ? a.value - b.value : b.value - a.value))
   const one = kind === 'lender' ? 'lender' : 'borrower'
   const tied = q.rank ? shown.filter((r) => r.value === shown[0]?.value) : []
+  const together = tied.length > 2 ? `${tied.slice(0, -1).map((r) => r.name).join(', ')} and ${tied.at(-1)!.name}` : tied.map((r) => r.name).join(' and ')
   const head = q.rank && shown.length > 0
     ? tied.length > 1
-      ? `**${pesos(shown[0].value / 100)}** each: ${tied.length > 2 ? `${tied.slice(0, -1).map((r) => r.name).join(', ')} and ${tied.at(-1)!.name}` : tied.map((r) => r.name).join(' and ')}${when}, the ${q.rank} of any ${one}.`
+      ? shown[0].value === 0
+        ? `${together} ${VERB_NONE[q.metric]}${when}.`
+        : `${together} ${VERB[q.metric]} the ${q.rank}${when}, **${pesos(shown[0].value / 100)}** each.`
       : `**${pesos(shown[0].value / 100)}** ${figure.one(shown[0].name)}${when}, the ${q.rank} of any ${one}.`
     : `**${pesos(total / 100)}** ${figure.word}${when}, ${kind === 'lender' ? 'across' : 'from'} ${shown.length} ${shown.length === 1 ? one : `${one}s`}.`
   if (shown.length === 0) return tell([`Nothing ${figure.word}${when} for any ${kind}.`, ...tail].join('\n'))
@@ -1108,7 +1121,10 @@ async function countAnswer(ctx: Ctx, q: Question): Promise<ServerReply | null> {
     const o = (await runTool(ctx.userId, 'get_overview', {})) as { overdue: { loans: number }; allLoansEver: { loans: number } }
     const active = await db.loan.count({ where: { userId: ctx.userId, deletedAt: null, status: 'ACTIVE' } })
     const paidAll = await db.loan.count({ where: { userId: ctx.userId, deletedAt: null, status: 'PAID' } })
-    if (condition === 'overdue') return tell(`**${o.overdue.loans} ${o.overdue.loans === 1 ? 'loan' : 'loans'}** overdue right now.`)
+    if (condition === 'overdue') {
+      const who = (o as unknown as { overdue: { who: { borrower: string; owes: string }[] } }).overdue.who
+      return tell([`**${o.overdue.loans} ${o.overdue.loans === 1 ? 'loan' : 'loans'}** overdue right now.`, ...who.map((w) => `- ${w.borrower}: ${w.owes}`)].join('\n'))
+    }
     if (condition === 'owing') return tell(`**${active} ${active === 1 ? 'loan' : 'loans'}** still unpaid.`)
     if (condition === 'paid') return tell(`**${paidAll} ${paidAll === 1 ? 'loan' : 'loans'}** fully paid.`)
     return tell([`**${o.allLoansEver.loans} ${o.allLoansEver.loans === 1 ? 'loan' : 'loans'}** in all.`, `- Unpaid: ${active}`, `- Fully paid: ${paidAll}`, `- Overdue now: ${o.overdue.loans}`].join('\n'))

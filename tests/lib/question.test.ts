@@ -41,6 +41,12 @@ describe('questions read as parts: what, who, when', () => {
     assert.equal(parts('how much is in my pot?')?.admin, true)
     assert.equal(parts('how much did I earn this month?')?.admin, true)
   })
+  test('round 4: "will I", "naibalik", and "may" as "has"', () => {
+    assert.equal(parts('how much interest will I still get?')?.admin, true)
+    assert.equal(parts('magkano na ang naibalik ni Bea')?.metric, 'paid')
+    assert.equal(parts('sino ang may pinakamalaking utang')?.period, null)
+    assert.equal(parts('how much did each lender earn in May?')?.period, 'May 2026')
+  })
   test('two figures joined go to the AI', () => assert.equal(readQuestion('who is overdue and owes the most?', TODAY), null))
   test('not a figure question', () => assert.equal(readQuestion('what is the capital of France?', TODAY), null))
 })

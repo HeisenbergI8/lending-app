@@ -252,7 +252,9 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
   if (/\b(last year)\b/.test(t)) return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, label: `${y - 1}` }
   // A month by name, with no day after it: "in October", "for Oct 2026". A later month with no year is last year's.
   const named = new RegExp(`\\b${MONTH}\\b(?!\\.?\\s*\\d{1,2}\\b(?!\\d{2}))(?:\\s+(\\d{4}))?`).exec(t)
-  if (named) {
+  // "May" is also Tagalog for "has" ("sino ang may pinakamalaking utang"): a month only with a year or "in", "sa", "nung" before it.
+  const mayIsMonth = (m: RegExpExecArray) => m[1] !== 'may' || !!m[2] || /\b(in|sa|nung|noong|of|for|during|month of)\s+may\b/.test(t)
+  if (named && mayIsMonth(named)) {
     const month = MONTHS.indexOf(named[1].slice(0, 3)) + 1
     const year = named[2] ? Number(named[2]) : month > m ? y - 1 : y
     return { from: `${year}-${pad(month)}-01`, to: cap(monthEnd(year, month)), label: `${monthName(month)} ${year}` }
