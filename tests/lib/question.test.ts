@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { readQuestion } from '../../src/lib/command/question.ts'
+import { lenderTopic, readQuestion } from '../../src/lib/command/question.ts'
 
 const TODAY = '2026-11-04'
 const parts = (text: string) => {
@@ -49,4 +49,31 @@ describe('questions read as parts: what, who, when', () => {
   })
   test('two figures joined go to the AI', () => assert.equal(readQuestion('who is overdue and owes the most?', TODAY), null))
   test('not a figure question', () => assert.equal(readQuestion('what is the capital of France?', TODAY), null))
+})
+
+describe('lenderTopic: the lender page, said loosely', () => {
+  const cases: [string, ReturnType<typeof lenderTopic>][] = [
+    ['give me a report for lender statement all time for John Ross', 'statement'],
+    ['show me the statment of jun for october', 'statement'],
+    ['tell me about Maria', 'statement'],
+    ['kumusta pot ni Jun', 'statement'],
+    ["where is Maria's money?", 'breakdown'],
+    ['saan napunta pera ni Jun', 'breakdown'],
+    ['John Ross pot total', 'breakdown'],
+    ["who has Maria's money?", 'loans'],
+    ['which loans does jun fund', 'loans'],
+    ['sino may hawak ng pera ni maria', 'loans'],
+    ["Maria's repaid loans", 'repaid'],
+    ['loans jun funded that were paid back', 'repaid'],
+    ['what rate does Maria earn?', 'rate'],
+    ['ano patong ni john ross', 'rate'],
+    ["Maria's starting capital history", 'capital'],
+    ['where does my cut come from?', 'cut'],
+    ['show my lenders', 'list'],
+    ['who are my lenders?', 'list'],
+    ['how many loans did Maria fund?', null],
+    ['how much did Maria earn this month?', null],
+    ['how much does Maria have?', null],
+  ]
+  for (const [text, want] of cases) test(`${text} → ${want}`, () => assert.equal(lenderTopic(text), want))
 })

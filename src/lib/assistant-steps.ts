@@ -58,6 +58,8 @@ export function stepStarted(tool: string, args: Args): string {
       return args.name ? `Reading ${nameOf(args.name)}'s money history` : 'Reading the money history'
     case 'floating_on':
       return 'Working out what will be floating'
+    case 'app_lookup':
+      return 'Checking the app'
     case 'list_pending':
       return 'Checking pending loan requests'
     case 'list_deleted':
@@ -116,6 +118,8 @@ export function stepFinished(tool: string, args: Args, result: unknown): { text:
       return done('Added up loans and payments')
     case 'admin_cut':
       return done("Added up the Admin's cut")
+    case 'app_lookup':
+      return r.found ? done('Checked the app') : missed('The app could not answer that part')
     case 'borrower_statement':
       return r.found ? done(`Read ${r.name}'s statement`) : missed(`No borrower named “${typed}”`)
     case 'money_history':

@@ -154,7 +154,7 @@ const CHANGE_RULES = `Changes (add, edit, pay, delete, restore anything):
 const OFF_TOPIC = OUT_OF_SCOPE
 
 /** Tools for a plain question. find_action stays, so a missed change can still switch to change mode. */
-const READ_TOOLS = new Set(['read_rules', 'get_overview', 'list_lenders', 'find_borrower', 'find_loans', 'get_loan', 'get_lender', 'lender_earnings', 'period_summary', 'admin_cut', 'borrower_statement', 'money_history', 'floating_on', 'list_pending', 'list_deleted', 'search_notes', 'find_action'])
+const READ_TOOLS = new Set(['read_rules', 'get_overview', 'list_lenders', 'find_borrower', 'find_loans', 'get_loan', 'get_lender', 'lender_earnings', 'period_summary', 'admin_cut', 'borrower_statement', 'money_history', 'floating_on', 'app_lookup', 'list_pending', 'list_deleted', 'search_notes', 'find_action'])
 
 export function toolsFor(mode: Mode) {
   return TOOLS.filter((t) => mode === 'change' || READ_TOOLS.has(t.name)).map((t) => ({ type: 'function', function: t }))
@@ -164,6 +164,7 @@ function systemPrompt(mode: Mode = 'change'): string {
   return `You are Dex-E, the helper inside Pondex, a private lending tracker. You talk only to the Admin who runs it. Today is ${manilaToday()} (Philippine time).
 
 Sources:
+- For a figure, list, statement or report: call app_lookup first with one plain question; it gives the app's own answer, which you may use as is. Every lender has a Lender statement on the Reports page, the Admin pot too.
 - Numbers (amounts, dates, names, counts) only from data tool results. You may add or subtract them; say which parts. Never invent one.
 - What was paid on a day comes from a loan's payments, not its total.
 - "Who funded it": name every funder with their amount, the Admin included.

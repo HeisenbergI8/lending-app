@@ -19,6 +19,14 @@ Every screen, report and filter in the app, with who in Dex-E answers it:
 | Borrowers / borrower page | What one borrower owes, their loans | "How much does Angel owe?", "Rico's loans" | Yes | `find_borrower` |
 | Borrower page | Track record and label (saved vs by the rule) | "Is Dan a good borrower?" | Yes | `find_borrower` |
 | Lenders / lender page | One pot: floating, out on loan, all-time earned | "How much does Maria have?", "How much did Maria earn?" | Yes | `get_lender`, `list_lenders` |
+| Lenders page | Every lender with floating, out on loan, earned | "Show my lenders", "Who are my lenders?" | Yes | `app_lookup` |
+| Lender page | Where the money is: ready to lend, out on loan on time, overdue, interest coming, cut coming | "Where is Maria's money?", "Breakdown of my pot" | Yes | `app_lookup` |
+| Lender page | Out with: who has the money, overdue only | "Who has Jun's money?", "Maria's overdue loans" | Yes | `app_lookup` |
+| Lender page | Paid back loans and what they earned | "Maria's repaid loans" | Yes | `app_lookup` |
+| Lender page | Rate the money earns | "What rate does Maria earn?" | Yes | `app_lookup` |
+| Lender page | Starting capital history | "Maria's starting capital history" | Yes | `app_lookup` |
+| Lender page (Admin) | Where the Admin cut comes from | "Where does my cut come from?" | Yes | `app_lookup` |
+| Reports: lender statement (whole) | Put in, taken out, loans funded and repaid, earned, today's position | "Lender statement for John Ross all time" | Yes | `app_lookup` |
 | Lender page | Floating on a future date (projection) | "How much will Maria have by Nov 30?" | Yes | `floating_on` |
 | Money history | Deposits, withdrawals, lent out, paid back, by lender, type and dates | "What came in last week?", "Maria's deposits this month" | Yes | `money_history` |
 | Pending loans | Requests waiting | "Any pending requests?" | Yes | `list_pending` |
@@ -52,3 +60,10 @@ All 37 actions in `src/server/assistant/actions.ts`. The server makes the card f
 
 Signing in or out, changing the password, uploading a new borrower photo, downloading report files, and theme
 settings: done on their own screens.
+
+## The AI has every server answer too
+
+The AI's `app_lookup` tool asks the server's own reader one plain question and gets the same answer the server gives
+(read only, never a card). So anything the server can answer, the AI can use as well, including later additions.
+Regression: `ai/evals/runner/regress-lender-page.ts` (50 prompts, server only).
+
