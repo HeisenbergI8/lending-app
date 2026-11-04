@@ -31,7 +31,7 @@ try {
   usage = await usageSummary([A])
   await p.getByRole('button', { name: 'Close chat' }).click(); await p.getByRole('button', { name: /Open Ask Pondex/ }).click(); await p.waitForTimeout(1500)
   const header = await section().locator('header').innerText()
-  ok('LIM-04 header shows the status from the server', header.includes('Ready · limit-model-a'), header.replace(/\n/g, ' '))
+  ok('LIM-04 header shows the status from the server', header.includes('Ready'), header.replace(/\n/g, ' '))
 } finally {
   await db.assistantUsage.deleteMany({ where: { model: A } })
 }

@@ -170,6 +170,35 @@ export function manilaTime(date: Date): string {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
 }
 
+/** What a person calls each model: the first is the main AI, the rest are backups. */
+export function friendlyName(index: number, count: number): string {
+  if (index === 0) return 'Main AI'
+  return count > 2 ? `Backup AI ${index}` : 'Backup AI'
+}
+
+/** One plain line per model for the details view: how much is left and what it is doing. */
+export type ModelLine = { name: string; model: string; percentLeft: number; note: string; tone: 'good' | 'low' | 'empty' }
+
+export function modelLines(
+  usage: { inUse: string | null; models: { model: string; used: number; limit: number; coolUntil: Date | string | null; requestsLeft: number | null; requestLimit: number | null }[] },
+  now: number,
+): ModelLine[] {
+  return usage.models.map((m, i) => {
+    const cool = m.coolUntil ? new Date(m.coolUntil) : null
+    const resting = cool !== null && cool.getTime() > now
+    const outForDay = resting && cool.getTime() - now > DAY_REST_MS
+    const byTokens = m.limit > 0 ? Math.max(0, m.limit - m.used) / m.limit : 0
+    const byRequests = m.requestsLeft !== null && m.requestLimit ? m.requestsLeft / m.requestLimit : 1
+    const percentLeft = outForDay || m.requestsLeft === 0 ? 0 : Math.round(100 * Math.min(byTokens, byRequests))
+    const note = outForDay
+      ? `Used up · back at ${manilaTime(cool)}`
+      : resting
+        ? `Short break · back in ${clock(cool.getTime() - now)}`
+        : `${m.model === usage.inUse ? 'In use' : 'Ready'} · about ${percentLeft}% left today`
+    return { name: friendlyName(i, usage.models.length), model: m.model, percentLeft, note, tone: percentLeft === 0 ? 'empty' : percentLeft < 25 ? 'low' : 'good' }
+  })
+}
+
 /** The line under "Pondex" in the chat header. Dates may arrive as strings from JSON. */
 export function statusLine(usage: { status: Status; inUse: string | null; coolUntil: Date | string | null }, now: number): string {
   const until = usage.coolUntil ? new Date(usage.coolUntil) : null
@@ -179,12 +208,12 @@ export function statusLine(usage: { status: Status; inUse: string | null; coolUn
     case 'busy':
       return until ? `Busy · ready again in ${clock(until.getTime() - now)}` : 'Busy · try again in a minute'
     case 'out':
-      return until ? `Out for today · back at ${manilaTime(until)}` : 'Out for today'
+      return until ? `Used up for today · back at ${manilaTime(until)}` : 'Used up for today'
     case 'low':
-      return `Running low today · ${shortModel(usage.inUse ?? '')}`
+      return 'Ready · running low today'
     case 'backup':
-      return `Ready · backup model ${shortModel(usage.inUse ?? '')}`
+      return 'Ready · using the backup AI'
     default:
-      return `Ready · ${shortModel(usage.inUse ?? '')}`
+      return 'Ready'
   }
 }

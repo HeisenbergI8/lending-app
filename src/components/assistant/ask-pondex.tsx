@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowUp, ChevronDown, Hourglass, Maximize2, Minimize2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { clock, manilaTime, shortModel, type Status, statusLine } from '@/lib/assistant-status'
+import { clock, manilaTime, modelLines, type Status, statusLine } from '@/lib/assistant-status'
 import { ActionCard, type CardStatus, type ProposalView } from './action-card.tsx'
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 
@@ -289,27 +289,24 @@ export function AskPondex() {
             </header>
 
             {details && usage && !usage.local && (
-              <div className="border-border/70 bg-muted/40 border-b px-4 py-3 text-xs">
-                <p className="text-muted-foreground mb-2">Groq free plan, per model. Requests and this minute are Groq&apos;s own figures.</p>
-                <dl className="flex flex-col gap-1.5">
-                  {usage.models.map((m) => {
-                    const cool = m.coolUntil ? new Date(m.coolUntil) : null
-                    const state = cool && cool.getTime() > now
-                      ? cool.getTime() - now > 5 * 60_000 ? `out until ${manilaTime(cool)}` : `busy, ${clock(cool.getTime() - now)}`
-                      : m.model === usage.inUse ? 'in use' : 'ready'
-                    return (
-                      <div key={m.model} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                        <dt className="font-medium">{shortModel(m.model)} <span className="text-muted-foreground font-normal">· {state}</span></dt>
-                        <dd className="text-muted-foreground tabular-nums">
-                          {m.requestsLeft !== null ? `${m.requestsLeft}/${m.requestLimit ?? '?'} requests` : 'requests not seen yet'}
-                          {m.minuteTokensLeft !== null ? ` · ${m.minuteTokensLeft.toLocaleString()} tokens this min` : ''}
-                          {` · ${m.exact ? '' : 'about '}${m.used.toLocaleString()}/${m.limit.toLocaleString()} today`}
-                        </dd>
+              <div className="border-border/70 bg-muted/40 border-b px-4 py-3">
+                <p className="text-muted-foreground mb-3 text-xs">Free AI left today. When one runs out, the next one answers.</p>
+                <ul className="flex flex-col gap-3">
+                  {modelLines(usage, now).map((line) => (
+                    <li key={line.model} title={line.model}>
+                      <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                        <span className="font-medium">{line.name}</span>
+                        <span className="text-muted-foreground text-xs">{line.note}</span>
                       </div>
-                    )
-                  })}
-                </dl>
-                <p className="text-muted-foreground mt-2">Groq counts the last 24 hours, so &quot;today&quot; is exact only after Groq refuses.</p>
+                      <div className="bg-border/70 h-1.5 overflow-hidden rounded-full" role="meter" aria-label={`${line.name} left today`} aria-valuenow={line.percentLeft} aria-valuemin={0} aria-valuemax={100}>
+                        <div
+                          className={cn('h-full rounded-full', line.tone === 'good' ? 'bg-emerald-500' : line.tone === 'low' ? 'bg-amber-500' : 'bg-transparent')}
+                          style={{ width: `${line.percentLeft}%` }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
