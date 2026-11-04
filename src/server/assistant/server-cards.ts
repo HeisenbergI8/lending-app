@@ -10,7 +10,7 @@ import {
   amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
   periodSaid, requestRef, SPLIT_EVENLY, weekNumberSaid,
 } from '../../lib/command/read.ts'
-import { closestNames, distance, type Named } from './names.ts'
+import { closestNames, distance, maybeNames, tokensOf, wordNames, type Named } from './names.ts'
 import { meaningOf } from './meaning.ts'
 import { type Proposal } from './proposal.ts'
 import { manilaToday } from './today.ts'
@@ -74,7 +74,7 @@ const TITLES: Partial<Record<Intent, string>> = {
 // ---------------------------------------------------------------- people
 
 /** Name words that are also ordinary words in a request, never read as a name on their own. */
-const NOT_NAMES = new Set(['to', 'from', 'the', 'and', 'for', 'week', 'paid', 'loan', 'money', 'pot', 'admin', 'note', 'new', 'all', 'her', 'his', 'today', 'kay', 'ni', 'sa', 'na', 'ang', 'mark', 'good', 'bad', 'okay'])
+const NOT_NAMES = new Set(['to', 'from', 'the', 'and', 'for', 'week', 'paid', 'loan', 'money', 'pot', 'admin', 'note', 'new', 'all', 'her', 'his', 'today', 'kay', 'ni', 'sa', 'na', 'ang', 'good', 'bad', 'okay'])
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const wordsOf = (s: string) => norm(s).split(/[^a-z]+/).filter(Boolean)
 
@@ -84,17 +84,18 @@ const wordsOf = (s: string) => norm(s).split(/[^a-z]+/).filter(Boolean)
  * name wins over a shorter one ("Angel Dela Cruz" is not also Angel Arellano).
  */
 function mentions<T extends Person>(text: string, people: T[]): T[][] {
-  const said = wordsOf(text)
+  const said = tokensOf(text)
   const hits = people
     .map((p) => {
       const parts = wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x))
       const at = new Set<number>()
       let score = 0
       for (const part of parts) {
-        const i = said.findIndex((w, k) => !at.has(k) && (w === part || (part.length >= 4 && w.length >= 3 && distance(w, part) <= 1)))
+        const i = said.findIndex((_, k) => !at.has(k) && wordNames(said, k, part))
         if (i >= 0) {
           at.add(i)
-          score++
+          // The exact name beats a one-letter-off one on the same word: "Mary" is Mary, not also Mark.
+          score += said[i].word === part ? 1 : 0.5
         }
       }
       return { p, at, score }
@@ -114,8 +115,8 @@ function mentions<T extends Person>(text: string, people: T[]): T[][] {
 
 /** How many parts of a person's name the text says: "Maria Cruz" says 2 of Maria Cruz, 1 of Angel Dela Cruz. */
 function nameParts(text: string, p: { firstName: string; lastName: string }): number {
-  const said = wordsOf(text)
-  return wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x) && said.some((w) => w === x || (x.length >= 4 && w.length >= 3 && distance(w, x) <= 1))).length
+  const said = tokensOf(text)
+  return wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x) && said.some((_, k) => wordNames(said, k, x))).length
 }
 
 /** "Which Angel?" with a button per person; the button sends the sentence with the full name in. */
@@ -131,7 +132,7 @@ function whichPerson(text: string, people: Person[], role: string): ServerReply 
 
 /** Close names for words that matched nobody, as "did you mean" buttons. Null when nothing is close. */
 function didYouMean(text: string, people: Person[], role: string): ServerReply | null {
-  for (const w of text.split(/[^\p{L}]+/u).filter((x) => x.length >= 3 && !NOT_NAMES.has(x.toLowerCase()))) {
+  for (const w of maybeNames(text).filter((x) => !NOT_NAMES.has(x))) {
     const close = closestNames(w, people)
     if (close.length > 0) {
       const re = new RegExp(`\\b${w}\\b`, 'i')
@@ -290,9 +291,12 @@ const amountsInOne = (s: string) => amountsIn(s.replace(/₱\s?/, '₱'))[0] ?? 
 /** The text with one person's name words blanked out, so they are not read again as someone else. */
 function withoutName(text: string, p: Person): string {
   const parts = wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x))
+  const tokens = tokensOf(text)
+  let k = -1
   return text.replace(/[\p{L}']+/gu, (w) => {
-    const n = norm(w).replace(/'s$/, '')
-    return parts.some((x) => n === x || (x.length >= 4 && n.length >= 3 && distance(n, x) <= 1)) ? ' ' : w
+    if (!/[A-Za-z]/.test(norm(w))) return w
+    k++
+    return parts.some((x) => wordNames(tokens, k, x)) ? ' ' : w
   })
 }
 

@@ -56,7 +56,8 @@ const PATTERNS: [QuickKind, string, RegExp][] = [
   ['loansEver', 'get_overview', /^((what's |what is )?(the )?total (of )?(all )?(the )?loans( (i've|i have|we've|we have) ever made| ever)?|how many loans (have i|have we|did i|did we) (ever )?(made|given))$/],
   ['owesMost', 'get_overview', /^(who (owes|owe) (me |us )?(the )?most|who('s| is) (my |the )?(biggest|top|largest) borrower)$/],
   ['borrowerCount', 'get_overview', /^how many borrowers( do (i|we) have)?$/],
-  ['pending', 'list_pending', /^((any |show |list )?(the )?(pending|waiting) (loan )?requests|(how many|what|which) (loan )?requests are (pending|waiting)|who('s| is) waiting for a loan)$/],
+  // "Pending loans" is what the app's own screen calls the requests, so it means them too.
+  ['pending', 'list_pending', /^((any |show |list )?(the )?(pending|waiting) (loan )?requests|(how many|what|which) (loan )?requests are (pending|waiting)|who('s| is) waiting for a loan|(how many |what |which |show |show me |list |any )?(are |is )?(there )?(still )?(the )?(pending|waiting) loans?( requests?)?( are there| still| left| do i have| do we have)?|(how many|what|which) loans? (are |is )?(still )?(pending|waiting))$/],
   // Seen on the testing link: the AI named a lender as "the nearest due". The list sorted by due date answers it exactly.
   ['nextDue', 'find_loans', /^(who('s| is)( the)? (next|nearest|soonest) (due|to pay)( on (my )?borrowers)?|who('s| is) due (next|soonest|first)|who pays next|(the )?(next|nearest) due( date| loan| borrower)?|which loan is due (next|soonest|first)|when is the next (payment|due date))$/],
   ['labelRule', 'read_rules', /^(what makes (a )?(borrower )?good (okay|ok) (or|and) bad|how (are|is) (the |a )?(borrower )?labels? (chosen|decided|worked out|set)|what (are|is) the (good (okay|ok) (or|and) bad|label) rules?)$/],
