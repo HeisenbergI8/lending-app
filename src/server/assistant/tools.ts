@@ -4,7 +4,10 @@ import { NO_FILTER, type LoanFilter, type LoanStatusFilter } from '../../lib/loa
 import { describeTrackRecord, labelByRule } from '../../lib/track-record.ts'
 import { borrowerCounts, getBorrower, listBorrowerNames } from '../borrowers/queries.ts'
 import { db } from '../db.ts'
-import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
+import { allMoneyHistory, getLender, listLenderNames, listLenders, projectedFloating } from '../lenders/queries.ts'
+import { adminCutReport, borrowerReport, lenderReport, summaryReport } from '../reports/queries.ts'
+import { type ReportRange, storedDayInRange } from '../../lib/report-range.ts'
+import { HISTORY_FILTERS, type HistoryFilterKey, filterHistory } from '../../lib/money/history-filter.ts'
 import { listDeleted, type DeletedSection } from '../deleted/queries.ts'
 import { listPendingLoans } from '../pending/queries.ts'
 import { ACTIONS, actionSpec, checkProposal, findActions, normalizeFields } from './actions.ts'
@@ -96,6 +99,53 @@ export const TOOLS: ToolSpec[] = [
     name: 'get_lender',
     description: "One lender by name: id, floating, starting capital, and money in/out entries with ids.",
     parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  },
+  {
+    name: 'lender_earnings',
+    description: 'What one lender earned between two dates (inclusive), the same figure as their statement on the Reports page: loans repaid in that time plus weekly interest collected in it. Use for "this month", "in October", "last week".',
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string' }, from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } },
+      required: ['name', 'from', 'to'],
+    },
+  },
+  {
+    name: 'period_summary',
+    description: 'The Reports page summary between two dates: capital lent out, repayments collected, what the Admin earned, loans made and loans repaid.',
+    parameters: { type: 'object', properties: { from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['from', 'to'] },
+  },
+  {
+    name: 'admin_cut',
+    description: "The Admin's cut between two dates: agreed on loans started then, collected on payments then, and still to come today.",
+    parameters: { type: 'object', properties: { from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['from', 'to'] },
+  },
+  {
+    name: 'borrower_statement',
+    description: "One borrower between two dates: borrowed, paid, weeks of interest paid, what they owe today, and their label.",
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string' }, from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } },
+      required: ['name', 'from', 'to'],
+    },
+  },
+  {
+    name: 'money_history',
+    description: 'The Money history screen: deposits, withdrawals, money lent out and paid back, newest first, with totals. All filters optional.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'One lender.' },
+        from: { type: 'string', description: 'YYYY-MM-DD' },
+        to: { type: 'string', description: 'YYYY-MM-DD' },
+        kind: { type: 'string', enum: ['in', 'withdrawals', 'lent', 'back'], description: 'in = deposits, back = repayments, interest and cuts.' },
+        direction: { type: 'string', enum: ['in', 'out'], description: 'Only money arriving (in) or leaving (out).' },
+      },
+    },
+  },
+  {
+    name: 'floating_on',
+    description: "How much will be floating on a future day, counting every payment due back by then (the lender page's projection). One lender, or every pot.",
+    parameters: { type: 'object', properties: { name: { type: 'string', description: 'One lender; leave out for every pot.' }, date: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['date'] },
   },
   {
     name: 'list_pending',
@@ -493,6 +543,142 @@ async function loanRecordIds(userId: string, loanId: string) {
   }
 }
 
+/** Two typed days as a report range, the right way round; null when either is not a date. */
+function rangeOf(from: string, to: string): ReportRange | null {
+  const a = parseCalendarDate(from)
+  const b = parseCalendarDate(to)
+  if (!a || !b) return null
+  return a <= b ? { from: a, to: b } : { from: b, to: a }
+}
+const NEED_DATES = { error: 'Give both dates as YYYY-MM-DD.' }
+
+/** The Reports page summary for a stretch of time. */
+export async function periodSummary(userId: string, from: string, to: string) {
+  const range = rangeOf(from, to)
+  if (!range) return NEED_DATES
+  const r = await summaryReport(userId, range)
+  return {
+    from: day(range.from),
+    to: day(range.to),
+    lentOut: peso(r.lentOut),
+    collected: peso(r.collected),
+    adminEarned: peso(r.earned),
+    loansMade: r.loansMade,
+    loansRepaid: r.loansPaid,
+  }
+}
+
+/** The Admin's cut for a stretch of time, as on the Reports page. */
+export async function adminCut(userId: string, from: string, to: string) {
+  const range = rangeOf(from, to)
+  if (!range) return NEED_DATES
+  const r = await adminCutReport(userId, range)
+  return {
+    from: day(range.from),
+    to: day(range.to),
+    agreedOnLoansStarted: peso(r.agreed),
+    collected: peso(r.collected),
+    stillToComeToday: peso(r.outstandingToday),
+    loansStarted: r.started.length,
+    loansRepaid: r.repaid.length,
+  }
+}
+
+/** One borrower's statement for a stretch of time, as on the Reports page. */
+export async function borrowerStatement(userId: string, name: string, from: string, to: string) {
+  const range = rangeOf(from, to)
+  if (!range) return NEED_DATES
+  const id = await personId(userId, 'borrower', name)
+  if (!id) return { found: false, reason: `No single borrower named "${name}".` }
+  const r = await borrowerReport(userId, id, range, { withProof: false })
+  if (!r) return { found: false, reason: `No borrower named "${name}".` }
+  return {
+    found: true,
+    name: r.header.subject,
+    from: day(range.from),
+    to: day(range.to),
+    borrowed: peso(r.borrowedInPeriod),
+    paid: peso(r.paidInPeriod),
+    weeksOfInterestPaid: r.weeksPaid.length,
+    owesToday: peso(r.owedToday),
+    savedLabel: r.label ?? 'none',
+    ruleWouldGive: labelByRule(r.record),
+  }
+}
+
+const KIND_WORDS: Record<string, string> = { deposit: 'Money in', withdrawal: 'Withdrawal', lent: 'Lent out', interest: 'Interest back', repaid: 'Paid back', cut: "Admin's cut" }
+
+/** The Money history screen, filtered by lender, dates and kind, newest first, with totals. */
+export async function moneyHistory(userId: string, args: Record<string, unknown>) {
+  const { events } = await allMoneyHistory(userId)
+  const name = str(args, 'name')
+  const lenderId = name ? await personId(userId, 'lender', name) : null
+  if (name && !lenderId) return { found: false, reason: `No single lender named "${name}".` }
+  const range = str(args, 'from') && str(args, 'to') ? rangeOf(str(args, 'from'), str(args, 'to')) : null
+  const kind = str(args, 'kind')
+  const direction = str(args, 'direction')
+  const picked = filterHistory(
+    events.filter((e) => (!lenderId || e.lender.id === lenderId) && (!range || storedDayInRange(e.on, range)) && (direction === 'in' ? e.amount > 0 : direction === 'out' ? e.amount < 0 : true)),
+    HISTORY_FILTERS.some((f) => f.key === kind) ? (kind as HistoryFilterKey) : null,
+  )
+  const sum = (sign: 1 | -1) => peso(picked.reduce((t, e) => t + (Math.sign(e.amount) === sign ? Math.abs(e.amount) : 0), 0) as Centavos)
+  return {
+    found: true,
+    ...(range ? { from: day(range.from), to: day(range.to) } : {}),
+    count: picked.length,
+    moneyIn: sum(1),
+    moneyOut: sum(-1),
+    shown: Math.min(picked.length, 15),
+    entries: picked.slice(0, 15).map((e) => ({ date: day(e.on), lender: e.lender.name, what: KIND_WORDS[e.kind] ?? e.title, about: e.title, amount: peso(Math.abs(e.amount) as Centavos), direction: e.amount >= 0 ? 'in' : 'out' })),
+  }
+}
+
+/** What will be floating on a future day, from the lender page's projection: one pot, or every pot added up. */
+export async function floatingOn(userId: string, name: string, date: string) {
+  const on = parseCalendarDate(date)
+  if (!on) return { error: 'Give the date as YYYY-MM-DD.' }
+  const lenders = await listLenders(userId)
+  const id = name ? await personId(userId, 'lender', name) : null
+  if (name && !id) return { found: false, reason: `No single lender named "${name}".` }
+  const pots = lenders.filter((l) => !id || l.id === id)
+  const projections = await Promise.all(pots.map((l) => projectedFloating(userId, { id: l.id, isSelf: l.isSelf }, l.position.floating, on)))
+  const add = (pick: (p: (typeof projections)[number]) => number) => peso(projections.reduce((t, p) => t + pick(p), 0) as Centavos)
+  return {
+    found: true,
+    date: day(on),
+    who: id ? `${pots[0].firstName} ${pots[0].lastName}` : 'every pot',
+    floatingNow: add((p) => p.floatingNow),
+    floatingThen: add((p) => p.projected),
+    comingBackBy: add((p) => p.projected - p.floatingNow),
+    lateNotCounted: add((p) => p.late),
+    ...(id ? {} : { perPot: pots.map((l, i) => ({ name: `${l.firstName} ${l.lastName}`, floatingThen: peso(projections[i].projected) })) }),
+  }
+}
+
+/**
+ * What a lender earned between two days, from the same statement the Reports
+ * page builds, so Dex-E and the report never disagree.
+ */
+export async function lenderEarnings(userId: string, name: string, from: string, to: string) {
+  const fromDay = parseCalendarDate(from)
+  const toDay = parseCalendarDate(to)
+  if (!fromDay || !toDay) return { error: 'Give both dates as YYYY-MM-DD.' }
+  const who = (await lenderDetail(userId, name)) as { found: boolean; id?: string; name?: string }
+  if (!who.found || !who.id) return who
+  const report = await lenderReport(userId, who.id, fromDay <= toDay ? { from: fromDay, to: toDay } : { from: toDay, to: fromDay })
+  if (!report) return { found: false, reason: `No lender named "${name}".` }
+  return {
+    found: true,
+    name: who.name,
+    from: day(fromDay),
+    to: day(toDay),
+    earned: peso(report.earnedInPeriod),
+    ...(report.adminCutInPeriod > 0 ? { includesAdminCut: peso(report.adminCutInPeriod) } : {}),
+    loansRepaid: report.repaid.length,
+    weeksOfInterestCollected: report.weeksPaid.length,
+  }
+}
+
 async function lenderDetail(userId: string, name: string) {
   const terms = words(name)
   const matches = await db.lender.findMany({
@@ -841,6 +1027,18 @@ export async function runTool(userId: string, name: string, args: Record<string,
       return loanDetail(userId, str(args, 'loan_id'))
     case 'get_lender':
       return lenderDetail(userId, str(args, 'name'))
+    case 'lender_earnings':
+      return lenderEarnings(userId, str(args, 'name'), str(args, 'from'), str(args, 'to'))
+    case 'period_summary':
+      return periodSummary(userId, str(args, 'from'), str(args, 'to'))
+    case 'admin_cut':
+      return adminCut(userId, str(args, 'from'), str(args, 'to'))
+    case 'borrower_statement':
+      return borrowerStatement(userId, str(args, 'name'), str(args, 'from'), str(args, 'to'))
+    case 'money_history':
+      return moneyHistory(userId, args)
+    case 'floating_on':
+      return floatingOn(userId, str(args, 'name'), str(args, 'date'))
     case 'list_pending':
       return pendingRequests(userId)
     case 'list_deleted':

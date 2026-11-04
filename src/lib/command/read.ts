@@ -211,3 +211,50 @@ export function newNameSaid(text: string, after: RegExp): { firstName: string; l
 
 /** Whether the words say each lender gives the same share. */
 export const SPLIT_EVENLY = /\b(each|half|halves|evenly|equally|hati|tig-?\w*|same amount)\b/
+
+/**
+ * A stretch of time in the Admin's words, for questions like "how much did John
+ * Ross earn this month": today, yesterday, this or last week (Monday to Sunday),
+ * this or last month, a month by name ("October", "Oct 2026"), this or last year,
+ * or "from Oct 1 to Oct 15". Null when no period is said.
+ * "This month" ends today (so far); "next week" and "next month" look ahead, for what is coming due.
+ */
+export function periodSaid(text: string, today: Day): { from: Day; to: Day; label: string } | null {
+  const t = clean(text).replace(REFS, ' ')
+  const y = Number(today.slice(0, 4))
+  const m = Number(today.slice(5, 7))
+  const cap = (d: Day) => (d > today ? today : d)
+  const monthEnd = (year: number, month: number) => iso(new Date(Date.UTC(year, month, 0)))
+  const monthName = (month: number) => new Date(Date.UTC(2000, month - 1, 1)).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' })
+  const span = /\b(?:from|between)\s+(.+?)\s+(?:to|until|and|-)\s+(.+)$/.exec(t)
+  if (span) {
+    const a = readDate(span[1], today)
+    const b = readDate(span[2], today)
+    if (a && b) return a <= b ? { from: a, to: b, label: 'that time' } : { from: b, to: a, label: 'that time' }
+  }
+  if (/\b(today|ngayon)\b/.test(t)) return { from: today, to: today, label: 'today' }
+  if (/\b(yesterday|kahapon)\b/.test(t)) return { from: addDays(today, -1), to: addDays(today, -1), label: 'yesterday' }
+  const monday = addDays(today, -((asDate(today).getUTCDay() + 6) % 7))
+  if (/\b(this week|ngayong linggo)\b/.test(t)) return { from: monday, to: today, label: 'this week' }
+  if (/\b(last week|nakaraang linggo)\b/.test(t)) return { from: addDays(monday, -7), to: addDays(monday, -1), label: 'last week' }
+  if (/\b(next week|susunod na linggo)\b/.test(t)) return { from: addDays(monday, 7), to: addDays(monday, 13), label: 'next week' }
+  if (/\b(next month|susunod na buwan)\b/.test(t)) {
+    const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1]
+    return { from: `${ny}-${pad(nm)}-01`, to: monthEnd(ny, nm), label: `${monthName(nm)} ${ny}` }
+  }
+  if (/\b(this month|ngayong buwan|so far this month|month alone|the month)\b/.test(t)) return { from: `${today.slice(0, 7)}-01`, to: today, label: 'this month' }
+  if (/\b(last month|nakaraang buwan|previous month)\b/.test(t)) {
+    const [py, pm] = m === 1 ? [y - 1, 12] : [y, m - 1]
+    return { from: `${py}-${pad(pm)}-01`, to: monthEnd(py, pm), label: `${monthName(pm)} ${py}` }
+  }
+  if (/\b(this year|ngayong taon)\b/.test(t)) return { from: `${y}-01-01`, to: today, label: `${y} so far` }
+  if (/\b(last year)\b/.test(t)) return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, label: `${y - 1}` }
+  // A month by name, with no day after it: "in October", "for Oct 2026". A later month with no year is last year's.
+  const named = new RegExp(`\\b${MONTH}\\b(?!\\.?\\s*\\d{1,2}\\b(?!\\d{2}))(?:\\s+(\\d{4}))?`).exec(t)
+  if (named) {
+    const month = MONTHS.indexOf(named[1].slice(0, 3)) + 1
+    const year = named[2] ? Number(named[2]) : month > m ? y - 1 : y
+    return { from: `${year}-${pad(month)}-01`, to: cap(monthEnd(year, month)), label: `${monthName(month)} ${year}` }
+  }
+  return null
+}

@@ -8,7 +8,7 @@ const { db } = await import('../../../src/server/db.ts')
 const { ask } = await import('../../../src/server/assistant/chat.ts')
 const demo = (await db.user.findFirst({ where: { username: 'demo' }, select: { id: true } }))!
 // A question only the AI can answer (out on loan, and what one person owes, are answered by the server now).
-const r: any = await ask(demo.id, [{ role: 'user', text: 'Why does Dan have a Bad label?' }])
+const r: any = await ask(demo.id, [{ role: 'user', text: 'Who is overdue and owes the most?' }])
 const pass = !r.ok && /GROQ_API_KEY is missing/.test(r.error) && !calledOut
 console.log(pass ? 'PASS' : 'FAIL', 'LIM-09 no key: clear setup message, no call to Groq'.padEnd(52), `${r.error} | network call made: ${calledOut}`)
 // The instant answers need no AI, so they still work with no key at all.

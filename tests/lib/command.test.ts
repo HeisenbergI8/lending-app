@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { amountsIn, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, rateSaid, weekNumberSaid } from '../../src/lib/command/read.ts'
+import { amountsIn, daySaid, periodSaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, rateSaid, weekNumberSaid } from '../../src/lib/command/read.ts'
 import { intentByRules, isQuestion } from '../../src/lib/command/intents.ts'
 
 const TODAY = '2026-11-04' // a Wednesday
@@ -124,4 +124,35 @@ describe('what the Admin wants, by rules (words, Taglish, typos)', () => {
   ]
   for (const [text, want] of cases) test(text, () => assert.equal(intentByRules(text), want))
   test('a request said politely is still a request', () => assert.equal(isQuestion('can you lend Rico 10k from Maria'), false))
+})
+
+describe('reading a stretch of time (for earnings questions)', () => {
+  test('this month, "this month alone", last month', () => {
+    assert.deepEqual(periodSaid('how much did John Ross earn this month', TODAY), { from: '2026-11-01', to: '2026-11-04', label: 'this month' })
+    assert.deepEqual(periodSaid('How much does john ross earned for this month alone', TODAY), { from: '2026-11-01', to: '2026-11-04', label: 'this month' })
+    assert.deepEqual(periodSaid('earned last month', TODAY), { from: '2026-10-01', to: '2026-10-31', label: 'October 2026' })
+  })
+  test('a month by name, a later month means last year', () => {
+    assert.deepEqual(periodSaid('how much did Maria earn in October?', TODAY), { from: '2026-10-01', to: '2026-10-31', label: 'October 2026' })
+    assert.deepEqual(periodSaid('earnings for December', TODAY), { from: '2025-12-01', to: '2025-12-31', label: 'December 2025' })
+    assert.deepEqual(periodSaid('earned in Oct 2025', TODAY), { from: '2025-10-01', to: '2025-10-31', label: 'October 2025' })
+  })
+  test('weeks, days, a range, none', () => {
+    assert.deepEqual(periodSaid('this week', TODAY), { from: '2026-11-02', to: '2026-11-04', label: 'this week' })
+    assert.deepEqual(periodSaid('last week', TODAY), { from: '2026-10-26', to: '2026-11-01', label: 'last week' })
+    assert.deepEqual(periodSaid('from Oct 1 to Oct 15', TODAY), { from: '2026-10-01', to: '2026-10-15', label: 'that time' })
+    assert.equal(periodSaid('how much did Maria earn', TODAY), null)
+  })
+})
+
+describe('reading questions about the screens', () => {
+  test('next week and next month look ahead', () => {
+    assert.deepEqual(periodSaid('which loans are due next week', TODAY), { from: '2026-11-09', to: '2026-11-15', label: 'next week' })
+    assert.deepEqual(periodSaid('who is due next month', TODAY), { from: '2026-12-01', to: '2026-12-31', label: 'December 2026' })
+  })
+  test('"Maria\'s deposits this month" asks to see something, it is not a new deposit', () => {
+    assert.equal(isQuestion("Maria's deposits this month"), true)
+    assert.equal(intentByRules("Maria's deposits this month"), null)
+    assert.equal(intentByRules('Maria deposited 5000 today'), 'deposit')
+  })
 })
