@@ -1,0 +1,845 @@
+import { db } from '../db.ts'
+import { listBorrowerNames } from '../borrowers/queries.ts'
+import { listLenderNames, listLenders } from '../lenders/queries.ts'
+import { spellDate } from '../../lib/dates.ts'
+import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
+import {
+  amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
+  requestRef, SPLIT_EVENLY, weekNumberSaid,
+} from '../../lib/command/read.ts'
+import { closestNames, distance, type Named } from './names.ts'
+import { meaningOf } from './meaning.ts'
+import { type Proposal } from './proposal.ts'
+import { manilaToday } from './today.ts'
+import { proposeAction, runTool } from './tools.ts'
+
+/**
+ * Server-made cards: common changes turned into a Confirm card by the server
+ * itself, with no big AI. Free, instant, and working even when the AI is used up.
+ *
+ *   1. Work out the action: rules first (word lists, Taglish, typos), then the
+ *      small meaning-matcher (meaning.ts) when no rule fits.
+ *   2. Read the details: people against the real borrower and lender lists,
+ *      amounts, dates, lengths (lib/command/read.ts).
+ *   3. Anything missing or unclear: ask, with buttons. A button sends the whole
+ *      sentence again with the missing part added, so what is agreed is always
+ *      on screen in the Admin's chat.
+ *   4. Build the card through proposeAction, the same checks an AI-made card
+ *      goes through. Nothing is saved until the Admin taps Confirm on it.
+ *
+ * Whatever this cannot do with confidence returns null, and the big AI answers
+ * as before. A wrong guess here would cost more than a few tokens there.
+ */
+
+export type Choice = { label: string; send: string }
+export type ServerReply =
+  | { kind: 'card'; answer: string; proposal: Proposal }
+  | { kind: 'ask'; answer: string; choices: Choice[] }
+  | { kind: 'answer'; answer: string }
+type Say = (text: string, state?: 'done' | 'missed') => void
+
+type Person = Named & { isSelf?: boolean }
+type Ctx = { userId: string; text: string; today: string; say: Say }
+
+const CARD = 'Here is the change. Check it, then tap Confirm.'
+const ask = (answer: string, choices: Choice[] = []): ServerReply => ({ kind: 'ask', answer, choices })
+const tell = (answer: string): ServerReply => ({ kind: 'answer', answer })
+const full = (p: { firstName: string; lastName: string }) => `${p.firstName} ${p.lastName}`
+/** The sentence again with a detail added, for a button. */
+const plus = (text: string, extra: string) => `${text.trim().replace(/[.!]+$/, '')}${extra.startsWith(',') ? '' : ' '}${extra}`
+
+const TITLES: Partial<Record<Intent, string>> = {
+  create_loan: 'a new loan', create_request: 'a pending request', fund_request: 'turning a request into a loan', mark_paid: 'marking a loan paid',
+  mark_week_paid: 'marking a week paid', paid_unclear: 'a payment', undo_payment: 'undoing a payment', undo_week_paid: 'undoing a paid week',
+  deposit: 'money into a pot', withdraw: 'money out of a pot', record_advance: 'an advance', set_starting_capital: 'starting capital',
+  set_label: "a borrower's label", create_borrower: 'a new borrower', create_lender: 'a new lender', rename: 'a new name',
+  extend_loan: 'extending a loan', convert_to_weekly: 'weekly interest', add_note: 'a note', delete_note: 'deleting a note',
+  add_loan_proof: 'proof the loan was sent', delete: 'deleting', restore: 'restoring', update_money: 'fixing a money entry',
+  update_loan: 'fixing a loan', clear_borrower_photo: 'removing a photo', delete_request: 'removing a request',
+}
+
+// ---------------------------------------------------------------- people
+
+/** Name words that are also ordinary words in a request, never read as a name on their own. */
+const NOT_NAMES = new Set(['to', 'from', 'the', 'and', 'for', 'week', 'paid', 'loan', 'money', 'pot', 'admin', 'note', 'new', 'all', 'her', 'his', 'today', 'kay', 'ni', 'sa', 'na', 'ang', 'mark', 'good', 'bad', 'okay'])
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const wordsOf = (s: string) => norm(s).split(/[^a-z]+/).filter(Boolean)
+
+/**
+ * People named in the text, in groups: one person per group when the name is
+ * clear, several when it fits more than one ("Angel" for two Angels). A fuller
+ * name wins over a shorter one ("Angel Dela Cruz" is not also Angel Arellano).
+ */
+function mentions<T extends Person>(text: string, people: T[]): T[][] {
+  const said = wordsOf(text)
+  const hits = people
+    .map((p) => {
+      const parts = wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x))
+      const at = new Set<number>()
+      let score = 0
+      for (const part of parts) {
+        const i = said.findIndex((w, k) => !at.has(k) && (w === part || (part.length >= 4 && w.length >= 3 && distance(w, part) <= 1)))
+        if (i >= 0) {
+          at.add(i)
+          score++
+        }
+      }
+      return { p, at, score }
+    })
+    .filter((h) => h.score > 0)
+  const kept = hits.filter((h) => !hits.some((o) => o.score > h.score && [...h.at].every((i) => o.at.has(i))))
+  const groups: { at: Set<number>; people: T[] }[] = []
+  for (const h of kept.sort((a, b) => Math.min(...a.at) - Math.min(...b.at))) {
+    const g = groups.find((x) => [...h.at].some((i) => x.at.has(i)))
+    if (g) {
+      g.people.push(h.p)
+      h.at.forEach((i) => g.at.add(i))
+    } else groups.push({ at: new Set(h.at), people: [h.p] })
+  }
+  return groups.map((g) => g.people)
+}
+
+/** How many parts of a person's name the text says: "Maria Cruz" says 2 of Maria Cruz, 1 of Angel Dela Cruz. */
+function nameParts(text: string, p: { firstName: string; lastName: string }): number {
+  const said = wordsOf(text)
+  return wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x) && said.some((w) => w === x || (x.length >= 4 && w.length >= 3 && distance(w, x) <= 1))).length
+}
+
+/** "Which Angel?" with a button per person; the button sends the sentence with the full name in. */
+function whichPerson(text: string, people: Person[], role: string): ServerReply {
+  const said = wordsOf(text)
+  const shared = said.find((w) => people.every((p) => wordsOf(full(p)).some((x) => x === w || (x.length >= 4 && distance(w, x) <= 1)))) ?? ''
+  const re = new RegExp(`\\b${shared}\\b`, 'i')
+  return ask(
+    `Which ${role} do you mean?`,
+    people.map((p) => ({ label: full(p), send: shared ? text.replace(re, full(p)) : plus(text, `(${full(p)})`) })),
+  )
+}
+
+/** Close names for words that matched nobody, as "did you mean" buttons. Null when nothing is close. */
+function didYouMean(text: string, people: Person[], role: string): ServerReply | null {
+  for (const w of text.split(/[^\p{L}]+/u).filter((x) => x.length >= 3 && !NOT_NAMES.has(x.toLowerCase()))) {
+    const close = closestNames(w, people)
+    if (close.length > 0) {
+      const re = new RegExp(`\\b${w}\\b`, 'i')
+      return ask(`I couldn't find a ${role} called "${w}". Did you mean:`, close.map((p) => ({ label: full(p), send: text.replace(re, full(p)) })))
+    }
+  }
+  return null
+}
+
+const ADMIN_WORDS = /\b(admin|my pot|my money|own money|own pot|from me|sarili|akin|from my)\b/i
+
+/** Exactly one person for a role, or the question to ask, or null when nobody is named (the AI takes it). */
+function onePerson<T extends Person>(ctx: Ctx, part: string, people: T[], role: string): T | ServerReply | null {
+  const groups = mentions(part, people)
+  if (groups.length === 0) return didYouMean(part, people, role)
+  if (groups[0].length > 1) return whichPerson(ctx.text, groups[0], role)
+  ctx.say(`Found ${full(groups[0][0])}`)
+  return groups[0][0]
+}
+const isReply = (x: unknown): x is ServerReply => !!x && typeof x === 'object' && 'kind' in x
+
+/** The part naming who the money comes from ("from Maria and Jun"), and the rest. */
+function splitFrom(text: string): { before: string; after: string } {
+  const m = /\b(from|galing (?:kay|sa)|out of|sa pot ni|sa pera ni|funded by|using)\b/i.exec(text)
+  return m ? { before: text.slice(0, m.index), after: text.slice(m.index) } : { before: text, after: '' }
+}
+
+// ---------------------------------------------------------------- loans and entries
+
+type LoanRow = { id: string; capitalCentavos: number; startOn: Date; dueOn: Date; status: string; interestCollection: string; termDays: number }
+const LOAN_SELECT = { id: true, capitalCentavos: true, startOn: true, dueOn: true, status: true, interestCollection: true, termDays: true } as const
+const day = (d: Date) => d.toISOString().slice(0, 10)
+const describeLoan = (l: LoanRow) => `the ${pesos(l.capitalCentavos / 100)} loan from ${spellDate(day(l.startOn))}`
+
+/**
+ * The one loan meant, among a borrower's loans that fit. A reference added by
+ * a button decides; otherwise one loan is that loan, and several are a question.
+ */
+function pickLoan(ctx: Ctx, who: Person, loans: LoanRow[], none: string): LoanRow | ServerReply {
+  const ref = loanRef(ctx.text)
+  if (ref) {
+    const hit = loans.find((l) => l.capitalCentavos === Math.round(ref.capital * 100) && spellDate(day(l.startOn)).toLowerCase() === ref.start.toLowerCase())
+    if (hit) return hit
+  }
+  if (loans.length === 0) return tell(none)
+  if (loans.length === 1) return loans[0]
+  return ask(
+    `${who.firstName} has ${loans.length} loans. Which one?`,
+    loans.map((l) => ({ label: `${pesos(l.capitalCentavos / 100)} · due ${spellDate(day(l.dueOn))}`, send: plus(ctx.text, `(${describeLoan(l)})`) })),
+  )
+}
+
+async function loansOf(userId: string, borrowerId: string, where: Record<string, unknown> = { deletedAt: null, status: 'ACTIVE' }) {
+  return (await db.loan.findMany({ where: { userId, borrowerId, ...where }, orderBy: { startOn: 'desc' }, select: LOAN_SELECT })) as LoanRow[]
+}
+
+async function paidWeeks(userId: string, loanId: string): Promise<number[]> {
+  const rows = await db.payment.findMany({ where: { userId, loanId, deletedAt: null, weekNumber: { not: null } }, select: { weekNumber: true } })
+  return rows.map((r) => r.weekNumber!).sort((a, b) => a - b)
+}
+
+// ---------------------------------------------------------------- the card
+
+/** The card, through the same checks as an AI-made card; or the question its check raises, in plain words. */
+async function card(ctx: Ctx, action: string, fields: Record<string, unknown>, funders?: { lenderId: string; amount: string }[]): Promise<ServerReply | null> {
+  const r = (await proposeAction(ctx.userId, { action, fields, ...(funders ? { funders } : {}), _said: ctx.text })) as { proposal?: Proposal; error?: string }
+  if (r.proposal) {
+    ctx.say('Change ready for you to check')
+    return { kind: 'card', answer: CARD, proposal: r.proposal }
+  }
+  const error = r.error ?? ''
+  ctx.say('A detail needs checking', 'missed')
+  if (/how long the loan runs/.test(error)) return askLength(ctx)
+  const tryDates = /Try (\w+ \d{1,2}, \d{4}) or (\w+ \d{1,2}, \d{4})/.exec(error)
+  if (tryDates) {
+    const base = ctx.text.replace(/\b(for\s+)?\d+\s*(days?|araw)\b|\b(due|until|hanggang|by)\s+.*$/i, '').trim()
+    const spelled = (d: string) => { const iso = readDate(d, ctx.today); return iso ? spellDate(iso) : d }
+    return ask(`${error.replace(/\s*Try .*$/, '')} Loans run in whole weeks. Which due date?`, [tryDates[1], tryDates[2]].map((d) => ({ label: spelled(d), send: plus(base, `until ${d}`) })))
+  }
+  if (/how much from each lender/.test(error)) return tell('How much is from each lender? For example: "6k from Maria and 4k from Jun", or say "split evenly".')
+  if (/did not say \w+/.test(error)) return tell('How much? Please say the amount, for example "5k" or "₱5,000".')
+  // Ids, names or fields the server could not settle: the big AI takes it from here.
+  if (/Missing:|must be one of|Not found|did not name|No action/.test(error)) return null
+  const why = error.replace(/\s*Ask\b[^.]*\.?/g, '').trim()
+  return tell(`I can't make that card: ${why.charAt(0).toLowerCase()}${why.slice(1)}`)
+}
+
+function askLength(ctx: Ctx): ServerReply {
+  return ask('How long is the loan?', [1, 2, 3, 4].map((n) => ({ label: `${n} week${n > 1 ? 's' : ''}`, send: plus(ctx.text, `for ${n} week${n > 1 ? 's' : ''}`) })))
+}
+
+// ---------------------------------------------------------------- per action
+
+/** Lenders named in the "from ..." part, the Admin's own pot included, or the question. */
+/** A month right after "starting", "until" or "due" is a date, not a person: "starting Jun 30" is not the lender Jun. */
+const DATED_MONTH = /\b(starting|start|starts|on|until|due|by|hanggang|simula)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b/gi
+
+async function lendersFor(ctx: Ctx, part: string, all: Person[]): Promise<Person[] | ServerReply> {
+  // A borrower named where the lenders go is said back, never quietly dropped.
+  const lenderWords = new Set(all.flatMap((l) => wordsOf(full(l))))
+  const borrowerThere = mentions(part.replace(DATED_MONTH, ' '), await listBorrowerNames(ctx.userId)).flat().find((b) => !wordsOf(full(b)).some((w) => lenderWords.has(w)))
+  if (borrowerThere) return tell(`${full(borrowerThere)} is a borrower, not a lender, so they can't fund a loan. Which lenders is it from?`)
+  const groups = mentions(part.replace(DATED_MONTH, ' '), all.filter((l) => !l.isSelf))
+  const ambiguous = groups.find((g) => g.length > 1)
+  if (ambiguous) return whichPerson(ctx.text, ambiguous, 'lender')
+  const picked = groups.map((g) => g[0])
+  const self = all.find((l) => l.isSelf)
+  if (self && ADMIN_WORDS.test(part)) picked.unshift(self)
+  if (picked.length === 0) {
+    const pots = await listLenders(ctx.userId)
+    return ask(
+      'Which lender is the money from?',
+      pots.map((l) => ({ label: `${full(l)} · ${pesos(l.position.floating / 100)} floating`, send: plus(ctx.text, `from ${l.isSelf ? 'my pot' : full(l)}`) })),
+    )
+  }
+  picked.forEach((l) => ctx.say(`Found ${full(l)} (lender)`))
+  return picked
+}
+
+/** A lender asked for more than they have floating: said now, before a card that Confirm would refuse. */
+async function notEnough(userId: string, funders: { lenderId: string; amount: string }[], verb = 'lend'): Promise<ServerReply | null> {
+  const pots = await listLenders(userId)
+  for (const f of funders) {
+    const pot = pots.find((l) => full(l).toLowerCase() === f.lenderId.toLowerCase())
+    if (pot && Number(f.amount) * 100 > pot.position.floating) {
+      return tell(`${pot.isSelf ? 'Your pot' : pot.firstName} only has ${pesos(pot.position.floating / 100)} floating, so ${pot.isSelf ? 'you' : pot.firstName} can't ${verb} ${pesos(Number(f.amount))}.`)
+    }
+  }
+  return null
+}
+
+const AMOUNT = '₱?\\s?\\d[\\d,]*(?:\\.\\d+)?\\s*(?:k|thousand|libo)?'
+
+/** How much each lender gives: "6k from Maria and 4k from Jun", "Maria 6k", "5k each", "split evenly". */
+function shares(text: string, lenders: Person[], capital: number | null): { lenderId: string; amount: string }[] | null {
+  const t = clean(text)
+  if (lenders.length === 1) return capital ? [{ lenderId: full(lenders[0]), amount: String(capital) }] : null
+  const own = lenders.map((l) => {
+    const names = wordsOf(full(l)).filter((x) => x.length > 1).join('|')
+    const word = l.isSelf ? '(?:my pot|my money|admin|me)' : `(?:${names})`
+    const m = new RegExp(`(${AMOUNT})\\s+(?:from|galing kay|kay)?\\s*${word}\\b|\\b${word}(?:'s)?\\s*(?:pot)?\\s*(?:=|:|,)?\\s*(${AMOUNT})`).exec(t)
+    const v = m ? amountsInOne(m[1] ?? m[2]) : null
+    return v
+  })
+  if (own.every((v) => v !== null)) return lenders.map((l, i) => ({ lenderId: full(l), amount: String(own[i]) }))
+  if (SPLIT_EVENLY.test(t) && capital) {
+    const each = /\beach\b|\btig-?\w*/.test(t) && !/\b(half|evenly|equally|hati)\b/.test(t) ? capital : capital / lenders.length
+    if (Math.round(each * 100) === each * 100) return lenders.map((l) => ({ lenderId: full(l), amount: String(each) }))
+  }
+  return null
+}
+/** 12000 → "12k" for an example sentence. */
+const amountWords = (n: number) => (n % 1000 === 0 ? `${n / 1000}k` : String(n))
+const amountsInOne = (s: string) => amountsIn(s.replace(/₱\s?/, '₱'))[0] ?? null
+
+async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
+  const { before, after } = splitFrom(ctx.text)
+  const borrower = onePerson(ctx, before, await listBorrowerNames(ctx.userId), 'borrower')
+  if (!borrower || isReply(borrower)) return borrower
+  const lenders = await lendersFor(ctx, after || ctx.text.replace(new RegExp(`\\b${borrower.firstName}\\b`, 'i'), ''), await listLenderNames(ctx.userId))
+  if (isReply(lenders)) return lenders
+  const amounts = amountsIn(ctx.text)
+  const length = lengthSaid(ctx.text, ctx.today)
+  if (amounts.length === 0) return tell(`How much is the loan to ${borrower.firstName}? For example "10k".`)
+  if (!length) return askLength(ctx)
+  if (length.months) return ask('How many weeks is that?', [4, 8, 12].map((n) => ({ label: `${n} weeks`, send: ctx.text.replace(/\b\S+\s*(months?|buwan)\b/i, `${n} weeks`) })))
+  // The total is the one amount said by itself; with per-lender amounts it is their sum.
+  const each = /\beach\b|\btig-?\w*/.test(clean(ctx.text))
+  const funders = shares(ctx.text, lenders, each ? amounts[0] : (amounts.length === 1 || lenders.length === 1 ? amounts[0] : null))
+  if (!funders) {
+    const total = amounts.length === 1 ? amounts[0] : null
+    return ask(
+      `How much is from each lender?${total ? ` The loan is ${pesos(total)}.` : ''} Say it like "6k from ${lenders[0].firstName} and 4k from ${lenders[1]?.firstName ?? 'Jun'}".`,
+      total && Math.round((total / lenders.length) * 100) === (total / lenders.length) * 100 ? [{ label: `Split evenly (${pesos(total / lenders.length)} each)`, send: plus(ctx.text, ', split evenly') }] : [],
+    )
+  }
+  const short = await notEnough(ctx.userId, funders)
+  if (short) return short
+  const capital = funders.reduce((s, f) => s + Number(f.amount), 0)
+  const start = daySaid(splitDue(ctx.text), ctx.today, 'future') ?? ctx.today
+  const rate = rateSaid(ctx.text)
+  return card(ctx, 'create_loan', {
+    borrowerId: full(borrower),
+    capital: String(capital),
+    startOn: start,
+    ...(length.weeks ? { weeks: String(length.weeks) } : {}),
+    ...(length.days ? { days: String(length.days) } : {}),
+    ...(length.dueOn ? { dueOn: length.dueOn } : {}),
+    ...(rate !== null ? { borrowerRate: String(rate) } : {}),
+  }, funders)
+}
+/** The text without its "due ..." part, so a due date is never read as the start. */
+const splitDue = (text: string) => text.replace(/\b(due|until|hanggang|by|ending|ends?)\b.*$/i, '')
+
+async function newRequest(ctx: Ctx): Promise<ServerReply | null> {
+  const borrower = onePerson(ctx, ctx.text, await listBorrowerNames(ctx.userId), 'borrower')
+  if (!borrower || isReply(borrower)) return borrower
+  const [amount] = amountsIn(ctx.text)
+  if (!amount) return tell(`How much does ${borrower.firstName} want to borrow?`)
+  const length = lengthSaid(ctx.text, ctx.today)
+  if (!length || length.months) return askLength(ctx)
+  const start = daySaid(splitDue(ctx.text), ctx.today, 'future') ?? ctx.today
+  const rate = rateSaid(ctx.text)
+  const custom = length.days || length.dueOn
+  return card(ctx, 'create_request', {
+    borrowerId: full(borrower),
+    capital: String(amount),
+    termChoice: custom ? 'custom' : 'weeks',
+    ...(custom ? { startOn: start, dueOn: length.dueOn ?? addDaysTo(start, length.days!) } : { weeks: String(length.weeks) }),
+    ...(rate !== null ? { borrowerRate: String(rate) } : {}),
+  })
+}
+const addDaysTo = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10)
+
+async function fundRequest(ctx: Ctx): Promise<ServerReply | null> {
+  const requests = await db.pendingLoan.findMany({ where: { userId: ctx.userId }, orderBy: { createdAt: 'asc' }, select: { id: true, firstName: true, lastName: true, capitalCentavos: true } })
+  const { before, after } = splitFrom(ctx.text)
+  const groups = mentions(before, requests.map((r) => ({ ...r, id: r.id })))
+  if (groups.length === 0) return requests.length === 0 ? tell('There are no pending requests.') : null
+  let rows = groups[0]
+  const ref = requestRef(ctx.text)
+  if (ref) rows = rows.filter((r) => r.capitalCentavos === Math.round(ref.capital * 100))
+  if (rows.length > 1) {
+    return ask('Which request?', rows.map((r) => ({ label: `${full(r)} · ${pesos(r.capitalCentavos / 100)}`, send: plus(ctx.text, `(the ${pesos(r.capitalCentavos / 100)} request)`) })))
+  }
+  const request = rows[0]
+  ctx.say(`Found ${full(request)}'s request`)
+  const lenders = await lendersFor(ctx, after || ctx.text, await listLenderNames(ctx.userId))
+  if (isReply(lenders)) return lenders
+  const funders = shares(ctx.text, lenders, request.capitalCentavos / 100)
+  const short = funders ? await notEnough(ctx.userId, funders) : null
+  if (short) return short
+  if (!funders) return ask(`How much is from each lender? The request is ${pesos(request.capitalCentavos / 100)}.`, [{ label: 'Split evenly', send: plus(ctx.text, ', split evenly') }])
+  return card(ctx, 'create_loan', { pendingId: request.id }, funders)
+}
+
+async function payment(ctx: Ctx, intent: 'mark_paid' | 'mark_week_paid' | 'paid_unclear'): Promise<ServerReply | null> {
+  const who = onePerson(ctx, ctx.text, await listBorrowerNames(ctx.userId), 'borrower')
+  if (!who || isReply(who)) return who
+  const loan = pickLoan(ctx, who, await loansOf(ctx.userId, who.id), `${who.firstName} has no unpaid loan.`)
+  if (isReply(loan)) return loan
+  const paidOn = daySaid(ctx.text, ctx.today, 'past') ?? ctx.today
+  const weekly = loan.interestCollection === 'WEEKLY'
+  const weeks = Math.round(loan.termDays / 7)
+  const paid = weekly ? await paidWeeks(ctx.userId, loan.id) : []
+  const next = (paid.at(-1) ?? 0) + 1
+  if (intent === 'paid_unclear') {
+    // "Lyn paid": on a weekly loan with weeks still to go, a week or the whole loan are both likely.
+    if (weekly && next < weeks) {
+      return ask(`Did ${who.firstName} pay week ${next}'s interest, or the whole loan?`, [
+        { label: `Week ${next} only`, send: `${who.firstName} paid week ${next} interest (${describeLoan(loan)})` },
+        { label: 'The whole loan', send: `${who.firstName} paid in full (${describeLoan(loan)})` },
+      ])
+    }
+    intent = 'mark_paid'
+  }
+  if (intent === 'mark_week_paid') {
+    if (!weekly) {
+      return ask(`${who.firstName}'s loan collects interest at the end, not every week. Did ${who.firstName} pay the whole loan?`, [
+        { label: 'Yes, paid in full', send: `${who.firstName} paid in full (${describeLoan(loan)})` },
+      ])
+    }
+    const said = weekNumberSaid(ctx.text)
+    if (said !== null && paid.includes(said)) return tell(`Week ${said} of ${who.firstName}'s loan is already paid. The next unpaid week is week ${next}.`)
+    if (said !== null && said > next) {
+      return ask(`Week ${next} comes before week ${said}, and the app marks weeks in order. Mark week ${next} paid?`, [
+        { label: `Mark week ${next} paid`, send: `${who.firstName} paid week ${next} (${describeLoan(loan)})` },
+      ])
+    }
+    if (next >= weeks) {
+      return ask(`Week ${next} is the last week, so it settles the whole loan. Mark ${who.firstName}'s loan paid in full?`, [
+        { label: 'Yes, paid in full', send: `${who.firstName} paid in full (${describeLoan(loan)})` },
+      ])
+    }
+    return card(ctx, 'mark_week_paid', { loanId: loan.id, paidOn })
+  }
+  return card(ctx, 'mark_paid', { loanId: loan.id, paidOn })
+}
+
+async function undoPayment(ctx: Ctx, week: boolean): Promise<ServerReply | null> {
+  const who = onePerson(ctx, ctx.text, await listBorrowerNames(ctx.userId), 'borrower')
+  if (!who || isReply(who)) return who
+  if (!week) {
+    const loan = pickLoan(ctx, who, await loansOf(ctx.userId, who.id, { deletedAt: null, status: 'PAID' }), `${who.firstName} has no paid loan to undo.`)
+    if (isReply(loan)) return loan
+    return card(ctx, 'undo_payment', { loanId: loan.id })
+  }
+  const weeklyLoans = (await loansOf(ctx.userId, who.id)).filter((l) => l.interestCollection === 'WEEKLY')
+  const loan = pickLoan(ctx, who, weeklyLoans, `${who.firstName} has no weekly loan.`)
+  if (isReply(loan)) return loan
+  const paid = await paidWeeks(ctx.userId, loan.id)
+  if (paid.length === 0) return tell(`No week of ${who.firstName}'s loan is marked paid yet.`)
+  const said = weekNumberSaid(ctx.text)
+  if (said === null) return ask('Which week should I undo?', paid.slice().reverse().map((n) => ({ label: `Week ${n}`, send: plus(ctx.text, `week ${n}`) })))
+  if (!paid.includes(said)) return tell(`Week ${said} isn't marked paid. Paid weeks: ${paid.join(', ')}.`)
+  return card(ctx, 'undo_week_paid', { loanId: loan.id, weekNumber: String(said) })
+}
+
+async function money(ctx: Ctx, type: 'DEPOSIT' | 'WITHDRAWAL'): Promise<ServerReply | null> {
+  const all = await listLenderNames(ctx.userId)
+  const self = all.find((l) => l.isSelf)
+  let lender: Person | ServerReply | null = self && ADMIN_WORDS.test(ctx.text) ? self : onePerson(ctx, ctx.text, all.filter((l) => !l.isSelf), 'lender')
+  if (!lender) {
+    // A borrower named instead of a lender: this is not money in or out of a pot.
+    if (mentions(ctx.text, await listBorrowerNames(ctx.userId)).length > 0) return null
+    const pots = await listLenders(ctx.userId)
+    return ask(`Whose pot is the ${type === 'DEPOSIT' ? 'deposit into' : 'withdrawal from'}?`, pots.map((l) => ({ label: full(l), send: plus(ctx.text, l.isSelf ? '(my pot)' : `(${full(l)})`) })))
+  }
+  if (isReply(lender)) return lender
+  if (lender === self) ctx.say('Found your own pot')
+  const [amount] = amountsIn(ctx.text)
+  if (!amount) return tell(`How much did ${lender.isSelf ? 'you' : lender.firstName} ${type === 'DEPOSIT' ? 'put in' : 'take out'}?`)
+  const note = noteBodySaid(ctx.text)
+  lender = lender as Person
+  if (type === 'WITHDRAWAL') {
+    const short = await notEnough(ctx.userId, [{ lenderId: full(lender), amount: String(amount) }], 'take out')
+    if (short) return short
+  }
+  return card(ctx, 'record_money', {
+    lenderId: full(lender),
+    type,
+    amount: String(amount),
+    occurredOn: daySaid(ctx.text, ctx.today, 'past') ?? ctx.today,
+    ...(note ? { note } : {}),
+  })
+}
+
+async function borrowerLoanAction(ctx: Ctx, action: string, none: string, filter: (l: LoanRow) => boolean = () => true, where?: Record<string, unknown>) {
+  const who = onePerson(ctx, ctx.text, await listBorrowerNames(ctx.userId), 'borrower')
+  if (!who || isReply(who)) return { reply: who }
+  const loan = pickLoan(ctx, who, (await loansOf(ctx.userId, who.id, where)).filter(filter), none.replace('{name}', who.firstName))
+  if (isReply(loan)) return { reply: loan }
+  return { who, loan }
+}
+
+async function extend(ctx: Ctx): Promise<ServerReply | null> {
+  const r = await borrowerLoanAction(ctx, 'extend_loan', '{name} has no unpaid loan to extend.')
+  if (!r.loan) return r.reply ?? null
+  const length = lengthSaid(ctx.text, ctx.today)
+  if (!length?.weeks) return ask('Extend by how many weeks?', [1, 2, 3, 4].map((n) => ({ label: `${n} week${n > 1 ? 's' : ''}`, send: `extend ${r.who!.firstName}'s loan by ${n} week${n > 1 ? 's' : ''} (${describeLoan(r.loan!)})` })))
+  const paidNow = /\b(paid|bayad|nagbayad)\b.{0,30}\b(now|today|already|na)\b|\binterest (is )?paid\b/i.test(ctx.text)
+  return card(ctx, 'extend_loan', { loanId: r.loan.id, weeks: String(length.weeks), ...(paidNow ? { paidNow: 'yes' } : {}) })
+}
+
+async function noteAction(ctx: Ctx, add: boolean): Promise<ServerReply | null> {
+  const r = await borrowerLoanAction(ctx, add ? 'add_note' : 'delete_note', '{name} has no loan to put a note on.', () => true, { deletedAt: null })
+  if (!r.loan) return r.reply ?? null
+  if (add) {
+    const body = noteBodySaid(ctx.text)
+    if (!body) return tell('What should the note say? For example: note on Dan\'s loan: "will pay Friday".')
+    return card(ctx, 'add_note', { loanId: r.loan.id, body })
+  }
+  const notes = await db.loanNote.findMany({ where: { userId: ctx.userId, loanId: r.loan.id }, orderBy: { createdAt: 'desc' }, select: { id: true, body: true } })
+  if (notes.length === 0) return tell(`There's no note on ${r.who!.firstName}'s loan.`)
+  const ref = noteRef(ctx.text)
+  const hit = ref ? notes.find((n) => n.body.toLowerCase().startsWith(ref.toLowerCase())) : notes.length === 1 ? notes[0] : null
+  if (!hit) return ask('Which note?', notes.map((n) => ({ label: n.body.slice(0, 50), send: plus(ctx.text, `(the note "${n.body.slice(0, 30)}")`) })))
+  return card(ctx, 'delete_note', { noteId: hit.id })
+}
+
+/** A lender's money entry: a button's reference, or the one matching an amount or day said, or a question. */
+async function pickEntry(ctx: Ctx, lender: Person, deleted: boolean): Promise<{ id: string; type: string; amountCentavos: number; occurredOn: Date; note: string | null } | ServerReply> {
+  const rows = await db.lenderTransaction.findMany({
+    where: { userId: ctx.userId, lenderId: lender.id, deletedAt: deleted ? { not: null } : null },
+    orderBy: { occurredOn: 'desc' },
+    take: 8,
+    select: { id: true, type: true, amountCentavos: true, occurredOn: true, note: true },
+  })
+  const label = (t: { type: string; amountCentavos: number; occurredOn: Date }) => `the ${t.type === 'DEPOSIT' ? 'deposit' : 'withdrawal'} of ${pesos(t.amountCentavos / 100)} on ${spellDate(day(t.occurredOn))}`
+  // "fix Maria's deposit": only her deposits. The reference a button adds is not read for this.
+  const plain = clean(ctx.text.replace(/\(the [^)]*\)/i, ''))
+  const kind = /\bdeposit/.test(plain) && !/\bwithdraw/.test(plain) ? 'DEPOSIT' : /\bwithdraw/.test(plain) && !/\bdeposit/.test(plain) ? 'WITHDRAWAL' : null
+  if (kind && !entryRef(ctx.text)) rows.splice(0, rows.length, ...rows.filter((t) => t.type === kind))
+  const ref = entryRef(ctx.text)
+  if (ref) {
+    const hit = rows.find((t) => t.type === ref.type && t.amountCentavos === Math.round(ref.amount * 100) && spellDate(day(t.occurredOn)).toLowerCase() === ref.date.toLowerCase())
+    if (hit) return hit
+  }
+  if (rows.length === 0) return tell(`${lender.isSelf ? 'Your pot' : `${lender.firstName}'s pot`} has no ${deleted ? 'deleted ' : ''}money entries.`)
+  if (rows.length === 1) return rows[0]
+  return ask('Which entry?', rows.map((t) => ({ label: `${t.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} · ${pesos(t.amountCentavos / 100)} · ${spellDate(day(t.occurredOn))}`, send: plus(ctx.text.replace(/\bto\s+₱?[\d,.]+k?\b.*$/i, ''), `(${label(t)})${/\bto\s+₱?[\d,.]+/i.test(ctx.text) ? ' ' + /\bto\s+₱?[\d,.]+\s*k?/i.exec(ctx.text)![0] : ''}`) })))
+}
+
+async function updateMoney(ctx: Ctx): Promise<ServerReply | null> {
+  const lender = onePerson(ctx, ctx.text, await listLenderNames(ctx.userId), 'lender')
+  if (!lender || isReply(lender)) return lender
+  const entry = await pickEntry(ctx, lender, false)
+  if (isReply(entry)) return entry
+  const after = /\bto\s+(.+)$/i.exec(ctx.text.replace(/\(the [^)]*\)/i, ''))
+  const amount = after ? amountsIn(after[1])[0] : undefined
+  const date = after ? daySaid(after[1], ctx.today, 'past') : null
+  const type = /\bto (a )?withdrawal\b/i.test(ctx.text) ? 'WITHDRAWAL' : /\bto (a )?deposit\b/i.test(ctx.text) ? 'DEPOSIT' : entry.type
+  if (!amount && !date && type === entry.type) return tell('What should it be changed to? For example "to 6k" or "to yesterday".')
+  return card(ctx, 'update_money', {
+    transactionId: entry.id,
+    type,
+    amount: String(amount ?? entry.amountCentavos / 100),
+    occurredOn: date ?? day(entry.occurredOn),
+    ...(entry.note ? { note: entry.note } : {}),
+  })
+}
+
+async function updateLoan(ctx: Ctx): Promise<ServerReply | null> {
+  // An unpaid loan is the one being fixed; a paid one only when there is no unpaid one.
+  const unpaid = await borrowerLoanAction(ctx, 'update_loan', '', () => true)
+  const r = unpaid.loan || (unpaid.reply && unpaid.reply.kind === 'ask') ? unpaid : await borrowerLoanAction(ctx, 'update_loan', '{name} has no loan to fix.', () => true, { deletedAt: null })
+  if (!r.loan) return r.reply ?? null
+  const after = /\bto\s+(.+)$/i.exec(ctx.text.replace(/\(the [^)]*\)/i, ''))?.[1] ?? ''
+  const change: Record<string, unknown> = {}
+  const rate = rateSaid(after)
+  if (rate !== null) change.borrowerRate = String(rate)
+  const length = lengthSaid(after, ctx.today)
+  if (length?.weeks) change.weeks = String(length.weeks)
+  if (length?.dueOn) change.dueOn = length.dueOn
+  const [amount] = amountsIn(after)
+  if (amount && rate === null) change.capital = String(amount)
+  if (/\bstart/i.test(ctx.text)) {
+    const start = daySaid(after, ctx.today, 'past')
+    if (start) change.startOn = start
+  }
+  // Anything this cannot read (a funder change, interest basis) is the big AI's.
+  if (Object.keys(change).length === 0) return null
+  // A new amount moves the lenders' shares too. With one lender, all of it is theirs; with several, the Admin says how.
+  if (change.capital) {
+    const funding = await db.loanFunding.findMany({ where: { userId: ctx.userId, loanId: r.loan.id }, select: { lender: { select: { firstName: true, lastName: true, isSelf: true } } } })
+    if (funding.length === 1) return card(ctx, 'update_loan', { loanId: r.loan.id, ...change }, [{ lenderId: full(funding[0].lender), amount: String(change.capital) }])
+    const named = await lendersFor(ctx, splitFrom(ctx.text).after, await listLenderNames(ctx.userId))
+    const funders = !isReply(named) && splitFrom(ctx.text).after ? shares(ctx.text, named, Number(change.capital)) : null
+    if (!funders) return tell(`This loan has ${funding.length} lenders. How much from each at ${pesos(Number(change.capital))}? For example: "change ${r.who!.firstName}'s loan to ${amountWords(Number(change.capital))}, 7k from ${funding[0].lender.isSelf ? 'my pot' : funding[0].lender.firstName} and 5k from ${funding[1].lender.isSelf ? 'my pot' : funding[1].lender.firstName}".`)
+    return card(ctx, 'update_loan', { loanId: r.loan.id, ...change }, funders)
+  }
+  return card(ctx, 'update_loan', { loanId: r.loan.id, ...change })
+}
+
+async function deleteOrRestore(ctx: Ctx, restore: boolean): Promise<ServerReply | null> {
+  const t = clean(ctx.text)
+  const deletedOnly = restore ? { not: null } : null
+  if (/\b(deposit|withdrawal|entry|money)\b/.test(t)) {
+    const lenders = await db.lender.findMany({ where: { userId: ctx.userId, deletedAt: null }, select: { id: true, firstName: true, lastName: true, isSelf: true } })
+    const lender = onePerson(ctx, ctx.text, lenders, 'lender')
+    if (!lender || isReply(lender)) return lender
+    const entry = await pickEntry(ctx, lender, restore)
+    if (isReply(entry)) return entry
+    return card(ctx, restore ? 'restore_money' : 'delete_money', { transactionId: entry.id })
+  }
+  if (/\bloan\b/.test(t)) {
+    const r = await borrowerLoanAction(ctx, restore ? 'restore_loan' : 'delete_loan', restore ? '{name} has no deleted loan.' : '{name} has no loan to delete.', () => true, { deletedAt: deletedOnly })
+    if (!r.loan) return r.reply ?? null
+    return card(ctx, restore ? 'restore_loan' : 'delete_loan', { loanId: r.loan.id })
+  }
+  // A person: a borrower or a lender, whichever list the name is on (deleted ones, to restore).
+  const [borrowers, lenders] = await Promise.all([
+    db.borrower.findMany({ where: { userId: ctx.userId, deletedAt: deletedOnly }, select: { id: true, firstName: true, lastName: true } }),
+    db.lender.findMany({ where: { userId: ctx.userId, deletedAt: deletedOnly, isSelf: false }, select: { id: true, firstName: true, lastName: true } }),
+  ])
+  const wantsLender = /\b(lender|investor|funder)\b/.test(t)
+  const wantsBorrower = /\bborrower\b/.test(t)
+  const b = wantsLender ? [] : mentions(ctx.text, borrowers)
+  const l = wantsBorrower ? [] : mentions(ctx.text, lenders)
+  // The fuller match wins: "Maria Cruz" is the lender Maria Cruz, not the borrower Angel Dela Cruz.
+  if (b.length > 0 && l.length > 0) {
+    const bs = Math.max(...b.flat().map((p) => nameParts(ctx.text, p)))
+    const ls = Math.max(...l.flat().map((p) => nameParts(ctx.text, p)))
+    if (bs > ls) l.splice(0)
+    else if (ls > bs) b.splice(0)
+  }
+  if (b.length > 0 && l.length > 0) {
+    return ask('Do you mean the borrower or the lender?', [
+      { label: `Borrower ${full(b[0][0])}`, send: plus(ctx.text, '(the borrower)') },
+      { label: `Lender ${full(l[0][0])}`, send: plus(ctx.text, '(the lender)') },
+    ])
+  }
+  if (b.length > 0) {
+    const who = onePerson(ctx, ctx.text, borrowers, 'borrower') as Person | ServerReply
+    if (isReply(who)) return who
+    if (restore) return card(ctx, 'restore_borrower', { borrowerId: who.id })
+    const unpaid = await db.loan.count({ where: { userId: ctx.userId, borrowerId: who.id, deletedAt: null, status: 'ACTIVE' } })
+    const choice = /\b(keep|leave)\b.*\bloans?\b/.test(t) ? 'keep' : /\b(and|with|plus|including)\b.*\bloans?\b/.test(t) ? 'unpaid' : unpaid === 0 ? 'keep' : null
+    if (!choice) {
+      return ask(`${who.firstName} has ${unpaid} unpaid loan${unpaid > 1 ? 's' : ''}. Delete ${unpaid > 1 ? 'them' : 'it'} too?`, [
+        { label: 'Keep the loans', send: plus(ctx.text, '(keep the loans)') },
+        { label: 'Delete the unpaid loans too', send: plus(ctx.text, '(with the unpaid loans)') },
+      ])
+    }
+    return card(ctx, 'delete_borrower', { borrowerId: who.id, loans: choice })
+  }
+  if (l.length > 0) {
+    const who = onePerson(ctx, ctx.text, lenders, 'lender') as Person | ServerReply
+    if (isReply(who)) return who
+    return card(ctx, restore ? 'restore_lender' : 'delete_lender', { lenderId: who.id })
+  }
+  return null
+}
+
+async function simplePerson(ctx: Ctx, intent: Intent): Promise<ServerReply | null> {
+  const borrowers = await listBorrowerNames(ctx.userId)
+  switch (intent) {
+    case 'set_label': {
+      const label = labelSaid(ctx.text)
+      if (label === null) return null
+      const who = onePerson(ctx, ctx.text.replace(/\b(good|okay|ok|bad)\b/gi, ' '), borrowers, 'borrower')
+      if (!who || isReply(who)) return who
+      return card(ctx, 'set_label', { borrowerId: full(who), label })
+    }
+    case 'clear_borrower_photo': {
+      const who = onePerson(ctx, ctx.text, borrowers, 'borrower')
+      if (!who || isReply(who)) return who
+      const made = await card(ctx, 'clear_borrower_photo', { borrowerId: full(who) })
+      // Said with the person's name, not "that borrower".
+      return made?.kind === 'answer' && /no photo/i.test(made.answer) ? tell(`${who.firstName} has no photo to remove.`) : made
+    }
+    case 'create_borrower':
+    case 'create_lender': {
+      const name = newNameSaid(ctx.text, /\b(borrower|lender|investor|funder)s?\b(\s+(named|called|si))?/i)
+      if (!name) return tell(`What is the new ${intent === 'create_borrower' ? 'borrower' : 'lender'}'s first and last name?`)
+      ctx.say(`New ${intent === 'create_borrower' ? 'borrower' : 'lender'}: ${full(name)}`)
+      return card(ctx, intent, name)
+    }
+    case 'rename': {
+      const to = /\bto\s+([\p{L}' .-]+)$/u.exec(ctx.text)
+      const name = to ? newNameSaid(to[0], /\bto\b/i) : null
+      if (!name) return tell('What should the new name be? For example: rename Juan to Juan Cruz.')
+      const before = ctx.text.slice(0, to!.index)
+      const lenders = (await listLenderNames(ctx.userId)).filter((l) => !l.isSelf)
+      const b = mentions(before, borrowers)
+      const l = mentions(before, lenders)
+      const isLender = l.length > 0 && (b.length === 0 || /\blender\b/i.test(ctx.text))
+      const who = onePerson(ctx, before, isLender ? lenders : borrowers, isLender ? 'lender' : 'borrower')
+      if (!who || isReply(who)) return who
+      return card(ctx, isLender ? 'rename_lender' : 'rename_borrower', { [isLender ? 'lenderId' : 'borrowerId']: full(who), ...name })
+    }
+    case 'set_starting_capital': {
+      const who = onePerson(ctx, ctx.text, await listLenderNames(ctx.userId), 'lender')
+      if (!who || isReply(who)) return who
+      const [amount] = amountsIn(ctx.text)
+      if (!amount) return tell(`What is ${who.firstName}'s starting capital?`)
+      return card(ctx, 'set_starting_capital', { lenderId: full(who), startingCapital: String(amount) })
+    }
+    default:
+      return null
+  }
+}
+
+async function deleteRequest(ctx: Ctx): Promise<ServerReply | null> {
+  const requests = await db.pendingLoan.findMany({ where: { userId: ctx.userId }, select: { id: true, firstName: true, lastName: true, capitalCentavos: true } })
+  const groups = mentions(ctx.text, requests)
+  if (groups.length === 0) return requests.length === 0 ? tell('There are no pending requests.') : null
+  let rows = groups[0]
+  const ref = requestRef(ctx.text)
+  if (ref) rows = rows.filter((r) => r.capitalCentavos === Math.round(ref.capital * 100))
+  if (rows.length > 1) return ask('Which request?', rows.map((r) => ({ label: `${full(r)} · ${pesos(r.capitalCentavos / 100)}`, send: plus(ctx.text, `(the ${pesos(r.capitalCentavos / 100)} request)`) })))
+  ctx.say(`Found ${full(rows[0])}'s request`)
+  return card(ctx, 'delete_request', { pendingId: rows[0].id })
+}
+
+async function build(ctx: Ctx, intent: Intent): Promise<ServerReply | null> {
+  switch (intent) {
+    case 'create_loan':
+      return newLoan(ctx)
+    case 'create_request':
+      return newRequest(ctx)
+    case 'fund_request':
+      return fundRequest(ctx)
+    case 'mark_paid':
+    case 'mark_week_paid':
+    case 'paid_unclear':
+      return payment(ctx, intent)
+    case 'undo_payment':
+      return undoPayment(ctx, false)
+    case 'undo_week_paid':
+      return undoPayment(ctx, true)
+    case 'deposit':
+      return money(ctx, 'DEPOSIT')
+    case 'withdraw':
+      return money(ctx, 'WITHDRAWAL')
+    case 'record_advance': {
+      const r = await borrowerLoanAction(ctx, 'record_advance', '{name} has no unpaid loan to take an advance on.')
+      if (!r.loan) return r.reply ?? null
+      const [amount] = amountsIn(ctx.text)
+      if (!amount) return tell('How much is the advance?')
+      return card(ctx, 'record_advance', { loanId: r.loan.id, amount: String(amount), occurredOn: daySaid(ctx.text, ctx.today, 'past') ?? ctx.today })
+    }
+    case 'extend_loan':
+      return extend(ctx)
+    case 'convert_to_weekly': {
+      const r = await borrowerLoanAction(ctx, 'convert_to_weekly', "{name} has no loan that collects interest at the end.", (l) => l.interestCollection === 'AT_END')
+      if (!r.loan) return r.reply ?? null
+      return card(ctx, 'convert_to_weekly', { loanId: r.loan.id })
+    }
+    case 'add_note':
+      return noteAction(ctx, true)
+    case 'delete_note':
+      return noteAction(ctx, false)
+    case 'add_loan_proof': {
+      const r = await borrowerLoanAction(ctx, 'add_loan_proof', '{name} has no loan.', () => true, { deletedAt: null })
+      if (!r.loan) return r.reply ?? null
+      return card(ctx, 'add_loan_proof', { loanId: r.loan.id })
+    }
+    case 'update_money':
+      return updateMoney(ctx)
+    case 'update_loan':
+      return updateLoan(ctx)
+    case 'delete':
+      return deleteOrRestore(ctx, false)
+    case 'restore':
+      return deleteOrRestore(ctx, true)
+    case 'delete_request':
+      return deleteRequest(ctx)
+    case 'question':
+      return null
+    default:
+      return simplePerson(ctx, intent)
+  }
+}
+
+// ---------------------------------------------------------------- per-person checks
+
+/**
+ * Plain checks on one person, answered from the app's own numbers: "how much
+ * does Angel owe", "Rico's loans", "how much does Maria have". Only when the
+ * whole question is one of these and the name is one person; anything else is
+ * the big AI's.
+ */
+async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
+  const t = clean(ctx.text).replace(/[?.!]+$/, '').replace(/\b(right now|now|currently|today|po|please|pls)\b/g, ' ').replace(/\s+/g, ' ').trim()
+  const owe = /^(how much (does|do|is|did) (.+?) (still )?(owe|owes|owing|utang)|what does (.+?) (still )?owe|magkano (pa )?(ang )?utang ni (.+)|(.+?)'?s? (balance|utang|debt)|(show|list|check)( me)? (.+?)'?s? loans|(.+?)'?s? loans|how many loans does (.+?) have)$/.exec(t)
+  const pot = /^(how much (does|do|is) (.+?) (have|has)( floating| left| in (her|his|their) pot)?|(.+?)'?s? (pot|floating|money)|how much is in (.+?)'?s? pot|how much is floating for (.+?))$/.exec(t)
+  if (!owe && !pot) return null
+  const name = (owe ? [owe[3], owe[6], owe[10], owe[11], owe[14], owe[15], owe[16]] : [pot![3], pot![7], pot![9], pot![10]]).find(Boolean)?.trim() ?? ''
+  if (!name || name.split(' ').length > 3) return null
+  if (owe) {
+    const people = mentions(name, await listBorrowerNames(ctx.userId))
+    if (people.length !== 1 || people[0].length !== 1) return null
+    const b = people[0][0]
+    ctx.say(`Found ${full(b)}`)
+    const r = (await runTool(ctx.userId, 'find_borrower', { name: full(b) })) as { borrowers?: { name: string; stillOwes: string; overdueAmount: string; loans: { amount: string; totalToRepay: string; due: string | null; state: string }[] }[] }
+    const row = r.borrowers?.find((x) => x.name === full(b))
+    if (!row) return null
+    const unpaid = row.loans.filter((l) => l.state !== 'paid')
+    // One total (what is still owed), then each unpaid loan by its amount and due date, so no two figures disagree.
+    // The amount still owed leads (shown large); each unpaid loan is a row with its due date. No per-loan
+    // "to repay" figure: on a weekly loan it is more than what is still owed, and two figures would disagree.
+    const lines = unpaid.map((l) => `- ${l.amount} loan: due ${l.due ? spellDate(l.due) : 'not set'}${l.state === 'overdue' ? ' | Overdue' : ''}`)
+    return tell(unpaid.length === 0 ? `${row.name} owes nothing right now. ${row.loans.length} loan${row.loans.length === 1 ? '' : 's'}, all paid.` : [`**${row.stillOwes}** still owed by ${row.name}.`, ...lines].join('\n'))
+  }
+  const people = mentions(name, await listLenderNames(ctx.userId))
+  if (people.length !== 1 || people[0].length !== 1) return null
+  const l = people[0][0]
+  ctx.say(`Found ${full(l)}`)
+  const r = (await runTool(ctx.userId, 'get_lender', { name: full(l) })) as { found?: boolean; name?: string; floating?: string; outOnLoan?: string; startingCapital?: string }
+  if (!r.found) return null
+  // A starting capital of ₱0.00 means none was set; "₱0.00" next to a large first deposit reads as wrong.
+  return tell([`**${r.floating}** floating in ${r.name}'s pot, ready to lend.`, `- Out on loan: ${r.outOnLoan}`, ...(r.startingCapital && r.startingCapital !== '₱0.00' ? [`- Starting capital: ${r.startingCapital}`] : [])].join('\n'))
+}
+
+/**
+ * Changes the server will not make in one go, said plainly instead of half done:
+ * "everyone", "all loans", two changes in one message, a negative amount.
+ */
+function oneAtATime(text: string): ServerReply | null {
+  const t = clean(text)
+  // "lahat" alone is "all", but "bayad na lahat" is one person paying everything.
+  const allOfThem = /\b(everyone|everybody|all (the )?(loans|borrowers|lenders|of them|payments)|every (loan|borrower|lender))\b/.test(t) || (/\blahat\b/.test(t) && !/\b(bayad|binayaran|binalik|ibinalik|nagbayad)\b/.test(t))
+  if (allOfThem) {
+    return tell('For safety, I change one thing at a time. Tell me which one, for example "Dan fully paid".')
+  }
+  if (/(^|\s)-\s?₱?\d/.test(t)) return tell("An amount can't be negative. Say it as a plain amount, like \"5k\".")
+  const verbs = t.match(/\b(deposit\w*|withdr\w*|lend|lent|paid|delete|remove|restore|rename|extend)\b/g) ?? []
+  if (verbs.length >= 2 && /\b(and|then|also|tapos)\b/.test(t) && new Set(verbs.map((v) => v.slice(0, 4))).size === 1 && amountsIn(text).length >= 2) {
+    return tell('That looks like two changes. I make one card at a time, so send them one by one.')
+  }
+  return null
+}
+
+// ---------------------------------------------------------------- entry point
+
+/**
+ * The server's own reply to the latest message, or null for the big AI. When
+ * the latest message only answers the server's own question ("3 weeks"), it is
+ * read together with the message that asked for the change.
+ */
+export async function serverReply(userId: string, history: { role: 'user' | 'assistant'; text: string }[], say: Say): Promise<ServerReply | null> {
+  const latest = [...history].reverse().find((t) => t.role === 'user')?.text ?? ''
+  const ctx: Ctx = { userId, text: latest, today: manilaToday(), say }
+  if (isQuestion(latest)) return personCheck(ctx)
+
+  let intent = intentByRules(latest)
+  let how = 'from your words'
+  if (!intent) {
+    // A short reply to the server's own question: read with the request it answers.
+    const n = history.length
+    const prevBot = history[n - 2]
+    const prevUser = history[n - 3]
+    if (prevBot?.role === 'assistant' && /\?|:\s*$|For example/.test(prevBot.text) && prevUser?.role === 'user' && latest.split(/\s+/).length <= 8) {
+      const merged = `${prevUser.text} ${latest}`
+      const again = intentByRules(merged)
+      if (again) {
+        ctx.text = merged
+        intent = again
+      }
+    }
+  }
+  if (!intent) {
+    // "Rico's loans", typed without a question mark, is still a check.
+    const checked = await personCheck(ctx)
+    if (checked) return checked
+    // People's names are hidden first: they say who, not what.
+    const names = [...(await listBorrowerNames(userId)), ...(await listLenderNames(userId))].flatMap((p) => wordsOf(full(p)))
+    const meant = await meaningOf(latest, names)
+    if (!meant || meant.intent === 'question') return null
+    intent = meant.intent === 'delete_any' ? 'delete' : meant.intent === 'restore_any' ? 'restore' : meant.intent
+    how = 'by meaning'
+  }
+  say(`Understood: ${TITLES[intent] ?? 'a change'} (${how})`)
+  const guard = oneAtATime(ctx.text)
+  if (guard) return guard
+  try {
+    return await build(ctx, intent)
+  } catch (error) {
+    // A slip in the server's own reading must never block the Admin: the big AI takes over.
+    console.error('[dex-e server card]', error)
+    return null
+  }
+}

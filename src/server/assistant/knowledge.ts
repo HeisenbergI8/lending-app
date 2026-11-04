@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 /**
- * The retrieval half of Ask Pondex: find the parts of the rules file that fit a
+ * The retrieval half of Dex-E: find the parts of the rules file that fit a
  * question, instead of sending the whole file with every question.
  *
  * The free Groq plan allows about 8,000 tokens a minute, and the whole file is
@@ -74,6 +74,17 @@ let sections: Section[] | null = null
 function load(): Section[] {
   sections ??= parseSections(readFileSync(path.join(process.cwd(), FILE), 'utf8'))
   return sections
+}
+
+export function scoreSections(all: Section[], question: string): { section: Section; score: number }[] {
+  const asked = [...new Set(tokens(question))]
+  return all
+    .map((section) => ({
+      section,
+      score: asked.reduce((n, w) => n + (section.strong.has(w) ? 3 : 0) + (section.body.has(w) ? 1 : 0), 0),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
 }
 
 export function rankSections(all: Section[], question: string): Section[] {

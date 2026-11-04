@@ -1,11 +1,11 @@
 # Pondex: how the lending works
 
-The knowledge file Ask Pondex looks up. It explains the words and rules of the app.
+The knowledge file Dex-E (the chat helper) looks up. It explains the words and rules of the app.
 It holds NO live numbers: amounts, balances, dates and names always come from the database tools.
 The worked examples below are examples, never facts about a real loan.
 
-Sources: `docs/FEATURES.md`, the comments in `prisma/schema.prisma` and `src/lib/track-record.ts`.
-If this file and those disagree, those are right; update this file.
+Sources: `docs/FEATURES.md`, the comments in `prisma/schema.prisma`, `src/lib/track-record.ts` and the
+server actions' own checks. Where they disagree, what the code enforces is right; update this file.
 
 How this file is written (so retrieval keeps working):
 - One topic per `## ` section. Each section stands on its own and states each fact once.
@@ -60,12 +60,23 @@ Also called: fixed interest, flat amount, days, short loan
 - The Admin types the interest directly. There is no rate and the term can be any number of days.
 
 ## A loan's total never changes
-Also called: frozen, late fee, penalty, early payment, discount, rebate, extension, rollover
+Also called: frozen, late fee, penalty, early payment, discount, rebate
 
 - Interest and the total are worked out once, the day the loan is made, and stored.
 - Changing a usual rate never changes an existing loan.
 - No late fees, no extra interest for paying late, no discount for paying early.
-- Loans are never extended and never rolled into a new loan.
+- The only way a total grows is an extension the Admin makes (next section).
+
+## Extending a loan
+Also called: extend a loan, extension, more time, more weeks, push the due date, rollover
+
+- The Admin can push a loan's due date out by whole weeks. It adds interest; nothing happens on its own.
+- Two ways. Pay later: the same loan runs longer, on its own rates and funders, and the extra interest
+  is the difference. Pay now: the interest so far is paid today, that loan closes as paid, and the
+  same capital carries on as a new loan from the old due date.
+- Pay now is only for loans whose interest is paid at the end.
+- On a fixed-amount loan the Admin types the extra interest and the lenders' share of it.
+- An extension can be undone.
 
 ## Loan states
 Also called: status, active, overdue, paid, late, due
@@ -82,8 +93,11 @@ screenshot
 
 - Full payment only: the whole total in one payment. No partial payments and no installments.
 - The one exception is a weekly-interest loan (next section).
-- Proof of payment is optional. A paid loan with no file shows a "no proof" warning until one is
-  added. One payment can have several files.
+- Marking a loan paid needs a screenshot of the payment. The app will not save it without one.
+- A weekly payment's proof is optional; one without a file shows a "no proof" warning until one is
+  added. Loans paid before the screenshot rule may show the same warning.
+- One payment can have several files.
+- A new loan needs a screenshot of the money being sent to the borrower.
 
 ## Weekly-interest loans
 Also called: weekly, every week, schedule, interest collected weekly, convert
@@ -107,7 +121,7 @@ Also called: split, several lenders, funders, who funded, whose money
   the Admin's own money.
 
 ## Floating, out on loan and earned
-Also called: dashboard, pot, idle cash, available to lend, balance, money words
+Also called: dashboard, pot, idle cash, available to lend, balance, money words, due this week
 
 - **Out on loan:** capital in borrowers' hands on loans not yet paid.
 - **Floating:** a lender's idle cash, ready to lend. Money in, minus money out, minus what is out on
@@ -118,6 +132,8 @@ Also called: dashboard, pot, idle cash, available to lend, balance, money words
 - **Total interest:** all interest ever charged on loans on record, split into "back" (collected)
   and "still out" (not collected yet).
 - **Overdue tile:** how many overdue loans and people, and how much they owe.
+- **Due this week:** money owed in the next 7 days, from today: how much, on how many loans, by how
+  many people.
 
 ## When a loan is repaid
 Also called: repayment, money comes back, returns to floating
@@ -139,7 +155,7 @@ Also called: this month, last month, between dates, monthly earnings, date range
 - On a lender's page the Admin picks two dates and sees what that pot earned between them.
 - Each loan's interest is spread across the days it ran, so a loan crossing two months counts in
   both. It is what the money earned, not when cash arrived.
-- Ask Pondex cannot work this out. Point the Admin to the lender's page or a report.
+- Dex-E cannot work this out. Point the Admin to the lender's page or a report.
 
 ## Advances against a loan
 Also called: advance, draw early, take out before repayment
@@ -186,16 +202,24 @@ Also called: delete, remove, restore, undo, recently deleted, trash
 - Deleted loans are left out of every figure and report.
 
 ## What Pondex does not do
-Also called: not supported, missing feature, reminders, messages, SMS
+Also called: not supported, missing feature, messages, SMS, notify
 
 - No borrower or lender logins, partial payments, installments, early payoff, late penalties,
-  extensions, rollovers, compounding interest, reminders, or messages to borrowers.
+  compounding interest, or messages to borrowers.
 - Peso only. No other currency.
+
+## Remind me every N weeks
+Also called: reminder, remind, nudge, due soon
+
+- An optional setting on a loan or a pending request. Every N weeks from the start date, the loan
+  shows as Due soon for a few days, until the due date.
+- A nudge on screen only. It moves no money and sends no message.
 
 ---
 
 ## The Admin's own lending rules
-Also called: policy, limit, maximum, second loan, two loans, how long, term, length, weeks,
+Also called: policy, limit, maximum, second loan, two loans, 2 loans, same time, at once, how long, term,
+length, weeks,
 when overdue, funding decision, who decides, label rules, good, okay, bad
 
 Written by the Admin on 2026-11-03. The app does not enforce these; they explain how the Admin

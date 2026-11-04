@@ -110,3 +110,13 @@ export function describeTrackRecord(record: TrackRecord): string {
   const withExtended = record.extended > 0 ? `${counted} · ${record.extended} extended` : counted
   return record.overdue > 0 ? `${withExtended} · ${record.overdue} overdue now` : withExtended
 }
+
+/**
+ * The label the Admin's rule gives, from the record: paid-late loans plus loans
+ * overdue now. Good is 0, Okay is 1, Bad is 2 or more. The saved label is the
+ * Admin's own choice and can differ; this is only what the rule says.
+ */
+export function labelByRule(record: TrackRecord): 'GOOD' | 'OKAY' | 'BAD' {
+  const marks = record.paidLate + record.overdue
+  return marks === 0 ? 'GOOD' : marks === 1 ? 'OKAY' : 'BAD'
+}

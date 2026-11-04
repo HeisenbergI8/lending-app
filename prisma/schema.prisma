@@ -633,3 +633,39 @@ model LoanProof {
   @@index([loanId])
   @@index([userId])
 }
+
+/// Ask Pondex's use of the free Groq plan: one row per model per day (UTC).
+///
+/// NO userId, unlike every other table, on purpose. Groq's limits belong to the
+/// API key, not to a person: the Admin and the demo account draw on the same
+/// daily allowance, so the count has to be shared to be true. Nothing here is a
+/// name or an amount, so there is nothing for the demo account to see.
+///
+/// Groq does not report how many tokens are left in the day, so this table
+/// counts them as they are spent. When Groq refuses, its message gives the real
+/// figures and the wait, and they overwrite the count here.
+model AssistantUsage {
+  id         String    @id @default(cuid())
+  day        DateTime  @db.Date
+  model      String
+  /// Questions answered, for the average cost of one.
+  questions  Int       @default(0)
+  /// Calls to Groq. A question takes one per tool round.
+  calls      Int       @default(0)
+  tokens     Int       @default(0)
+  /// The daily token limit, as Groq stated it when it last refused. Null until then.
+  tokenLimit Int?
+  /// When Groq said this model can be used again. Null or past means it is free.
+  coolUntil  DateTime?
+  /// Groq's own figures from the last answer's headers: requests left today and
+  /// the day's request cap, tokens left this minute, and when that minute resets.
+  requestsLeft     Int?
+  requestLimit     Int?
+  minuteTokensLeft Int?
+  minuteResetAt    DateTime?
+  /// When this model last answered, to show which model is in use.
+  lastUsedAt       DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([day, model])
+}

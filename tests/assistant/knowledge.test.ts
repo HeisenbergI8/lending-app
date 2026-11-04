@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { parseSections, rankSections } from '../../src/server/assistant/knowledge.ts'
 
 /**
- * Retrieval over the Ask Pondex rules file, checked without the AI.
+ * Retrieval over the Dex-E rules file, checked without the AI.
  *
  * Run on every edit to ai/knowledge/pondex-rules.md: a reworded heading or a
  * dropped alias can quietly stop a question finding its section, and the model
@@ -56,7 +56,11 @@ describe('questions find the right section first', () => {
     ['Can I download a PDF statement?', 'Reports and backup'],
     ['What is the usual loan length?', "The Admin's own lending rules"],
     ['Can someone have two loans at once?', "The Admin's own lending rules"],
+    ['can someone have 2 loans at the same time?', "The Admin's own lending rules"],
+    ['How much is due this week?', 'Floating, out on loan and earned'],
     ['Is there a limit on how much one person can borrow?', "The Admin's own lending rules"],
+    ['Can I extend a loan by two weeks?', 'Extending a loan'],
+    ['How do reminders work?', 'Remind me every N weeks'],
   ]
   for (const [question, title] of cases) {
     test(question, () => assert.equal(top(question), title))
