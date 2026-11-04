@@ -60,7 +60,7 @@ type Usage = { status: Status; inUse: string | null; coolUntil: string | null; l
  */
 const SAMPLES = [
   { icon: HandCoins, label: 'Out on loan', chip: 'Out on loan', ask: 'How much is out on loan right now?' },
-  { icon: TriangleAlert, label: 'Who is overdue', chip: 'Overdue', ask: 'Who is overdue right now?' },
+  { icon: TriangleAlert, label: "Who's overdue", chip: 'Overdue', ask: 'Who is overdue right now?' },
   { icon: PiggyBank, label: 'Pot balances', chip: 'Pots', ask: 'How much is floating in each pot?' },
   { icon: CalendarClock, label: 'Due this week', chip: 'This week', ask: "What's due this week?" },
 ]
@@ -446,8 +446,8 @@ export function AskPondex() {
                     {m.text}
                   </div>
                 ) : (
-                  <div key={m.id} className="animate-ask-rise flex max-w-[94%] items-start gap-2.5">
-                    <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="shrink-0" />
+                  <div key={m.id} className="animate-ask-rise flex max-w-full items-start gap-2 sm:max-w-[94%] sm:gap-2.5">
+                    <PondexMascot mood={m.done ? 'idle' : 'talk'} size={46} className="size-8 shrink-0 sm:size-[46px]" />
                     <div className="flex min-w-0 flex-col gap-2.5 pt-2.5">
                       {m.steps && <DoneSteps steps={m.steps} thoughtMs={m.thoughtMs ?? 0} failed={m.failed} quick={m.quick} />}
                       <AnswerText
@@ -485,7 +485,7 @@ export function AskPondex() {
               {thinking && (
                 <div className="animate-ask-rise flex flex-col gap-1">
                   <div className="flex items-center gap-2.5">
-                    <PondexMascot mood="think" size={62} />
+                    <PondexMascot mood="think" size={62} className="size-10 sm:size-[62px]" />
                     <span className="text-muted-foreground text-sm">Thinking</span>
                     <span className="flex gap-1">
                       <span className="bg-brand animate-ask-dot size-1.5 rounded-full" />
@@ -493,7 +493,7 @@ export function AskPondex() {
                       <span className="bg-brand animate-ask-dot size-1.5 rounded-full [animation-delay:.36s]" />
                     </span>
                   </div>
-                  <div className="pl-[72px]">
+                  <div className="pl-12 sm:pl-[72px]">
                     <LiveSteps steps={liveSteps} />
                   </div>
                 </div>
@@ -521,8 +521,9 @@ export function AskPondex() {
                   </p>
                 </div>
               )}
+              {/* On a phone the last chip runs off the edge; the fade says the row scrolls. */}
               {!empty && (
-                <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+                <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] max-sm:pr-8 max-sm:[mask-image:linear-gradient(to_right,black_80%,transparent)]">
                   {SAMPLES.map(({ icon: Icon, chip, ask: question }) => (
                     <button
                       key={chip}
@@ -564,7 +565,7 @@ export function AskPondex() {
                 </button>
               </form>
               <p className="text-muted-foreground text-center text-[11px]">
-                Dex-E never changes anything until you tap Confirm. Check important numbers in the app.
+                Dex-E never changes anything until you tap Confirm.<span className="hidden sm:inline"> Check important numbers in the app.</span>
               </p>
             </div>
           </div>
@@ -598,7 +599,7 @@ export function AskPondex() {
           aria-expanded={open}
           className="cursor-pointer rounded-3xl drop-shadow-xl transition-transform hover:-translate-y-0.5 hover:scale-105"
         >
-          <PondexMascot mood={mood} size={84} />
+          <PondexMascot mood={mood} size={84} className="size-16 md:size-[84px]" />
         </button>
       </div>
     </>
