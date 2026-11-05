@@ -78,6 +78,8 @@ const TITLES: Partial<Record<Intent, string>> = {
 
 /** Name words that are also ordinary words in a request, never read as a name on their own. */
 const NOT_NAMES = new Set(['to', 'from', 'the', 'and', 'for', 'week', 'paid', 'loan', 'money', 'pot', 'admin', 'note', 'new', 'all', 'her', 'his', 'today', 'kay', 'ni', 'sa', 'na', 'ang', 'mark', 'good', 'bad', 'okay'])
+// Everyday words one letter from a name ("many" and Mary): only an exact match makes them a name.
+const NOT_TYPOS = new Set(['many', 'much', 'made', 'make', 'more', 'most', 'month', 'months', 'last', 'this', 'that', 'than', 'loans', 'funded', 'fund', 'earn', 'earned', 'owes', 'paid', 'week', 'weeks', 'what', 'when', 'which', 'with', 'have', 'from', 'were', 'will', 'each', 'same', 'over', 'down', 'kita', 'tubo'])
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const wordsOf = (s: string) => norm(s).split(/[^a-z]+/).filter(Boolean)
 
@@ -94,7 +96,7 @@ function mentions<T extends Person>(text: string, people: T[]): T[][] {
       const at = new Set<number>()
       let score = 0
       for (const part of parts) {
-        const i = said.findIndex((w, k) => !at.has(k) && (w === part || (part.length >= 4 && w.length >= 3 && distance(w, part) <= 1)))
+        const i = said.findIndex((w, k) => !at.has(k) && (w === part || (part.length >= 4 && w.length >= 3 && !NOT_TYPOS.has(w) && distance(w, part) <= 1)))
         if (i >= 0) {
           at.add(i)
           score++
@@ -118,7 +120,7 @@ function mentions<T extends Person>(text: string, people: T[]): T[][] {
 /** How many parts of a person's name the text says: "Maria Cruz" says 2 of Maria Cruz, 1 of Angel Dela Cruz. */
 function nameParts(text: string, p: { firstName: string; lastName: string }): number {
   const said = wordsOf(text)
-  return wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x) && said.some((w) => w === x || (x.length >= 4 && w.length >= 3 && distance(w, x) <= 1))).length
+  return wordsOf(full(p)).filter((x) => x.length > 1 && !NOT_NAMES.has(x) && said.some((w) => w === x || (x.length >= 4 && w.length >= 3 && !NOT_TYPOS.has(w) && distance(w, x) <= 1))).length
 }
 
 /** "Which Angel?" with a button per person; the button sends the sentence with the full name in. */
@@ -1507,11 +1509,13 @@ function namesHidden(ctx: Ctx): string {
 }
 
 /** The figure being compared: one the app shows, or lending, collections and loans made. */
-function figureOf(text: string, today: string): Figure | null {
+function figureOf(said: string, today: string): Figure | null {
+  // "My pot" names whose figure, not which one: alone it would read as the pot's floating.
+  const text = said.replace(/\bmy pot\b|\ball lenders\b/gi, ' ')
   const q = readQuestion(text.replace(COMPARE, ' '), today)
   if (q && q.metric !== 'count') return q.metric
   const t = clean(text)
-  if (q?.metric === 'count' || /\b(loans? (made|released|given|funded)|new loans|how many loans)\b/.test(t)) return 'count'
+  if (q?.metric === 'count' || /\b(loans? (made|released|given|funded)|(funded|new) loans|how many loans)\b/.test(t)) return 'count'
   if (/\b(lend|lent|lending|pinautang|napautang)\b/.test(t)) return 'lent'
   if (/\b(collect|collected|collections?|nakolekta|nasingil)\b/.test(t)) return 'collected'
   return null
@@ -1587,7 +1591,20 @@ async function compareCheck(ctx: Ctx): Promise<ServerReply | null> {
   const groups = whoKind === 'lender' ? asLender : asBorrower
   if (groups.some((g) => g.length > 1)) return whichPerson(ctx.text, groups.find((g) => g.length > 1)!, whoKind)
   const people: Person[] = groups.map((g) => g[0])
-  if (people.length === 0 && self && whoKind === 'lender' && /\b(my|i|me|mine|admin|akin|ko)\b/i.test(clean(ctx.text))) people.push(self)
+  const t = clean(ctx.text)
+  const everyone = /\b(all|every|each|everyone|lahat)( of the| the)? (lenders?|pots?)\b|\blahat\b/.test(t)
+  if (people.length === 0 && self && whoKind === 'lender' && /\b(my pot|pot ko|own pot)\b/.test(t)) people.push(self)
+  // No lender named ("my funded loans", "funded loans"): ask whose, never guess (2026-11-05). Loans made, lent
+  // out and collected are the whole business's figures, so no name there means everyone.
+  const wholeBusiness = figure === 'lent' || figure === 'collected' || (figure === 'count' && !/\bfund/.test(t) && !/\b(my|i|me|ko)\b/.test(t))
+  if (people.length === 0 && whoKind === 'lender' && !everyone && !wholeBusiness) {
+    const others = lenderNames.filter((l) => !l.isSelf).slice(0, 4)
+    return ask(figure === 'count' ? 'Whose loans do you mean?' : 'Which lender do you mean?', [
+      { label: 'All lenders', send: plus(ctx.text, '(all lenders)') },
+      ...(self ? [{ label: 'My pot', send: plus(ctx.text, '(my pot)') }] : []),
+      ...others.map((l) => ({ label: full(l), send: plus(ctx.text, `(${full(l)})`) })),
+    ])
+  }
   const fmt = (v: number) => (figure === 'count' ? `${v} ${v === 1 ? 'loan' : 'loans'}` : pesos(v / 100))
   const change = (older: number, newer: number) => (older === 0 ? (newer === 0 ? 'no change' : 'up from nothing') : `${newer >= older ? '+' : '−'}${Math.round((Math.abs(newer - older) / older) * 100)}%`)
   const whose = (p: Person | null) => (p ? full(p) : whoKind === 'lender' ? 'all lenders' : 'all borrowers')
@@ -1839,7 +1856,8 @@ export async function serverReply(userId: string, history: { role: 'user' | 'ass
   }
   // "Why" wants a reason, not a figure: the AI's.
   if (/^(why|bakit)\b|\bwhy (is|are|does|do|did)\b/i.test(clean(latest))) return null
-  if (isQuestion(latest)) return personCheck(ctx)
+  // "Compare ..." asks for figures: never a card, even with "funded" or "lend" in it.
+  if (isQuestion(latest) || /^(compare|ikumpara|kumpara)\b/.test(clean(latest))) return personCheck(ctx)
 
   // A look at a lender's page said without a question ("Maria's starting capital history", "loans Jun funded that were
   // paid back"): no amount, so it cannot be a change. A borrower's name alone leaves it to the change rules.
