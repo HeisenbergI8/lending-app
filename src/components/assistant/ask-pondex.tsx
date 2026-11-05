@@ -9,7 +9,6 @@ import { ActionCard, type CardStatus, type ProposalView } from './action-card.ts
 import { PondexMascot, type MascotMood } from './pondex-mascot.tsx'
 import { AnswerText } from './answer-text.tsx'
 import { DoneSteps, LiveSteps, WRITING_STEP } from './step-list.tsx'
-import { useTucked } from './use-tucked.ts'
 import type { Step } from '@/lib/assistant-steps'
 
 /**
@@ -151,7 +150,6 @@ const CHARS_PER_TICK = 3
 
 export function AskPondex() {
   const [open, setOpen] = useState(false)
-  const tucked = useTucked()
   const [full, setFull] = useState(false)
   const [thinking, setThinking] = useState(false)
   const [liveSteps, setLiveSteps] = useState<Step[]>([])
@@ -581,16 +579,12 @@ export function AskPondex() {
       )}
 
       {/* Above the phone tab bar on a phone, in the corner on a laptop. Hidden on a
-          phone while the chat is open, since the panel covers the screen. Slides
-          off to the side while scrolling down and at the foot of a page, so it is
-          never on top of what is under it (use-tucked.ts). */}
+          phone while the chat is open, since the panel covers the screen. */}
       <div
         className={cn(
-          'fixed right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-40 flex items-center gap-3 transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none md:right-6 md:bottom-6',
+          'fixed right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] z-40 flex items-center gap-3 md:right-6 md:bottom-6',
           open && 'hidden md:flex',
-          tucked && !open && 'pointer-events-none translate-x-[calc(100%+2rem)] opacity-0',
         )}
-        inert={tucked && !open}
       >
         {!open && (
           <div
