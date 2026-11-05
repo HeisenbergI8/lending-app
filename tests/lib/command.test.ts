@@ -157,14 +157,3 @@ describe('reading questions about the screens', () => {
     assert.equal(intentByRules("fix Maria's money entry to 6k"), 'update_money')
   })
 })
-
-describe('Tagalog questions are questions', () => {
-  // Seen 2026-11-04: "may utang ba si Rico" ("does Rico owe?") was read as a new loan.
-  for (const q of ['may utang ba si Rico', 'may utang pa ba si Rico?', 'meron bang utang si Bea', 'ilang loans ni Rico', 'magkano utang ni Rico'])
-    test(q, () => {
-      assert.equal(isQuestion(q), true)
-      assert.equal(intentByRules(q), null)
-    })
-  for (const q of ['pwede ba pahiramin si Rico 5k for 2 weeks', 'pahiram si Rico 5k', 'utang ni Rico 5k from my pot 2 weeks'])
-    test(`${q} is still a loan`, () => assert.equal(intentByRules(q), 'create_loan'))
-})

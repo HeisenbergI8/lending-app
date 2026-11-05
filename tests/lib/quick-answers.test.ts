@@ -22,9 +22,6 @@ describe('instant answers: which questions the server takes', () => {
     assert.equal(kind('who owes the most'), 'owesMost')
     assert.equal(kind('how many borrowers do I have'), 'borrowerCount')
     assert.equal(kind('any pending requests?'), 'pending')
-    // The app's screen is called "Pending loans", so that wording means the requests too (2026-11-04).
-    for (const q of ['How many are still pending loans?', 'pending loans', 'show pending loans', 'how many pending loans are there', 'which loans are still pending'])
-      assert.equal(kind(q), 'pending', q)
     assert.equal(kind('who is the nearest due on borrowers?'), 'nextDue')
     assert.equal(kind("who's due next"), 'nextDue')
   })

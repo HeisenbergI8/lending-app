@@ -96,11 +96,11 @@ export function amountsSaid(text: string): number[] {
   return found
 }
 
-/** Whether the Admin's words name this person: first or last name, allowing one typo in longer names (see wordNames). */
+/** Whether the Admin's words name this person: first or last name, allowing one typo in longer names. */
 export function nameSaid(text: string, person: { firstName: string; lastName: string }): boolean {
-  const tokens = tokensOf(text)
+  const said = norm(text).split(/\s+/).filter(Boolean)
   const parts = norm(`${person.firstName} ${person.lastName}`).split(/\s+/).filter((p) => p.length > 1)
-  return parts.some((part) => tokens.some((_, i) => wordNames(tokens, i, part)))
+  return parts.some((part) => said.some((word) => word === part || (part.length >= 4 && word.length >= 3 && distance(word, part) <= 1)))
 }
 
 /**
@@ -120,99 +120,4 @@ export function fixChangeVerb(word: string): string {
   const w = word.toLowerCase()
   if (w.length < 4 || CHANGE_VERBS.includes(w)) return word
   return CHANGE_VERBS.find((v) => Math.abs(v.length - w.length) <= 1 && distance(w, v) <= 1) ?? word
-}
-
-// ---------------------------------------------------------------- is it really a typo?
-
-/**
- * Everyday words, English and Tagalog. One wrong letter in a name is a typo,
- * but one wrong letter in a REAL word is just that word: "how many are
- * pending" is not "how Mary are pending". These never silently become a
- * near-miss of a name; in a spot where a name belongs ("lend money to Many")
- * they get a "did you mean" instead.
- */
-export const EVERYDAY = new Set([
-  // English
-  'the', 'and', 'are', 'was', 'were', 'has', 'have', 'had', 'did', 'does', 'done', 'can', 'will', 'would', 'should', 'could',
-  'how', 'many', 'much', 'more', 'most', 'what', 'when', 'where', 'which', 'who', 'whom', 'whose', 'why', 'that', 'this',
-  'these', 'those', 'there', 'their', 'they', 'them', 'then', 'than', 'with', 'without', 'into', 'onto', 'over', 'under',
-  'about', 'after', 'before', 'still', 'also', 'only', 'just', 'even', 'ever', 'never', 'any', 'some', 'every', 'each',
-  'all', 'both', 'none', 'many', 'few', 'last', 'next', 'first', 'same', 'other', 'another', 'show', 'list', 'tell', 'give',
-  'make', 'made', 'take', 'took', 'send', 'sent', 'want', 'need', 'left', 'owe', 'owes', 'owed', 'owing', 'paid', 'pays',
-  'pay', 'lent', 'lend', 'loan', 'loans', 'money', 'week', 'weeks', 'month', 'year', 'days', 'date', 'due', 'late',
-  'total', 'pending', 'request', 'requests', 'waiting', 'unpaid', 'interest', 'capital', 'cash', 'fund', 'funds', 'pot',
-  'pots', 'lender', 'lenders', 'borrower', 'borrowers', 'people', 'person', 'name', 'names', 'note', 'notes', 'proof',
-  'good', 'okay', 'bad', 'new', 'old', 'open', 'close', 'closed', 'here', 'mine', 'your', 'yours', 'ours', 'from',
-  'for', 'not', 'but', 'yet', 'now', 'today', 'yesterday', 'tomorrow', 'may', 'might', 'must', 'shall', 'been', 'being',
-  'mean', 'meant', 'many', 'man', 'men', 'any', 'one', 'two', 'three', 'four', 'five', 'six', 'ten', 'per', 'out', 'off',
-  'back', 'again', 'yes', 'please', 'thanks', 'thank', 'look', 'find', 'check', 'see', 'mark', 'hope', 'joy', 'grace',
-  'faith', 'will', 'rose', 'june', 'april', 'august', 'ray', 'sunny', 'dawn', 'rich', 'bill', 'sue', 'pat', 'art',
-  // Tagalog
-  'ang', 'mga', 'ng', 'sa', 'na', 'ay', 'at', 'ba', 'po', 'ko', 'mo', 'niya', 'nila', 'namin', 'natin', 'kami', 'tayo',
-  'sila', 'siya', 'ako', 'ikaw', 'ka', 'may', 'meron', 'wala', 'walang', 'sino', 'ano', 'ilan', 'ilang', 'magkano',
-  'kailan', 'saan', 'bakit', 'paano', 'pa', 'lang', 'din', 'rin', 'naman', 'kasi', 'pero', 'kung', 'utang', 'bayad',
-  'bayaran', 'nagbayad', 'hindi', 'oo', 'yung', 'iyon', 'ito', 'dito', 'doon', 'lahat', 'pera', 'linggo', 'buwan',
-])
-
-/** Words a name comes straight after: "to Rico", "from Maria", "kay Rico", "si Bea", "lend Bea", "mark Mark". */
-const NAME_BEFORE = new Set([
-  'to', 'from', 'for', 'by', 'with', 'kay', 'ni', 'si', 'para', 'galing', 'nina', 'sina', 'kina',
-  'lend', 'paid', 'pay', 'mark', 'delete', 'remove', 'restore', 'rename', 'extend', 'convert', 'label', 'fund', 'funded',
-  'borrower', 'lender', 'does', 'did', 'has', 'is', 'about',
-])
-
-/** What a change verb is done TO when it is not a person: "lend money", "mark week 2", "delete note". */
-const THINGS = new Set(['money', 'cash', 'loan', 'loans', 'week', 'weeks', 'interest', 'capital', 'pot', 'note', 'notes', 'proof', 'request', 'requests', 'payment', 'pera', 'utang', 'bayad', 'the', 'all', 'it', 'this', 'that'])
-
-export type Token = { word: string; capital: boolean; first: boolean; possessive: boolean }
-
-/** The typed words, lower case and accent-free, remembering a capital letter and a trailing "'s". */
-export function tokensOf(text: string): Token[] {
-  const raw = text.normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^A-Za-z']+/).filter((w) => /[A-Za-z]/.test(w))
-  return raw.map((w, i) => {
-    const possessive = /'s$/i.test(w)
-    const word = w.replace(/'s$/i, '').replace(/'/g, '').toLowerCase()
-    return { word, capital: /^[A-Z]/.test(w), first: i === 0, possessive }
-  }).filter((t) => t.word.length > 0)
-}
-
-/**
- * Whether a word sits where a name belongs: right after "to", "from", "kay",
- * "si", a change verb and the like; written with a capital mid-sentence; or
- * owning something ("Many's loan"). The first word's capital proves nothing:
- * phones capitalise it on their own.
- */
-export function inNameSpot(tokens: Token[], i: number): boolean {
-  const t = tokens[i]
-  if (!t) return false
-  if (t.possessive || (t.capital && !t.first)) return true
-  if (THINGS.has(t.word)) return false
-  const before = tokens[i - 1]?.word
-  return !!before && (NAME_BEFORE.has(before) || looksLikeChangeVerb(before))
-}
-
-/**
- * Whether typed word i names this part of a person's name.
- *
- * - The exact word counts, unless it is an everyday word in a spot no name
- *   would be ("how MANY", "MAY utang ba"): a borrower called Joy is found by
- *   "how much does Joy owe", but "May" in "may utang ba si Rico" is Tagalog.
- * - One wrong letter counts only for a word that is not a real word: "Ricco"
- *   is Rico, "many" is never Mary. A real word in a name spot ("lend to Many")
- *   finds nobody here, so the caller asks "did you mean Mary?" instead of
- *   guessing.
- * - Names under four letters allow no typo at all ("Al", "Jo", "Bea").
- */
-export function wordNames(tokens: Token[], i: number, part: string): boolean {
-  const w = tokens[i]?.word
-  if (!w) return false
-  if (w === part) return !EVERYDAY.has(w) || inNameSpot(tokens, i)
-  if (part.length < 4 || w.length < 3 || distance(w, part) > 1) return false
-  return !EVERYDAY.has(w)
-}
-
-/** The words worth a "did you mean": not everyday words, unless they sit where a name belongs. */
-export function maybeNames(text: string): string[] {
-  const tokens = tokensOf(text)
-  return tokens.filter((t, i) => t.word.length >= 3 && (!EVERYDAY.has(t.word) || inNameSpot(tokens, i))).map((t) => t.word)
 }

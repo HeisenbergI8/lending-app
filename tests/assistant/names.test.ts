@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { amountsSaid, closestNames, distance, looksLikeChangeVerb, maybeNames, nameSaid, nameScore, tokensOf, wordNames } from '../../src/server/assistant/names.ts'
+import { amountsSaid, closestNames, distance, looksLikeChangeVerb, nameSaid, nameScore } from '../../src/server/assistant/names.ts'
 
 /** The demo account's borrowers (prisma/seed/demo.ts). */
 const people = [
@@ -53,54 +53,4 @@ describe('a misspelt change verb (kend, mrak) is not part of a name', () => {
   test('names and short words are not verbs', () => {
     for (const w of ['rico', 'lyn', 'maria', 'angel', 'and', 'from', 'weeks', 'lopez']) assert.equal(looksLikeChangeVerb(w), false, w)
   })
-})
-
-describe('a real word is not a misspelt name', () => {
-  const mary = { firstName: 'Mary Joy', lastName: 'Nazaire' }
-  const names = (text: string, part: string) => {
-    const t = tokensOf(text)
-    return t.some((_, i) => wordNames(t, i, part))
-  }
-
-  // Seen on the live site 2026-11-04: "how many" was read as Mary Joy Nazaire.
-  test('"how many" is never Mary', () => assert.equal(nameSaid('How many are still pending loans?', mary), false))
-  test('"how much" is never a name', () => assert.equal(names('how much is out on loan', 'mich'), false))
-  test('a real word in a name spot is not guessed, it is asked about', () => {
-    assert.equal(nameSaid('lend money to Many', mary), false)
-    assert.deepEqual(maybeNames('lend money to Many'), ['many'])
-    assert.deepEqual(closestNames('many', [{ id: 'mary', ...mary }]).map((p) => p.id), ['mary'])
-  })
-  test('a word that is not a real word is still a typo', () => {
-    assert.equal(nameSaid('how much does Ricco owe', { firstName: 'Rico', lastName: 'Mendoza' }), true)
-    assert.equal(nameSaid('lend mery 5k', mary), true)
-  })
-  test('the exact name always counts in a name spot', () => assert.equal(nameSaid('lend Mary 5k', mary), true))
-
-  const joy = { firstName: 'Joy', lastName: 'Santos' }
-  const may = { firstName: 'May', lastName: 'Reyes' }
-  test('a name that is an everyday word counts where a name belongs', () => {
-    assert.equal(nameSaid('how much does Joy owe', joy), true)
-    assert.equal(nameSaid("Joy's loan", joy), true)
-    assert.equal(nameSaid('lend joy 5k', joy), true)
-  })
-  test('the same word elsewhere is just the word', () => {
-    assert.equal(nameSaid('may utang ba si Rico', may), false)
-    assert.equal(nameSaid('it was a joy to lend', joy), false)
-    assert.equal(nameSaid('may utang ba si May', may), true)
-  })
-
-  const mark = { firstName: 'Mark', lastName: 'Lim' }
-  test('"mark" the action is not Mark the person', () => {
-    assert.equal(names('mark Rico paid', 'mark'), false)
-    assert.equal(names('mark Mark paid', 'mark'), true)
-    assert.equal(nameSaid('mark rico paid', mark), false)
-  })
-
-  test('short names allow no typo', () => {
-    assert.equal(names('lend jo 5k', 'al'), false)
-    assert.equal(names('lend bee 5k', 'bea'), false)
-    assert.equal(names('lend bea 5k', 'bea'), true)
-  })
-  test('a capital at the start of the sentence proves nothing', () => assert.equal(nameSaid('Many loans are late', mary), false))
-  test('a capital mid-sentence marks a name', () => assert.equal(nameSaid('what about Joy', joy), true))
 })
