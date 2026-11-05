@@ -5,7 +5,7 @@ import { BELONGS_TO, countCondition, lenderTopic, type Metric, type Question, re
 import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
 import { toDateInput } from '../../lib/money/weeks.ts'
-import { parseReportRange } from '../../lib/report-range.ts'
+import { parseReportRange, rangeFilter } from '../../lib/report-range.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
   amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
@@ -1153,14 +1153,32 @@ async function countAnswer(ctx: Ctx, q: Question): Promise<ServerReply | null> {
     const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(ctx.userId), listBorrowerNames(ctx.userId)])
     const asLender = mentions(ctx.text, lenderNames.filter((l) => !l.isSelf))
     const asBorrower = mentions(ctx.text, borrowerNames)
-    const named = asLender.length === 1 && asBorrower.length === 0 ? { kind: 'lender' as const, people: asLender[0] } : asBorrower.length === 1 && asLender.length === 0 ? { kind: 'borrower' as const, people: asBorrower[0] } : null
+    // A name said in full beats a loose look-alike of the other kind ("John Ross" the lender, not a borrower close to "month").
+    const said = (groups: Person[][]) => groups.filter((g) => g.some((p) => clean(ctx.text).includes(p.firstName.toLowerCase())))
+    const [lenderSaid, borrowerSaid] = [said(asLender), said(asBorrower)]
+    const named =
+      asLender.length === 1 && (asBorrower.length === 0 || (lenderSaid.length === 1 && borrowerSaid.length === 0)) ? { kind: 'lender' as const, people: asLender[0] }
+      : asBorrower.length === 1 && (asLender.length === 0 || (borrowerSaid.length === 1 && lenderSaid.length === 0)) ? { kind: 'borrower' as const, people: asBorrower[0] }
+      : null
     if (named) {
       if (named.people.length > 1) return whichPerson(ctx.text, named.people, named.kind)
       const who = named.people[0]
       ctx.say(`Found ${full(who)}`)
-      const where = named.kind === 'lender' ? { userId: ctx.userId, deletedAt: null, fundings: { some: { lenderId: who.id } } } : { userId: ctx.userId, deletedAt: null, borrowerId: who.id }
+      // With dates: the loans that started in them, as the Loans list counts them.
+      const where = {
+        userId: ctx.userId,
+        deletedAt: null,
+        ...(named.kind === 'lender' ? { fundings: { some: { lenderId: who.id } } } : { borrowerId: who.id }),
+        ...(q.period ? { startOn: rangeFilter(parseReportRange(q.period)) } : {}),
+      }
       const [all, unpaid] = await Promise.all([db.loan.count({ where }), db.loan.count({ where: { ...where, status: 'ACTIVE' } })])
-      return tell([`**${all} ${all === 1 ? 'loan' : 'loans'}** ${named.kind === 'lender' ? 'funded by' : 'taken by'} ${full(who)}.`, `- Unpaid: ${unpaid}`, `- Fully paid: ${all - unpaid}`].join('\n'))
+      const when = q.period ? ` ${whenText(q.period)}` : ''
+      return tell([
+        `**${all} ${all === 1 ? 'loan' : 'loans'}** ${named.kind === 'lender' ? 'funded by' : 'taken by'} ${full(who)}${when}.`,
+        `- Unpaid: ${unpaid}`,
+        `- Fully paid: ${all - unpaid}`,
+        ...(q.period ? [datesRow(q.period)] : []),
+      ].join('\n'))
     }
     if (q.period && (condition === 'made' || condition === 'paid' || condition === null)) {
       const r = (await periodSummary(ctx.userId, q.period.from, q.period.to)) as { loansMade: number; loansRepaid: number }

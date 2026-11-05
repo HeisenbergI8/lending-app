@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { clip, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { aboutEveryone, clip, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -175,5 +175,18 @@ describe('the Admin is never asked for an id (seen on the testing link, 2026-11-
   })
   test('answers are tidied: dates spelled out, a sentence said twice said once', () => {
     assert.equal(withoutIds('Due 2026-11-26.Due 2026-11-26.'), 'Due November 26, 2026.')
+  })
+})
+
+describe('aboutEveryone: the keyword backup must not skip a name', () => {
+  const people = [{ firstName: 'John Ross', lastName: 'Rivera' }, { firstName: 'Maria', lastName: 'Cruz' }]
+  test('an answer about everyone when a name was said is refused', () => {
+    assert.equal(aboutEveryone('How many loans John Ross has for month of November', { kind: 'answer', answer: '**1 loan** made in November 2026.' }, people), false)
+  })
+  test('an answer about that person is kept', () => {
+    assert.equal(aboutEveryone('How many loans John Ross has for month of November', { kind: 'answer', answer: '**0 loans** funded by John Ross Rivera in November 2026.' }, people), true)
+  })
+  test('no name said: nothing to check', () => {
+    assert.equal(aboutEveryone('how many loans were made in November', { kind: 'answer', answer: '**1 loan** made in November 2026.' }, people), true)
   })
 })

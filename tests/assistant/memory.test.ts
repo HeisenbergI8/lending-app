@@ -28,6 +28,10 @@ describe('memory: a message as a pattern', () => {
   test('"in October" and "last month" are the same slot', () => {
     assert.equal(shapeOf('is jun making money for me last month', PEOPLE).pattern, shapeOf('is maria making money for me in october', PEOPLE).pattern)
   })
+  test('filler words make no new pattern', () => {
+    assert.equal(shapeOf('can you tell me how many loans John Ross has po?', PEOPLE).pattern, shapeOf('how many loans john ross has', PEOPLE).pattern)
+    assert.equal(shapeOf('hi dex-e, magkano naman kinita ni Maria nung October please', PEOPLE).pattern, shapeOf('magkano kinita ni jun nung november', PEOPLE).pattern)
+  })
   test('the same kind of question has the same pattern', () => {
     assert.equal(shapeOf('magkano tubo ni jun nung november', PEOPLE).pattern, shapeOf('magkano tubo ni Maria nung October', PEOPLE).pattern)
   })

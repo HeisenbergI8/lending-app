@@ -42,6 +42,9 @@ const DATE = new RegExp(
 )
 const AMOUNT = /₱?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|thousand|libo))?\b/g
 
+/** Words that ask politely or soften, without changing what is asked. */
+const FILLER = /\b(please|pls|plz|po|opo|ba|naman|lang|nga|kaya|pala|hey|hi|hello|yo|dex-?e|can you|could you|would you|will you|can i|may i|i want to|i'd like to|i need to|tell me|show me|let me know|let me see|i wonder|just|quickly|real quick|again|paki|pakisabi|pakita)\b/g
+
 const fullName = (p: Person) => `${p.firstName} ${p.lastName}`
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -65,7 +68,8 @@ function nameSpots(t: string, people: Person[]): { start: number; end: number; v
 
 /** The message as a pattern: names, dates and amounts as numbered slots, in the order said. */
 export function shapeOf(text: string, people: Person[]): Shape {
-  const t = clean(text).replace(/[?.!]+$/, '')
+  // Filler that changes nothing ("can you tell me", "po", "naman") is dropped, so it never makes a new pattern.
+  const t = clean(text).replace(/[?.!,]+/g, ' ').replace(FILLER, ' ').replace(/\s+/g, ' ').trim()
   type Spot = { start: number; end: number; kind: 'p' | 'd' | 'n'; value: string }
   const spots: Spot[] = nameSpots(t, people).map((s) => ({ ...s, kind: 'p' }))
   const free = (start: number, end: number) => !spots.some((x) => start < x.end && end > x.start)

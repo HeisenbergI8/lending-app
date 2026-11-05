@@ -5,7 +5,8 @@ import { runTool, TOOLS } from './tools.ts'
 import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.ts'
 import { matchOffLimits, matchQuick, OUT_OF_SCOPE, sayQuick } from '../../lib/quick-answers.ts'
 import { type Choice, type ServerReply, serverReply } from './server-cards.ts'
-import { recall, remember, used as memoryUsed } from './memory.ts'
+import { recall, remember, shapeOf, used as memoryUsed } from './memory.ts'
+import { periodSaid } from '../../lib/command/read.ts'
 import { translate } from './translate.ts'
 import { listLenderNames } from '../lenders/queries.ts'
 import { listBorrowerNames } from '../borrowers/queries.ts'
@@ -420,6 +421,13 @@ export const SERVER_ONLY_FALLBACK = 'Test mode: the server could not handle this
 /** The answer in translator test mode when even the translation was not enough: the full AI is never called. */
 export const TRANSLATE_TEST_FALLBACK = 'Test mode: the translator could not turn this into the app\'s words, so it would go to the full AI. Nothing was sent to the full AI.'
 
+/** Whether a reply is about every person the message names: a name said and left out means it was misread. */
+export function aboutEveryone(message: string, reply: ServerReply, people: { firstName: string; lastName: string }[]): boolean {
+  const said = shapeOf(message, people).slots.p
+  const text = [reply.answer, ...(reply.kind === 'card' ? reply.proposal.lines.map((l) => `${l.label} ${l.value}`) : []), ...(reply.kind === 'ask' ? reply.choices.map((c) => `${c.label} ${c.send}`) : [])].join(' ').toLowerCase()
+  return said.every((name) => text.includes(name.toLowerCase()) || text.includes(name.split(' ')[0].toLowerCase()))
+}
+
 export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}, options: { serverOnly?: boolean; translateTest?: boolean } = {}): Promise<ChatResult> {
   let stepId = 0
   // Runs a lookup and tells the chat about it in plain words, before and after.
@@ -475,8 +483,18 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
     const at = history.map((t) => t.role).lastIndexOf('user')
     return history.map((t, i) => (i === at ? { ...t, text: says } : t))
   }
-  const server = await serverReply(userId, history, say)
-  if (server) return fromServer(server)
+  // Read first, keywords last (2026-11-05): keyword rules can answer confidently while skipping half the
+  // message ("how many loans John Ross has" counted everyone's). So a new message is read by the translator,
+  // and the server's own reading goes first only where it is sure: a reply to the server's own question or
+  // button, a few words giving new dates for the last question, and the test mode with no AI.
+  const prevBot = history[history.length - 2]
+  const replying = prevBot?.role === 'assistant' && /\?\s*$|:\s*$|For example|Which /.test(prevBot.text)
+  const datesOnly = latest.trim().split(/\s+/).length <= 4 && periodSaid(latest, manilaToday()) !== null
+  const serverFirst = options.serverOnly === true || replying || datesOnly
+  if (serverFirst) {
+    const server = await serverReply(userId, history, say)
+    if (server) return fromServer(server)
+  }
 
   // Dex-E's memory: a message like one the AI already translated is answered by the server alone (memory.ts).
   const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(userId), listBorrowerNames(userId)])
@@ -511,6 +529,12 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
       if (answered.kind !== 'ask') await remember(userId, latest, read.say, people).catch(() => false)
       return fromServer(answered, { model: read.model, tokens: read.tokens })
     }
+  }
+  // No usable reading from the translator (its free limit is used up, or it was not sure): the keyword rules, but only
+  // an answer that is about everyone the message names. Half an answer is worse than none.
+  if (!serverFirst && read?.kind !== 'other') {
+    const server = await serverReply(userId, history, say)
+    if (server && aboutEveryone(latest, server, people)) return fromServer(server)
   }
   if (options.translateTest) {
     console.info('[ask-pondex]', { model: 'none', translateTest: true, translator: read?.model ?? null, tokens: read?.tokens ?? 0 })
