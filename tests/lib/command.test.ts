@@ -129,6 +129,10 @@ describe('what the Admin wants, by rules (words, Taglish, typos)', () => {
 describe('reading a stretch of time (for earnings questions)', () => {
   test('this month, "this month alone", last month', () => {
     assert.deepEqual(periodSaid('how much did John Ross earn this month', TODAY), { from: '2026-11-01', to: '2026-11-04', label: 'this month' })
+    // Money still to come in a month said by name looks to its last day, like "this month" does.
+    assert.deepEqual(periodSaid("what's still to be collected from John Ross's loans in November", TODAY), { from: '2026-11-01', to: '2026-11-30', label: 'November 2026' })
+    assert.deepEqual(periodSaid('which loans are due in November', TODAY), { from: '2026-11-01', to: '2026-11-30', label: 'November 2026' })
+    assert.deepEqual(periodSaid('how much did John Ross earn in November', TODAY), { from: '2026-11-01', to: '2026-11-04', label: 'November 2026' })
     assert.deepEqual(periodSaid('How much does john ross earned for this month alone', TODAY), { from: '2026-11-01', to: '2026-11-04', label: 'this month' })
     assert.deepEqual(periodSaid('earned last month', TODAY), { from: '2026-10-01', to: '2026-10-31', label: 'October 2026' })
   })

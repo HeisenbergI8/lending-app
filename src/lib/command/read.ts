@@ -266,8 +266,9 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
   if (named && mayIsMonth(named)) {
     const month = MONTHS.indexOf(named[1].slice(0, 3)) + 1
     const year = named[2] ? Number(named[2]) : month > m ? y - 1 : y
-    // "The whole of November", "potential earnings in November": every day of it, days still to come included.
-    const uncapped = /\b(whole|entire|full|buong|buo|potential|projected|expected|forecast|will|going to)\b/.test(t)
+    // "The whole of November", "potential earnings in November", "to be collected in November": every day of it,
+    // days still to come included, the same as "this month" said with those words.
+    const uncapped = whole || ahead
     return { from: `${year}-${pad(month)}-01`, to: uncapped ? monthEnd(year, month) : cap(monthEnd(year, month)), label: `${monthName(month)} ${year}` }
   }
   return null
