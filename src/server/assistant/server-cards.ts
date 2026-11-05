@@ -1490,6 +1490,8 @@ export async function serverReply(userId: string, history: { role: 'user' | 'ass
     const again = await personCheck({ ...ctx, text: `${before} ${latest.trim()}` })
     if (again) return again
   }
+  // "Why" wants a reason, not a figure: the AI's.
+  if (/^(why|bakit)\b|\bwhy (is|are|does|do|did)\b/i.test(clean(latest))) return null
   if (isQuestion(latest)) return personCheck(ctx)
 
   // A look at a lender's page said without a question ("Maria's starting capital history", "loans Jun funded that were

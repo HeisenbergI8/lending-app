@@ -67,3 +67,16 @@ The AI's `app_lookup` tool asks the server's own reader one plain question and g
 (read only, never a card). So anything the server can answer, the AI can use as well, including later additions.
 Regression: `ai/evals/runner/regress-lender-page.ts` (50 prompts, server only).
 
+
+## When the server cannot read a message (2026-11-05)
+
+1. **Memory** (free): a message shaped like one the AI already translated is answered by the server alone
+   (`memory.ts`, table `AssistantMemory`). Names, dates and amounts are slots, so "Maria in October" teaches
+   "Jun in November" too.
+2. **Translator** (one small AI call, about 900 tokens): turns the message into the app's words, and the server
+   answers from its own figures (`translate.ts`). Two likely readings are asked back as buttons. The step list
+   says what was understood. A translation the server answered is kept in memory.
+3. **Full AI**: only when the translator cannot help (why, advice, comparing people).
+
+Test modes on the demo account: `?dexe-server-only` (no AI at all), `?dexe-translate-test` (server, memory and the
+translator, never the full AI).

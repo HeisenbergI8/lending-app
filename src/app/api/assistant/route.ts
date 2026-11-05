@@ -42,8 +42,10 @@ export async function POST(request: Request) {
 
   // Server-only test mode: the AI is never called. Demo account only, so the live account always gets the full chat.
   const serverOnly = (body as { serverOnly?: unknown }).serverOnly === true
-  if (serverOnly && !user.isDemo) return Response.json({ ok: false, error: 'Test mode is for the demo account only.' }, { status: 403 })
-  if ((body as { stream?: unknown }).stream !== true) return Response.json(await ask(user.id, history, undefined, { serverOnly }))
+  // Translator test mode: the server, its memory and the small translator, never the full AI.
+  const translateTest = (body as { translateTest?: unknown }).translateTest === true
+  if ((serverOnly || translateTest) && !user.isDemo) return Response.json({ ok: false, error: 'Test mode is for the demo account only.' }, { status: 403 })
+  if ((body as { stream?: unknown }).stream !== true) return Response.json(await ask(user.id, history, undefined, { serverOnly, translateTest }))
 
   // Streamed: one JSON line per step as Dex-E works ("Looking for Angel…",
   // "Found Angel Dela Cruz"), then a last line with the answer.
@@ -52,7 +54,7 @@ export async function POST(request: Request) {
     async start(controller) {
       const send = (line: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
       try {
-        send({ type: 'result', result: await ask(user.id, history, (step) => send({ type: 'step', step }), { serverOnly }) })
+        send({ type: 'result', result: await ask(user.id, history, (step) => send({ type: 'step', step }), { serverOnly, translateTest }) })
       } catch {
         send({ type: 'result', result: { ok: false, error: 'Dex-E could not answer just now. Try again.', usage: null } })
       }

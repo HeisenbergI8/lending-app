@@ -77,6 +77,8 @@ function metricOf(t: string): Metric | null {
   if (/\b(deposits?|deposit|deposited|money in|cash in|put in|nilagay|naglagay|topped up|top ups?)\b/.test(t)) return 'deposits'
   if (/\b(withdrawals?|withdraw|withdrew|withdrawn|took out|taken out|cash out|cashed out|kinuha|money out)\b/.test(t)) return 'withdrawals'
   if (/\b(overdue|late|delayed|behind|lagpas|atrasado)\b/.test(t)) return 'overdue'
+  // "What Rico still has to pay back" is what he owes, not what he paid.
+  if (/\b(still (has|have|needs?) to (pay|return)|has to pay|have to pay|left to pay|yet to pay|to pay back|kulang|babayaran pa)\b/.test(t)) return 'owes'
   if (/\b(paid|pay|pays|payments?|bayad|binayaran|nagbayad|repaid|paid back|returned|hulog|naghulog|naibalik|ibinalik|binalik)\b/.test(t)) return 'paid'
   if (/\b(borrow|borrowed|borrowing|hiram|hiniram|loaned)\b/.test(t)) return 'borrowed'
   if (/\b(owe|owes|owed|owing|utang|balance|balances|remaining|unpaid|still due)\b/.test(t)) return 'owes'

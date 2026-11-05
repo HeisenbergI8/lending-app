@@ -97,6 +97,8 @@ const RULES: [Intent, RegExp][] = [
 /** A plain question rather than a request: it is asked, not told. */
 export function isQuestion(text: string): boolean {
   const t = clean(text)
+  // "Can you tell me what Rico owes" asks to see; "can you lend Rico 5k" asks for a change.
+  if (/^(can|could|would|will) you (please )?(tell|show|give|check|find|list|look up|let) me\b|^(please |pls )?(tell|show) me\b/.test(t) && !/\d/.test(t)) return true
   if (/^(can|could|would|will) you\b|^(please|pls|paki)\b/.test(t)) return false
   // "Maria's deposits this month" asks to see something, the same as "show Maria's deposits".
   // "Total money out on loan per pot", "each lender's earnings": asking for a figure, said without a question.

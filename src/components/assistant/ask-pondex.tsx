@@ -74,16 +74,25 @@ type Choice = { label: string; send: string }
 type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean; choices?: Choice[] }
 
 /**
- * Server-only test mode, for testing on the demo account without spending the AI's
- * allowance: open any page with ?dexe-server-only and it stays on for that tab.
- * The server refuses it for any other account.
+ * Test modes for the demo account, kept on for the tab once opened with the flag:
+ *   ?dexe-server-only     the server alone, no AI at all
+ *   ?dexe-translate-test  the server, its memory and the small translator, never the full AI
+ * The server refuses both for any other account.
  */
-function serverOnlyTest(): boolean {
+function testModeOf(): 'server' | 'translate' | null {
   try {
-    if (new URLSearchParams(window.location.search).has('dexe-server-only')) sessionStorage.setItem('dexe-server-only', '1')
-    return sessionStorage.getItem('dexe-server-only') === '1'
+    // The flag this tab used before the two modes existed, then whatever the address asks for now.
+    if (sessionStorage.getItem('dexe-server-only') === '1') {
+      sessionStorage.setItem('dexe-test', 'server')
+      sessionStorage.removeItem('dexe-server-only')
+    }
+    const flags = new URLSearchParams(window.location.search)
+    if (flags.has('dexe-server-only')) sessionStorage.setItem('dexe-test', 'server')
+    if (flags.has('dexe-translate-test')) sessionStorage.setItem('dexe-test', 'translate')
+    const mode = sessionStorage.getItem('dexe-test')
+    return mode === 'server' || mode === 'translate' ? mode : null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -97,7 +106,7 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
     const response = await fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: history, stream: true, ...(serverOnlyTest() ? { serverOnly: true } : {}) }),
+      body: JSON.stringify({ messages: history, stream: true, ...(testModeOf() === 'server' ? { serverOnly: true } : testModeOf() === 'translate' ? { translateTest: true } : {}) }),
     })
     let data: Reply | null = null
     if (!response.body || !response.headers.get('content-type')?.includes('ndjson')) {
@@ -181,7 +190,7 @@ export function AskPondex() {
     }
   }, [])
   // Shown in the header so a tester can see the AI is switched off. Read when the chat opens: it lives in the tab's storage.
-  const [testMode, setTestMode] = useState(false)
+  const [testMode, setTestMode] = useState<'server' | 'translate' | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
   const coolMs = usage?.coolUntil ? new Date(usage.coolUntil).getTime() - now : 0
@@ -240,7 +249,7 @@ export function AskPondex() {
       setFull(false)
     } else {
       setOpen(true)
-      setTestMode(serverOnlyTest())
+      setTestMode(testModeOf())
       poke()
       // Fresh figures each time the chat opens.
       void loadUsage()
@@ -345,7 +354,7 @@ export function AskPondex() {
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 text-base font-semibold">
                   Dex-E
-                  {testMode && <span className="bg-brand-bg text-brand border-brand-line rounded-full border px-2 py-0.5 text-[11px] font-medium">Test mode · server only</span>}
+                  {testMode && <span className="bg-brand-bg text-brand border-brand-line rounded-full border px-2 py-0.5 text-[11px] font-medium">{testMode === 'translate' ? 'Test mode · translator' : 'Test mode · server only'}</span>}
                 </p>
                 <button
                   type="button"

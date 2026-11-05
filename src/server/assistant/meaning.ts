@@ -77,3 +77,14 @@ export async function meaningOf(text: string, names: string[] = [], waitMs = 600
   if (!top || top[1] < SURE || top[1] - (next?.[1] ?? 0) < MARGIN) return null
   return { intent: top[0] as Meaning['intent'], score: top[1], runnerUp: next?.[1] ?? 0 }
 }
+
+/** A sentence's meaning as numbers (unit length, so a dot product is the closeness), or null when the model is not ready. */
+export async function embed(text: string, waitMs = 6000): Promise<number[] | null> {
+  warmUp()
+  const ready = await Promise.race([loading, new Promise<null>((resolve) => setTimeout(() => resolve(null), waitMs))])
+  if (!ready) return null
+  const [vector] = await ready.embed([text])
+  return vector
+}
+
+export const closeness = dot

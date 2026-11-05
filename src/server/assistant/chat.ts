@@ -4,7 +4,11 @@ import { manilaToday } from './today.ts'
 import { runTool, TOOLS } from './tools.ts'
 import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.ts'
 import { matchOffLimits, matchQuick, OUT_OF_SCOPE, sayQuick } from '../../lib/quick-answers.ts'
-import { type Choice, serverReply } from './server-cards.ts'
+import { type Choice, type ServerReply, serverReply } from './server-cards.ts'
+import { recall, remember, used as memoryUsed } from './memory.ts'
+import { translate } from './translate.ts'
+import { listLenderNames } from '../lenders/queries.ts'
+import { listBorrowerNames } from '../borrowers/queries.ts'
 import { spellDatesIn } from '../../lib/dates.ts'
 import { tidyAnswer } from '../../lib/answer-tidy.ts'
 
@@ -413,8 +417,10 @@ export type OnStep = (step: Step) => void
  * reported, not sent to the AI, so a test run spends none of Groq's allowance.
  */
 export const SERVER_ONLY_FALLBACK = 'Test mode: the server could not handle this, so it would go to the AI. Nothing was sent to the AI.'
+/** The answer in translator test mode when even the translation was not enough: the full AI is never called. */
+export const TRANSLATE_TEST_FALLBACK = 'Test mode: the translator could not turn this into the app\'s words, so it would go to the full AI. Nothing was sent to the full AI.'
 
-export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}, options: { serverOnly?: boolean } = {}): Promise<ChatResult> {
+export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}, options: { serverOnly?: boolean; translateTest?: boolean } = {}): Promise<ChatResult> {
   let stepId = 0
   // Runs a lookup and tells the chat about it in plain words, before and after.
   const lookup = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
@@ -449,24 +455,66 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
   }
   // Common changes and per-person checks the server reads itself, with no AI: a card to
   // confirm, or a question with buttons when a detail is missing (server-cards.ts).
-  const server = await serverReply(userId, history, (text, state = 'done') => onStep({ id: ++stepId, text, state }))
-  if (server) {
-    console.info('[ask-pondex]', { model: 'server', card: server.kind })
+  const say = (text: string, state: 'done' | 'missed' = 'done') => onStep({ id: ++stepId, text, state })
+  const fromServer = async (server: ServerReply, extra: { model?: string; tokens?: number } = {}): Promise<ChatResult> => {
+    console.info('[ask-pondex]', { model: extra.model ?? 'server', card: server.kind, tokens: extra.tokens ?? 0 })
     return {
       ok: true,
       answer: server.answer,
       tools: [],
-      model: 'server',
-      tokens: 0,
+      model: extra.model ?? 'server',
+      tokens: extra.tokens ?? 0,
       proposal: server.kind === 'card' ? server.proposal : null,
       usage: await currentUsage(),
-      quick: true,
+      quick: !extra.model,
       ...(server.kind === 'ask' && server.choices.length > 0 ? { choices: server.choices } : {}),
+    }
+  }
+  // The same conversation with the latest message said in the server's words.
+  const reworded = (says: string): ChatTurn[] => {
+    const at = history.map((t) => t.role).lastIndexOf('user')
+    return history.map((t, i) => (i === at ? { ...t, text: says } : t))
+  }
+  const server = await serverReply(userId, history, say)
+  if (server) return fromServer(server)
+
+  // Dex-E's memory: a message like one the AI already translated is answered by the server alone (memory.ts).
+  const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(userId), listBorrowerNames(userId)])
+  const people = [...lenderNames, ...borrowerNames]
+  const remembered = await recall(userId, latest, people).catch(() => null)
+  if (remembered) {
+    say('Remembered how to read this')
+    const again = await serverReply(userId, reworded(remembered.says), say)
+    if (again) {
+      await memoryUsed(remembered.id).catch(() => {})
+      return fromServer(again)
     }
   }
   if (options.serverOnly) {
     console.info('[ask-pondex]', { model: 'none', serverOnly: true })
     return { ok: true, answer: SERVER_ONLY_FALLBACK, tools: [], model: 'none', tokens: 0, proposal: null, usage: await currentUsage() }
+  }
+  // The AI as a translator only: one small call turns the message into the server's words, and the
+  // server answers from its own figures (translate.ts). A question it reads two ways is asked back with buttons.
+  const id = ++stepId
+  onStep({ id, text: 'Reading your message', state: 'doing' })
+  const named = (l: { firstName: string; lastName: string; isSelf?: boolean }) => `${l.firstName} ${l.lastName}${l.isSelf ? ' (my pot)' : ''}`
+  const read = await translate(history, lenderNames.map(named), borrowerNames.map(named)).catch(() => null)
+  onStep({ id, text: read?.understood ? `Understood: ${read.understood}` : 'Read your message', state: 'done' })
+  if (read?.kind === 'unclear' && read.options.length >= 2) {
+    return fromServer({ kind: 'ask', answer: 'Which one do you mean?', choices: read.options.map((o) => ({ label: o, send: o })) }, { model: read.model, tokens: read.tokens })
+  }
+  if (read && (read.kind === 'ask' || read.kind === 'change')) {
+    const answered = await serverReply(userId, reworded(read.say), say)
+    if (answered) {
+      // Kept for next time, so the same kind of message needs no AI at all. Never a question back.
+      if (answered.kind !== 'ask') await remember(userId, latest, read.say, people).catch(() => false)
+      return fromServer(answered, { model: read.model, tokens: read.tokens })
+    }
+  }
+  if (options.translateTest) {
+    console.info('[ask-pondex]', { model: 'none', translateTest: true, translator: read?.model ?? null, tokens: read?.tokens ?? 0 })
+    return { ok: true, answer: TRANSLATE_TEST_FALLBACK, tools: [], model: 'none', tokens: read?.tokens ?? 0, proposal: null, usage: await currentUsage() }
   }
   // Plan first, the way a person would: for a change request, the server looks
   // up the fitting actions itself and hands them over, so a smaller model does

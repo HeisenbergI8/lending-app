@@ -71,6 +71,7 @@ model User {
   pendingLoans       PendingLoan[]
   loanExtensions     LoanExtension[]
   capitalVersions    StartingCapitalVersion[]
+  assistantMemories  AssistantMemory[]
 }
 
 /// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
@@ -668,4 +669,25 @@ model AssistantUsage {
   updatedAt  DateTime  @updatedAt
 
   @@unique([day, model])
+}
+
+/// Dex-E's memory of questions the AI translated into a sentence the server
+/// reads. The next question that means the same is answered by the server
+/// alone, with no AI. Kept per account. Nothing here is an amount or a name:
+/// both are slots ({p1}, {n1}, {d1}) filled from the new question.
+model AssistantMemory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The Admin's words with names, amounts and dates as slots.
+  pattern   String
+  /// The sentence the server reads, with the same slots.
+  says      String
+  /// The pattern's meaning, for a near match (all-MiniLM-L6-v2, 384 numbers).
+  vector    Float[]
+  uses      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, pattern])
 }
