@@ -913,17 +913,56 @@ async function floatingOnCheck(ctx: Ctx): Promise<ServerReply | null> {
 }
 
 /** "Which loans are due next week?", "Who is due in December?" */
+// Still to come in, not already collected: "how much was collected last month" is the summary's.
+const COLLECT = /\b(due|to (be )?collect\w*|still to collect|collectibles?|to be paid|coming back|babayaran|sisingilin|kokolektahin|maniningil)\b/i
+
 async function loansDueCheck(ctx: Ctx): Promise<ServerReply | null> {
-  if (!isQuestion(ctx.text) || !/\bdue\b/i.test(ctx.text)) return null
+  if (!COLLECT.test(ctx.text) || (!isQuestion(ctx.text) && amountsIn(ctx.text).length > 0)) return null
   const period = periodIn(ctx)
-  if (!period || (await namesSomeone(ctx))) return null
-  const r = (await runTool(ctx.userId, 'find_loans', { status: 'active', due_from: period.from, due_to: period.to })) as { totals?: { matching: number; stillToCollect: string }; loans?: { borrower: string; totalToRepay: string; nextDue: string | null }[] }
+  if (!period) return null
+  // One lender's money ("john ross account", "my pot"): the loans of theirs that end, or pay a week, in the dates.
+  const lenders = await listLenderNames(ctx.userId)
+  const self = lenders.find((l) => l.isSelf)
+  const groups = self && ADMIN_WORDS.test(ctx.text) ? [[self]] : mentions(ctx.text, lenders.filter((l) => !l.isSelf))
+  if (groups.length > 1) return null
+  if (groups.length === 1) {
+    if (groups[0].length > 1) return whichPerson(ctx.text, groups[0], 'lender')
+    return lenderDue(ctx, groups[0][0], period)
+  }
+  if (await namesSomeone(ctx)) return null
+const r = (await runTool(ctx.userId, 'find_loans', { status: 'active', due_from: period.from, due_to: period.to })) as { totals?: { matching: number; stillToCollect: string }; loans?: { borrower: string; totalToRepay: string; nextDue: string | null }[] }
   if (!r.totals) return null
   ctx.say(`Found ${r.totals.matching} ${r.totals.matching === 1 ? 'loan' : 'loans'}`)
   if (r.totals.matching === 0) return tell(`No unpaid loan is due ${whenText(period)}.\n${datesRow(period)}`)
   return tell([
     `**${r.totals.matching} ${r.totals.matching === 1 ? 'loan' : 'loans'}** due ${whenText(period)}.`,
     ...(r.loans ?? []).slice(0, 10).map((l) => `- ${l.borrower}: ${l.totalToRepay} | Due ${l.nextDue ? spellDate(l.nextDue) : 'not set'}`),
+    datesRow(period),
+  ].join('\n'))
+}
+
+/** "How many loans to be collected this month on John Ross's account": the loans of one lender's money due in the dates. */
+async function lenderDue(ctx: Ctx, lender: Person, period: { from: string; to: string; label: string }): Promise<ServerReply> {
+  ctx.say(`Found ${full(lender)}`)
+  const within = rangeFilter(parseReportRange(period))
+  const rows = await db.loanFunding.findMany({
+    where: { userId: ctx.userId, lenderId: lender.id, loan: { deletedAt: null, status: 'ACTIVE', OR: [{ dueOn: within }, { nextDueOn: within }] } },
+    select: { principalCentavos: true, loan: { select: { dueOn: true, nextDueOn: true, interestCollection: true, borrower: { select: { firstName: true, lastName: true } } } } },
+    orderBy: { loan: { dueOn: 'asc' } },
+  })
+  const inside = (d: Date | null) => !!d && day(d) >= period.from && day(d) <= period.to
+  const ending = rows.filter((r) => inside(r.loan.dueOn))
+  const weekly = rows.filter((r) => !inside(r.loan.dueOn))
+  const name = full(lender)
+  ctx.say(`Found ${ending.length + weekly.length} ${ending.length + weekly.length === 1 ? 'loan' : 'loans'} to collect`)
+  if (rows.length === 0) return tell([`Nothing of ${name}'s money is due ${whenText(period)}.`, datesRow(period)].join('\n'))
+  const who = (r: (typeof rows)[number]) => `${r.loan.borrower.firstName} ${r.loan.borrower.lastName}`
+  const capital = ending.reduce((t, r) => t + r.principalCentavos, 0)
+  return tell([
+    `**${ending.length} ${ending.length === 1 ? 'loan' : 'loans'}** of ${name}'s money due ${whenText(period)}${weekly.length ? `, plus ${weekly.length} weekly ${weekly.length === 1 ? 'payment' : 'payments'}` : ''}.`,
+    ...ending.slice(0, 12).map((r) => `- ${who(r)}: ${pesos(r.principalCentavos / 100)} | capital · due ${spellDate(day(r.loan.dueOn))}${r.loan.interestCollection === 'WEEKLY' ? ' · weekly' : ''}`),
+    ...weekly.slice(0, 6).map((r) => `- ${who(r)}: weekly payment | next ${r.loan.nextDueOn ? spellDate(day(r.loan.nextDueOn)) : 'not set'} · ends ${spellDate(day(r.loan.dueOn))}`),
+    ...(ending.length ? [`- Capital coming back: ${pesos(capital / 100)} | plus the interest on each loan`] : []),
     datesRow(period),
   ].join('\n'))
 }

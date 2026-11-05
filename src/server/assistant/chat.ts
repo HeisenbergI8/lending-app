@@ -488,7 +488,9 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
   // and the server's own reading goes first only where it is sure: a reply to the server's own question or
   // button, a few words giving new dates for the last question, and the test mode with no AI.
   const prevBot = history[history.length - 2]
-  const replying = prevBot?.role === 'assistant' && /\?\s*$|:\s*$|For example|Which /.test(prevBot.text)
+  // A reply is short ("3 weeks", "the one from October", a button's sentence); a whole new question typed after
+  // "Which one do you mean?" is a new message to read, not an answer to the server.
+  const replying = prevBot?.role === 'assistant' && /\?\s*$|:\s*$|For example|Which /.test(prevBot.text) && latest.trim().split(/\s+/).length <= 8
   const datesOnly = latest.trim().split(/\s+/).length <= 4 && periodSaid(latest, manilaToday()) !== null
   const serverFirst = options.serverOnly === true || replying || datesOnly
   if (serverFirst) {
@@ -520,7 +522,8 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
   const read = await translate(history, lenderNames.map(named), borrowerNames.map(named)).catch(() => null)
   onStep({ id, text: read?.understood ? `Understood: ${read.understood}` : 'Read your message', state: 'done' })
   if (read?.kind === 'unclear' && read.options.length >= 2) {
-    return fromServer({ kind: 'ask', answer: 'Which one do you mean?', choices: read.options.map((o) => ({ label: o, send: o })) }, { model: read.model, tokens: read.tokens })
+    // The readings are said in words too, so the question still makes sense once the buttons are gone.
+    return fromServer({ kind: 'ask', answer: ['Which one do you mean?', ...read.options.map((o) => `- ${o}`)].join('\n'), choices: read.options.map((o) => ({ label: o, send: o })) }, { model: read.model, tokens: read.tokens })
   }
   if (read && (read.kind === 'ask' || read.kind === 'change')) {
     const answered = await serverReply(userId, reworded(read.say), say)

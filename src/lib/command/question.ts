@@ -150,6 +150,8 @@ export function lenderTopic(text: string): LenderTopic | null {
   const t = clean(text).replace(/[?.!]+$/, '')
   // "How many loans did Maria fund" is a count.
   if (/\b(how many|ilan)\b/.test(t)) return null
+  // Loans due or to collect in some dates are the loans-due answer's.
+  if (/\b(due|to (be )?collect\w*|still to collect|collectibles?|babayaran|sisingilin|kokolektahin)\b/.test(t)) return null
   if (/^(show|list|see|give me|view)?\s*(me\s+)?(all\s+|my\s+|the\s+)*(lenders|pots|investors|funders)(\s+list)?$|\b(who are|sino( ang| yung)?) (my |the |mga )*(lenders|investors|funders|nagpautang)\b|\b(list|lista) (of )?(my |the |mga )*(lenders|pots|investors)\b/.test(t)) return 'list'
   if (/\b(cut|commission|komisyon)\b.*\b(come from|comes from|from where|where|which loans|sources?|breakdown|break down|galing)\b|\bwhere\b.*\b(cut|commission)\b/.test(t)) return 'cut'
   if (/\b(starting capital|initial capital|capital|puhunan)\b.*\b(history|changes?|changed|versions?|past|before|when|kailan)\b|\b(history|changes) (of|sa) .*\b(capital|puhunan)\b/.test(t)) return 'capital'

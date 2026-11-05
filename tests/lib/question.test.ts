@@ -74,6 +74,8 @@ describe('lenderTopic: the lender page, said loosely', () => {
     ['how many loans did Maria fund?', null],
     ['how much did Maria earn this month?', null],
     ['how much does Maria have?', null],
+    ["which of maria's loans are due this month", null],
+    ['how many loans to be collected on john ross account', null],
   ]
   for (const [text, want] of cases) test(`${text} → ${want}`, () => assert.equal(lenderTopic(text), want))
 })

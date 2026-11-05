@@ -246,7 +246,8 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
   // "This whole month", "the entire month", "buong buwan", or what WILL be earned this month: the 1st to the last day,
   // days still to come included (the lender page shows the same when its dates are set that way).
   const whole = /\b(whole|entire|full|buong|buo)\b/.test(t)
-  const ahead = /\b(potential|projected|projection|expected|expect|forecast|estimated?|will|would|going to|gonna|should|by the end|end of (the )?month|until the end)\b/.test(t)
+  // Money still to come in ("to be collected this month", "due this month") looks ahead to the month's last day too.
+  const ahead = /\b(potential|projected|projection|expected|expect|forecast|estimated?|will|would|going to|gonna|should|by the end|end of (the )?month|until the end|due|to be collected|to collect|collectibles?|coming back|babayaran|sisingilin|kokolektahin)\b/.test(t)
   if ((whole || ahead) && /\b(month|buwan)\b/.test(t) && !/\b(last|previous|nakaraang|next|susunod)\b/.test(t) && !new RegExp(`\\b${MONTH}\\b`).test(t)) {
     return { from: `${today.slice(0, 7)}-01`, to: monthEnd(y, m), label: 'this whole month' }
   }
