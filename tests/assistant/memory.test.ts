@@ -44,6 +44,10 @@ describe("memory: the server's sentence with the same slots", () => {
   test('not kept when it adds a number', () => {
     assert.equal(sentenceShape('how much did Maria Cruz earn October 2026', s.slots, PEOPLE), null)
   })
+  test('not kept when it adds a date the message did not say', () => {
+    const sofar = shapeOf('money from interest so far, all lenders', PEOPLE)
+    assert.equal(sentenceShape('how much did each lender earn this whole month', sofar.slots, PEOPLE), null)
+  })
   test('filled from a new message', () => {
     const next = shapeOf('magkano tubo ni jun nung november', PEOPLE)
     assert.equal(fill('how much did {p1} earn {d1}', next.slots), 'how much did Jun Reyes earn november')

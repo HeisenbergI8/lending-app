@@ -105,7 +105,8 @@ export function sentenceShape(says: string, slots: Slots, people: Person[]): str
   for (const [i, n] of slots.n.entries()) if (!swap(n, `n${i + 1}`)) return null
   // Anything left that names someone, or any number, did not come from this message.
   const rest = s.replace(/\{[pdn]\d+\}/g, ' ')
-  if (/\d/.test(rest) || nameSpots(rest, people).length > 0) return null
+  // Nor a date: "so far" read as "this whole month" would be remembered wrong for every later message.
+  if (/\d/.test(rest) || nameSpots(rest, people).length > 0 || new RegExp(DATE.source).test(rest)) return null
   return s
 }
 
