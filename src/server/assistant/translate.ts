@@ -10,6 +10,7 @@
  * model's. Anything it cannot turn into the app's words goes to the full AI.
  */
 
+import { type AmountSpec, readAmountSpec } from './amounts.ts'
 import { manilaToday } from './today.ts'
 import { recordCall, recordHeaders, recordRefusal, parseRefusal, readGroqHeaders } from './usage.ts'
 
@@ -18,6 +19,8 @@ export type Translation = {
   say: string
   options: string[]
   understood: string
+  /** An amount said as part of a figure ("all of John Ross's floating"): the lookup, read by the server. */
+  amount: AmountSpec | null
   model: string
   tokens: number
 }
@@ -51,6 +54,7 @@ function instructions(lenders: string[], borrowers: string[]): string {
 - ask: a question about figures or lists. change: add, edit, pay, delete or restore something (the app shows a card to confirm). unclear: two or three readings fit; put each as a full sentence in options. other: why, advice, comparing people, chat, or not about Pondex.
 - say: one line of the app's words. Full names from the lists. Copy the Admin's date and amount words exactly ("this month" stays "this month", "so far" stays "so far", "Oct 1 to Oct 15", "5k"); say "this whole month" only when the Admin says whole, entire, potential or will. Never add an amount, date or name the Admin did not say.
 - understood: under 8 words, like "Interest earned · John Ross Santos · this whole month".
+- An amount given as part of a figure ("all the floating of X", "everything in my pot", "half of what Rico owes", "same as Dan's last loan"): write {amount} in say, and add "amount":{"of":"floating|out_on_loan|owes|overdue|last_loan","who":"<full name or my pot>","part":"all|half|<0 to 1>"}.
 Today: ${manilaToday()}. The Admin's own pot is "my pot".
 Lenders: ${lenders.join(', ') || 'none'}
 Borrowers: ${borrowers.join(', ') || 'none'}
@@ -74,7 +78,10 @@ export function readTranslation(raw: string): Omit<Translation, 'model' | 'token
     const say = text(json.say)
     const opts = Array.isArray(json.options) ? json.options.map(text).filter(Boolean).slice(0, 3) : []
     if ((kind === 'ask' || kind === 'change') && !say) return null
-    return { kind, say, options: opts, understood: text(json.understood).slice(0, 80) }
+    // {amount} without a readable lookup is a sentence the server cannot use: not a translation.
+    const amount = readAmountSpec(json.amount)
+    if (say.includes('{amount}') && !amount) return null
+    return { kind, say, options: opts, understood: text(json.understood).slice(0, 80), amount }
   } catch {
     return null
   }

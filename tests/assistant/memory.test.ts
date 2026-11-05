@@ -60,7 +60,7 @@ describe("memory: the server's sentence with the same slots", () => {
 
 describe('translator reply', () => {
   test('a clean reply', () => {
-    assert.deepEqual(readTranslation('{"kind":"ask","say":"how much did Maria Cruz earn this month","options":[],"understood":"Interest earned · Maria Cruz"}'), { kind: 'ask', say: 'how much did Maria Cruz earn this month', options: [], understood: 'Interest earned · Maria Cruz' })
+    assert.deepEqual(readTranslation('{"kind":"ask","say":"how much did Maria Cruz earn this month","options":[],"understood":"Interest earned · Maria Cruz"}'), { kind: 'ask', say: 'how much did Maria Cruz earn this month', options: [], understood: 'Interest earned · Maria Cruz', amount: null })
   })
   test('text around the JSON is ignored', () => assert.equal(readTranslation('Sure: {"kind":"other","say":""} done')?.kind, 'other'))
   test('a question with nothing to say is not usable', () => assert.equal(readTranslation('{"kind":"ask","say":""}'), null))

@@ -6,8 +6,9 @@ import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.
 import { matchOffLimits, matchQuick, OUT_OF_SCOPE, sayQuick } from '../../lib/quick-answers.ts'
 import { type Choice, type ServerReply, serverReply } from './server-cards.ts'
 import { recall, remember, shapeOf, used as memoryUsed } from './memory.ts'
-import { periodSaid } from '../../lib/command/read.ts'
+import { periodSaid, pesos } from '../../lib/command/read.ts'
 import { translate } from './translate.ts'
+import { resolveAmount } from './amounts.ts'
 import { listLenderNames } from '../lenders/queries.ts'
 import { listBorrowerNames } from '../borrowers/queries.ts'
 import { spellDatesIn } from '../../lib/dates.ts'
@@ -526,6 +527,13 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
     return fromServer({ kind: 'ask', answer: ['Which one do you mean?', ...read.options.map((o) => `- ${o}`)].join('\n'), choices: read.options.map((o) => ({ label: o, send: o })) }, { model: read.model, tokens: read.tokens })
   }
   if (read && (read.kind === 'ask' || read.kind === 'change')) {
+    // An amount named as a lookup ("all of John Ross's floating"): the server reads the real figure and puts it in.
+    if (read.amount && read.say.includes('{amount}')) {
+      const found = await resolveAmount(userId, read.amount)
+      if ('error' in found) return fromServer({ kind: 'answer', answer: found.error }, { model: read.model, tokens: read.tokens })
+      say(`Amount: ${found.said}, ${pesos(found.pesos)}`)
+      read.say = read.say.replace(/\{amount\}/g, String(found.pesos))
+    }
     const answered = await serverReply(userId, reworded(read.say), say)
     if (answered) {
       // Kept for next time, so the same kind of message needs no AI at all. Never a question back.
