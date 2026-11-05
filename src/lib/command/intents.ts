@@ -106,7 +106,7 @@ export function isQuestion(text: string): boolean {
   // "Give me Maria's statement", "pull up the report for John Ross": asking to see, with no amount to change.
   if (/^(give me|get me|pull up|bring up|let me see|can i see|may i see|i want to see|i'd like to see|i need to see|pakita|patingin|ipakita)\b/.test(t) && !/\d/.test(t)) return true
   // Unless it starts with a change word: "fix Maria's money entry to 6k" is a change.
-  if (!/^(fix|change|edit|update|correct|delete|remove|restore|undo|set|mark|add|record|rename|extend)\b/.test(t) && /\b\w+'s (deposits|withdrawals|money( history)?|earnings|loans|balance|track record|record|history|statement|cut)\b/.test(t)) return true
+  if (!/^(fix|change|edit|update|correct|delete|remove|restore|undo|set|mark|add|record|rename|extend|withdraw|take|pull|cash|lend|deposit|give|pay|kunin|kuha|bawi|pahiram|ipahiram)\b/.test(t) && /\b\w+'s (deposits|withdrawals|money( history)?|earnings|loans|balance|track record|record|history|statement|cut)\b/.test(t)) return true
   return /\?\s*$/.test(t) || /^(how|who|what|when|which|why|where|is|are|does|do|did|was|were|has|have|show|list|check|tell me|magkano|sino|ano|kailan)\b/.test(t)
 }
 

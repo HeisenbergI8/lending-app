@@ -332,6 +332,30 @@ function borrowerAndLenders(ctx: Ctx, borrowers: Person[], lenders: Person[]): {
   return asBefore(onePerson(ctx, before, borrowers, 'borrower'))
 }
 
+/**
+ * A share of one pot's floating said in words: "all the remaining floating", "everything in my pot", "half of
+ * Maria's floating", "30% of Jun's money", "lahat ng natitira", "kalahati ng pera ni Maria". Null when none is said.
+ */
+export function potShareSaid(text: string): number | null {
+  const t = clean(text)
+  const pot = /\b(floating|available|remaining|natitira|pot|money|pera|balance|left|laman)\b/.test(t)
+  const pct = /\b(\d{1,3})\s?%\s*(of|ng)\b/.exec(t)
+  if (pct && pot && Number(pct[1]) > 0 && Number(pct[1]) <= 100) return Number(pct[1]) / 100
+  if (/\b(half|kalahati)\b/.test(t) && pot) return 0.5
+  if (/\b(all|whole|entire|remaining|lahat|natitira|buong|buo)\b/.test(t) && pot) return 1
+  if (/\beverything\b/.test(t)) return 1
+  return null
+}
+
+/** The amount a pot's share comes to, or the reason there is none. */
+async function potShare(ctx: Ctx, lender: Person, share: number): Promise<number | ServerReply> {
+  const pot = (await listLenders(ctx.userId)).find((l) => l.id === lender.id)
+  if (!pot || pot.position.floating <= 0) return tell(`${pot?.isSelf ? 'Your pot has' : `${lender.firstName} has`} nothing floating right now.`)
+  const amount = Math.round(pot.position.floating * share) / 100
+  ctx.say(`${share === 1 ? 'All' : share === 0.5 ? 'Half' : `${Math.round(share * 100)}%`} of ${pot.isSelf ? 'your pot' : full(pot)}'s floating: ${pesos(amount)}`)
+  return amount
+}
+
 async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
   const lenderNames = await listLenderNames(ctx.userId)
   const { borrower, lenderPart } = borrowerAndLenders(ctx, await listBorrowerNames(ctx.userId), lenderNames)
@@ -339,12 +363,12 @@ async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
   const lenders = await lendersFor(ctx, lenderPart, lenderNames)
   if (isReply(lenders)) return lenders
   const amounts = amountsIn(ctx.text)
-  // "All the remaining floating of John Ross", "lahat ng natitira ni Maria": one lender's whole floating money.
-  if (amounts.length === 0 && lenders.length === 1 && /\b(all|whole|entire|remaining|everything|lahat|natitira|buong|buo)\b/i.test(ctx.text) && /\b(floating|available|remaining|natitira|pot|money|pera|balance|left)\b/i.test(ctx.text)) {
-    const pot = (await listLenders(ctx.userId)).find((l) => l.id === lenders[0].id)
-    if (!pot || pot.position.floating <= 0) return tell(`${pot?.isSelf ? 'Your pot has' : `${lenders[0].firstName} has`} nothing floating to lend right now.`)
-    ctx.say(`All of ${full(pot)}'s floating: ${pesos(pot.position.floating / 100)}`)
-    amounts.push(pot.position.floating / 100)
+  // "All the remaining floating of John Ross", "half of Maria's floating": a share of one lender's floating money.
+  const share = amounts.length === 0 && lenders.length === 1 ? potShareSaid(ctx.text) : null
+  if (share !== null) {
+    const amount = await potShare(ctx, lenders[0], share)
+    if (isReply(amount)) return amount
+    amounts.push(amount)
   }
   // The card's own check wants every amount in the Admin's words; "all the floating" is that amount, read from the pot.
   const said = amountsIn(ctx.text).length === 0 && amounts.length === 1 ? `${ctx.text} (${amounts[0]})` : ctx.text
@@ -496,9 +520,17 @@ async function money(ctx: Ctx, type: 'DEPOSIT' | 'WITHDRAWAL'): Promise<ServerRe
   }
   if (isReply(lender)) return lender
   if (lender === self) ctx.say('Found your own pot')
-  const [amount] = amountsIn(ctx.text)
+  let [amount] = amountsIn(ctx.text)
+  // "Withdraw everything from Jun's pot", "take out half of Maria's floating": a share of what is floating.
+  const share = !amount && type === 'WITHDRAWAL' ? potShareSaid(ctx.text) : null
+  if (share !== null) {
+    const found = await potShare(ctx, lender, share)
+    if (isReply(found)) return found
+    amount = found
+    ctx = { ...ctx, text: `${ctx.text} (${amount})` }
+  }
   if (!amount) return tell(`How much did ${lender.isSelf ? 'you' : lender.firstName} ${type === 'DEPOSIT' ? 'put in' : 'take out'}?`)
-  const note = noteBodySaid(ctx.text)
+  const note = noteBodySaid(ctx.text.replace(/\s\(\d+(\.\d+)?\)$/, ''))
   lender = lender as Person
   if (type === 'WITHDRAWAL') {
     const short = await notEnough(ctx.userId, [{ lenderId: full(lender), amount: String(amount) }], 'take out')
@@ -1310,7 +1342,7 @@ const loansWord = (n: number) => `${n} ${n === 1 ? 'loan' : 'loans'}`
 async function lenderPageCheck(ctx: Ctx): Promise<ServerReply | null> {
   const t = clean(ctx.text)
   // "Change Maria's rate to 4%" is a change, not a look.
-  if (/^(fix|change|edit|update|correct|delete|remove|restore|undo|set|mark|add|record|rename|extend|lend|loan|give(?! me)|deposit|withdraw|pay|move|transfer|fund|approve|release|pahiram|ipahiram)\b/.test(t)) return null
+  if (/^(fix|change|edit|update|correct|delete|remove|restore|undo|set|mark|add|record|rename|extend|lend|loan|give(?! me)|deposit|withdraw|take out|take|pay|move|transfer|fund|approve|release|pahiram|ipahiram|kunin|kuha|bawi)\b/.test(t)) return null
   if (!isQuestion(ctx.text) && amountsIn(ctx.text).length > 0) return null
   const topic = lenderTopic(ctx.text)
   if (!topic) return null

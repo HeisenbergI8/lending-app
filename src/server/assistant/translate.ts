@@ -54,7 +54,7 @@ function instructions(lenders: string[], borrowers: string[]): string {
 - ask: a question about figures or lists. change: add, edit, pay, delete or restore something (the app shows a card to confirm). unclear: two or three readings fit; put each as a full sentence in options. other: why, advice, comparing people, chat, or not about Pondex.
 - say: one line of the app's words. Full names from the lists. Copy the Admin's date and amount words exactly ("this month" stays "this month", "so far" stays "so far", "Oct 1 to Oct 15", "5k"); say "this whole month" only when the Admin says whole, entire, potential or will. Never add an amount, date or name the Admin did not say.
 - understood: under 8 words, like "Interest earned · John Ross Santos · this whole month".
-- An amount given as part of a figure ("all the floating of X", "everything in my pot", "half of what Rico owes", "same as Dan's last loan"): write {amount} in say, and add "amount":{"of":"floating|out_on_loan|owes|overdue|last_loan","who":"<full name or my pot>","part":"all|half|<0 to 1>"}.
+- An amount given as part of a figure ("all the floating of X", "everything in my pot", "half of what Rico owes", "same as Dan's last loan"): write {amount} in say and add "amount":{"of":"floating|out_on_loan|owes|overdue|last_loan","who":"<full name or my pot>","part":"all|half|<0 to 1>"}. Example: "lend rico half of maria's floating 2 weeks" → {"kind":"change","say":"lend Rico Mendoza {amount} from Maria Cruz for 2 weeks","amount":{"of":"floating","who":"Maria Cruz","part":"half"},"understood":"New loan · Rico · half of Maria's floating"}
 Today: ${manilaToday()}. The Admin's own pot is "my pot".
 Lenders: ${lenders.join(', ') || 'none'}
 Borrowers: ${borrowers.join(', ') || 'none'}

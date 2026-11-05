@@ -25,3 +25,15 @@ describe('amounts said as part of a figure', () => {
     assert.equal(readTranslation('{"kind":"change","say":"lend Aby Yamio {amount} from John Ross Rivera"}'), null)
   })
 })
+
+describe('a share of a pot said in words', async () => {
+  const { potShareSaid } = await import('../../src/server/assistant/server-cards.ts')
+  test('all, half, a percent, Taglish', () => {
+    assert.equal(potShareSaid('Lend all the remaining floating amount of john ross to aby yamio'), 1)
+    assert.equal(potShareSaid("lend rico half of maria's floating for 2 weeks"), 0.5)
+    assert.equal(potShareSaid("take out 30% of maria's money"), 0.3)
+    assert.equal(potShareSaid('pahiram lahat ng natitira ni maria kay angel'), 1)
+    assert.equal(potShareSaid('withdraw everything from jun'), 1)
+  })
+  test('an amount said plainly is no share', () => assert.equal(potShareSaid('lend rico 5k from maria'), null))
+})

@@ -157,7 +157,8 @@ export function lenderTopic(text: string): LenderTopic | null {
   if (/\b(starting capital|initial capital|capital|puhunan)\b.*\b(history|changes?|changed|versions?|past|before|when|kailan)\b|\b(history|changes) (of|sa) .*\b(capital|puhunan)\b/.test(t)) return 'capital'
   if (/\b(statement|statment|statemnt|staement|report|reprot|repot|summary|overview|profile|rundown|run down|full details|details|detail|info|information|everything about|all about|tell me about|kumusta|kamusta)\b/.test(t)) return 'statement'
   if (/\b(breakdown|break down|broken down|pot total|total pot|whole pot|split|parts)\b|\bwhere\b.*\b(money|pera|pot|capital|funds)\b|\b(saan|nasaan)\b.*\b(pera|money|pot)\b/.test(t)) return 'breakdown'
-  if (/\b(interest rate|rates?|percent|percentage|patong)\b|%/.test(t)) return 'rate'
+  // "30% of Maria's money" is a share of it, not her rate.
+  if ((/\b(interest rate|rates?|percent|percentage|patong)\b|%/.test(t)) && !/%\s*(of|ng)\b/.test(t)) return 'rate'
   if (/\b(paid back|repaid|settled|finished|completed|returned|natapos|tapos na|bayad na)\b.*\bloans?\b|\bloans?\b.*\b(paid back|repaid|settled|finished|completed|returned|natapos|bayad na)\b|\btrack record\b/.test(t)) return 'repaid'
   if (/\b(loans?|fundings?|funds|funding|funded|financ\w*|out with|pinautang|napautang)\b|\bwho\b.*\b(has|have|is using|are using|using|borrowed|is holding|holds)\b|\bsino\b.*\b(may hawak|gumagamit|humiram|nangutang)\b/.test(t)) return 'loans'
   return null
