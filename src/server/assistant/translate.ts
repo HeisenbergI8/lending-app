@@ -37,7 +37,7 @@ export function translateModels(): string[] {
   return list.length > 0 ? list : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b']
 }
 
-/** The sentences the server reads, one line per kind. <dates> is any of: this month, this whole month, last month, October, Oct 1 to Oct 15, this week, today, all time. */
+/** The sentences the server reads, one line per kind. <dates> is any of: this month, this whole month, last month, October, from Oct 1 to Oct 15, this week, today, all time. */
 const APP_WORDS = `how much did <lender> earn <dates> | how much will <lender> earn <dates> | how much did each lender earn <dates> | who earned the most <dates>
 how much does <lender> have | how much is floating in each pot | how much is out on loan for <lender> | <lender>'s interest still to collect | <lender>'s starting capital history
 lender statement for <lender> <dates> | where is <lender>'s money | who has <lender>'s money | <lender>'s overdue loans | <lender>'s repaid loans | what rate does <lender> earn | where does my cut come from | show my lenders
@@ -52,7 +52,7 @@ function instructions(lenders: string[], borrowers: string[]): string {
   return `You turn the Admin's message to Pondex, a private lending tracker, into ONE sentence in the app's words below. Never answer it. Reply with JSON only:
 {"kind":"ask|change|unclear|other","say":"","options":[],"understood":""}
 - ask: a question about figures or lists. change: add, edit, pay, delete or restore something (the app shows a card to confirm). unclear: two or three readings fit; put each as a full sentence in options. other: why, advice, comparing people, chat, or not about Pondex.
-- say: one line of the app's words. Full names from the lists. Copy the Admin's date and amount words exactly ("this month" stays "this month", "so far" stays "so far", "Oct 1 to Oct 15", "5k"); say "this whole month" only when the Admin says whole, entire, potential or will. Never add an amount, date or name the Admin did not say.
+- say: one line of the app's words. Full names from the lists. Copy the Admin's date and amount words exactly ("this month" stays "this month", "so far" stays "so far", "from Oct 1 to Oct 15", "5k"); say "this whole month" only when the Admin says whole, entire, potential or will. Never add an amount, date or name the Admin did not say.
 - understood: under 8 words, like "Interest earned · John Ross Santos · this whole month".
 - An amount given as part of a figure ("all the floating of X", "everything in my pot", "half of what Rico owes", "same as Dan's last loan"): write {amount} in say and add "amount":{"of":"floating|out_on_loan|owes|overdue|last_loan","who":"<full name or my pot>","part":"all|half|<0 to 1>"}. Example: "lend rico half of maria's floating 2 weeks" → {"kind":"change","say":"lend Rico Mendoza {amount} from Maria Cruz for 2 weeks","amount":{"of":"floating","who":"Maria Cruz","part":"half"},"understood":"New loan · Rico · half of Maria's floating"}
 Today: ${manilaToday()}. The Admin's own pot is "my pot".

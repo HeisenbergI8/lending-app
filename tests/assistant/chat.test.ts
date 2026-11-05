@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { aboutEveryone, clip, waitFor, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { aboutEveryone, keepsDetails, clip, waitFor, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -196,4 +196,31 @@ describe('waitFor: how long until a resting model is free', () => {
   test('seconds, rounded up to tens', () => assert.equal(waitFor(at(23), 1_000_000), '30 seconds'))
   test('a minute', () => assert.equal(waitFor(at(65), 1_000_000), 'a minute'))
   test('nothing resting: about 30 seconds', () => assert.equal(waitFor(null), '30 seconds'))
+})
+
+describe('keepsDetails: a translation that drops a name, date or amount is not used', () => {
+  const people = [{ firstName: 'John Ross', lastName: 'Rivera' }, { firstName: 'Rico', lastName: 'Mendoza' }]
+  const today = '2026-11-05'
+  test('a dropped month is caught', () => {
+    assert.equal(keepsDetails('magkano tubo ni john ross nung october', 'how much did John Ross Rivera earn', people, today), false)
+  })
+  test('the same month said in English is kept', () => {
+    assert.equal(keepsDetails('magkano tubo ni john ross nung october', 'how much did John Ross Rivera earn in October', people, today), true)
+  })
+  test('so far turned into the whole month is caught', () => {
+    assert.equal(keepsDetails('how much did john ross earn this month so far', 'how much will John Ross Rivera earn this whole month', people, today), false)
+  })
+  test('a dropped name is caught', () => {
+    assert.equal(keepsDetails('how much does rico owe', 'who owes the most', people, today), false)
+  })
+  test('a changed amount is caught, 5k read the same as 5000', () => {
+    assert.equal(keepsDetails('lend rico 5k from john ross 4 weeks', 'lend Rico Mendoza 3000 from John Ross Rivera for 4 weeks', people, today), false)
+    assert.equal(keepsDetails('lend rico 5k from john ross 4 weeks', 'lend Rico Mendoza 5k from John Ross Rivera for 4 weeks', people, today), true)
+  })
+  test('an amount looked up from a figure is allowed', () => {
+    assert.equal(keepsDetails('lend rico half of john ross floating 2 weeks', 'lend Rico Mendoza {amount} from John Ross Rivera for 2 weeks', people, today), true)
+  })
+  test('a message with no details keeps any reading', () => {
+    assert.equal(keepsDetails('sino may utang pa', 'who owes the most', people, today), true)
+  })
 })

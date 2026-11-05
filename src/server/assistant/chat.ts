@@ -6,7 +6,7 @@ import { type Step, stepFinished, stepStarted } from '../../lib/assistant-steps.
 import { matchOffLimits, matchQuick, OUT_OF_SCOPE, sayQuick } from '../../lib/quick-answers.ts'
 import { type Choice, type ServerReply, serverReply } from './server-cards.ts'
 import { recall, remember, shapeOf, used as memoryUsed } from './memory.ts'
-import { periodSaid, pesos } from '../../lib/command/read.ts'
+import { amountsIn, periodSaid, pesos } from '../../lib/command/read.ts'
 import { translate } from './translate.ts'
 import { resolveAmount } from './amounts.ts'
 import { listLenderNames } from '../lenders/queries.ts'
@@ -429,6 +429,24 @@ export function aboutEveryone(message: string, reply: ServerReply, people: { fir
   return said.every((name) => text.includes(name.toLowerCase()) || text.includes(name.split(' ')[0].toLowerCase()))
 }
 
+/**
+ * Whether the translator's sentence still says every name, date and amount in the message. Seen 2026-11-05:
+ * "magkano tubo ni john ross nung october" came back without October and was answered for all time. A
+ * sentence that lost a detail is not used: the server reads the Admin's own words instead.
+ */
+export function keepsDetails(message: string, says: string, people: { firstName: string; lastName: string }[], today = manilaToday()): boolean {
+  const s = says.toLowerCase()
+  const names = shapeOf(message, people).slots.p
+  if (!names.every((name) => s.includes(name.toLowerCase()) || s.includes(name.split(' ')[0].toLowerCase()))) return false
+  const asked = periodSaid(message, today)
+  const read = periodSaid(says, today)
+  if (asked && (!read || read.from !== asked.from || read.to !== asked.to)) return false
+  // An amount looked up from a figure ({amount}) replaces the number on purpose.
+  if (says.includes('{amount}')) return true
+  const amounts = amountsIn(says)
+  return amountsIn(message).every((n) => amounts.includes(n))
+}
+
 /** The soonest a resting model is free again, said plainly ("40 seconds", "a minute"). Groq's per-minute waits are short. */
 export function waitFor(usage: UsageSummary | null, now = Date.now()): string {
   const waits = (usage?.models ?? []).map((m) => (m.coolUntil ? m.coolUntil.getTime() - now : 0)).filter((ms) => ms > 0)
@@ -533,7 +551,9 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
     // The readings are said in words too, so the question still makes sense once the buttons are gone.
     return fromServer({ kind: 'ask', answer: ['Which one do you mean?', ...read.options.map((o) => `- ${o}`)].join('\n'), choices: read.options.map((o) => ({ label: o, send: o })) }, { model: read.model, tokens: read.tokens })
   }
-  if (read && (read.kind === 'ask' || read.kind === 'change')) {
+  const kept = !read || keepsDetails(latest, read.say, people)
+  if (!kept) say('The reading left out part of your message, so I read your own words')
+  if (read && kept && (read.kind === 'ask' || read.kind === 'change')) {
     // An amount named as a lookup ("all of John Ross's floating"): the server reads the real figure and puts it in.
     if (read.amount && read.say.includes('{amount}')) {
       const found = await resolveAmount(userId, read.amount)
