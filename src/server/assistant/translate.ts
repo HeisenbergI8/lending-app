@@ -45,7 +45,7 @@ how much does <borrower> owe | who owes the most | who is overdue | how much did
 how many borrowers are overdue | how many loans were made <dates> | how many loans did <lender> fund <dates> | how many loans did <borrower> take <dates> | which loans are due <dates> | which of <lender>'s loans are due <dates> (also "to be collected", "on <lender>'s account") | who is due next
 <lender>'s deposits <dates> | withdrawals <dates> | what came in <dates> | <lender>'s lent out history | how much did we lend <dates> | how much was collected <dates>
 how much is my cut <dates> | compare how much <person> earned <dates> and <dates> | compare <person> and <person> <figure> <dates> | <figure> this month vs last month | <figure> for the last 3 months by month | did we lend more <dates> than <dates>
- how much will be floating by <date> | what is in recently deleted | any pending requests
+ how much will be floating by <date> | what is in recently deleted | any pending requests | which pending requests can <lender> and <lender> fund (also "suitable borrowers to lend")
 Changes: lend <borrower> <amount> from <lender> for <n> weeks | lend <borrower> all of <lender>'s floating for <n> weeks | <borrower> wants to borrow <amount> for <n> weeks | fund <borrower>'s request from <lender> | <borrower> fully paid | <borrower> paid week <n> | undo <borrower>'s payment | deposit <amount> to <lender>'s pot | withdraw <amount> from <lender>'s pot | extend <borrower>'s loan by <n> weeks | add a note to <borrower>'s loan: <text> | rename <person> to <new name> | label <borrower> good / okay / bad | delete <thing> | restore <thing> | set <lender>'s starting capital to <amount> | add borrower <name> | add lender <name>`
 
 function instructions(lenders: string[], borrowers: string[]): string {
@@ -109,7 +109,13 @@ export async function translate(history: { role: 'user' | 'assistant'; text: str
         continue
       }
       if (!response.ok) {
-        console.warn('[dex-e translate] model refused', { model, status: response.status })
+        const why = await response.text()
+        // Seen 2026-11-05: a 400 when the model's JSON was not quite valid. Groq sends what it wrote as
+        // failed_generation; read that instead of spending a second model's allowance on the same message.
+        const wrote = /"failed_generation"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(why)
+        const salvaged = wrote ? readTranslation(JSON.parse(wrote[1]) as string) : null
+        console.warn('[dex-e translate] model refused', { model, status: response.status, why: why.slice(0, 160), salvaged: !!salvaged })
+        if (salvaged) return { ...salvaged, model, tokens: 0 }
         continue
       }
       if (!local) await recordHeaders(model, readGroqHeaders((name) => response.headers.get(name)))

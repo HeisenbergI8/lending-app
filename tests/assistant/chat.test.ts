@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { aboutEveryone, clip, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
+import { aboutEveryone, clip, waitFor, dropUnasked, isChangeRequest, isSimpleQuestion, lightModel, toolsFor, manilaToday, nudgeFor, trimHistory, withoutIds } from '../../src/server/assistant/chat.ts'
 
 describe('the chat loop', () => {
   test("today is the Admin's day in Manila, not the server's UTC day", () => {
@@ -189,4 +189,11 @@ describe('aboutEveryone: the keyword backup must not skip a name', () => {
   test('no name said: nothing to check', () => {
     assert.equal(aboutEveryone('how many loans were made in November', { kind: 'answer', answer: '**1 loan** made in November 2026.' }, people), true)
   })
+})
+
+describe('waitFor: how long until a resting model is free', () => {
+  const at = (s: number) => ({ models: [{ coolUntil: new Date(1_000_000 + s * 1000) }] }) as never
+  test('seconds, rounded up to tens', () => assert.equal(waitFor(at(23), 1_000_000), '30 seconds'))
+  test('a minute', () => assert.equal(waitFor(at(65), 1_000_000), 'a minute'))
+  test('nothing resting: about 30 seconds', () => assert.equal(waitFor(null), '30 seconds'))
 })

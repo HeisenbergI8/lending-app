@@ -71,7 +71,7 @@ const BUBBLE_MS = 6000
 
 /** A button under Dex-E's question: the label, and the whole sentence it sends. */
 type Choice = { label: string; send: string }
-type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean; choices?: Choice[] }
+type Answer = { text: string; failed: boolean; proposal: ProposalView | null; usage: Usage | null; thoughtMs: number; quick?: boolean; choices?: Choice[]; retry?: boolean }
 
 /**
  * Test modes for the demo account, kept on for the tab once opened with the flag:
@@ -96,7 +96,7 @@ function testModeOf(): 'server' | 'translate' | null {
   }
 }
 
-type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean; choices?: Choice[] } | { ok: false; error: string; usage: Usage | null }
+type Reply = { ok: true; answer: string; proposal: ProposalView | null; usage: Usage; quick?: boolean; choices?: Choice[] } | { ok: false; error: string; usage: Usage | null; retry?: boolean }
 
 /** Asks, reading the steps as they arrive (one JSON line each) and the answer last. */
 async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }[], onStep: (step: Step) => void, attempt = 1): Promise<Answer> {
@@ -132,7 +132,7 @@ async function fetchAnswer(history: { role: 'user' | 'assistant'; text: string }
     if (!data) throw new Error('No answer')
     return data.ok
       ? { text: data.answer, failed: false, proposal: data.proposal, usage: data.usage, thoughtMs: took(), quick: data.quick, choices: data.choices }
-      : { text: data.error, failed: true, proposal: null, usage: data.usage, thoughtMs: took() }
+      : { text: data.error, failed: true, proposal: null, usage: data.usage, thoughtMs: took(), retry: data.retry }
   } catch {
     // Seen on a phone on mobile data (2026-11-04): the request never reached the server. Asking
     // again is safe, since nothing is saved without Confirm, so it is tried once more before giving up.
@@ -287,10 +287,12 @@ export function AskPondex() {
 
     // A step comes twice: once as it starts, again when it is back.
     let steps: Step[] = []
-    const { text: a, failed, proposal, usage: latest, thoughtMs, quick, choices } = await fetchAnswer(history, (step) => {
+    const { text: a, failed, proposal, usage: latest, thoughtMs, quick, choices: offered, retry } = await fetchAnswer(history, (step) => {
       steps = steps.some((s) => s.id === step.id) ? steps.map((s) => (s.id === step.id ? step : s)) : [...steps, step]
       setLiveSteps(steps)
     })
+    // "Busy" is a short per-minute wait: one tap sends the same message again.
+    const choices = retry ? [{ label: 'Try again', send: q }] : offered
     setThinking(false)
     setLiveSteps([])
     // The countdown corrects its clock on its first tick, a second from now.

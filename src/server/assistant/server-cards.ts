@@ -4,7 +4,7 @@ import { borrowerReport, lenderReport, summaryReport } from '../reports/queries.
 import { BELONGS_TO, countCondition, lenderTopic, type Metric, type Question, readQuestion } from '../../lib/command/question.ts'
 import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
-import { toDateInput } from '../../lib/money/weeks.ts'
+import { describeTerm, toDateInput } from '../../lib/money/weeks.ts'
 import { parseReportRange, rangeFilter } from '../../lib/report-range.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
@@ -1662,6 +1662,83 @@ async function compareCheck(ctx: Ctx): Promise<ServerReply | null> {
   ].join('\n'))
 }
 
+// ---------------------------------------------------------------- pending requests the pots can fund
+
+const PENDING = /\b(pending|requests?|waiting|naghihintay|nag-?request|gustong (umutang|humiram)|applicants?)\b/i
+const FIT = /\b(suitable|fund|funds|lend|afford|fit|fits|cover|can we|can i|could we|kaya|pwede|which|who|recommend|suggest|should|best|match)\b/i
+
+/**
+ * "Based on Admin and Fidel's pot, which pending requests can we lend?": the waiting requests the chosen pots can
+ * cover together, best borrowers first (the saved label and track record), each checked against the floating
+ * still left after the ones above it. Each has a button that turns it into a loan card, funded from those pots.
+ */
+async function fundableCheck(ctx: Ctx): Promise<ServerReply | null> {
+  // "Fund Lyn's request from Maria" (a button, or said) is the card itself, not this list.
+  if (!PENDING.test(ctx.text) || !FIT.test(ctx.text) || amountsIn(ctx.text).length > 0 || /^(fund|approve|release|turn|lend|pahiram|i-?fund)\b/i.test(clean(ctx.text))) return null
+  const [pots, requests] = await Promise.all([
+    listLenders(ctx.userId),
+    db.pendingLoan.findMany({ where: { userId: ctx.userId }, orderBy: { createdAt: 'asc' }, select: { id: true, firstName: true, lastName: true, capitalCentavos: true, termDays: true } }),
+  ])
+  if (requests.length === 0) return tell('There are no pending requests right now.')
+  // The pots: those named, "my pot" or "admin" for the Admin's, or every pot when none is named.
+  const named = mentions(ctx.text, pots.filter((l) => !l.isSelf)).map((g) => g[0])
+  const self = pots.find((l) => l.isSelf)
+  const mine = self && /\b(admin|my pot|my money|mine|akin|ko|sarili)\b/i.test(ctx.text)
+  const chosen = [...(mine ? [self] : []), ...pots.filter((p) => named.some((n) => n.id === p.id))]
+  const use = (chosen.length > 0 ? chosen : pots).filter((p) => p.position.floating > 0)
+  const potNames = (chosen.length > 0 ? chosen : pots).map((p) => (p.isSelf ? 'your pot' : full(p)))
+  if (use.length === 0) return tell(`${potNames.join(' and ')} ${potNames.length === 1 ? 'has' : 'have'} nothing floating right now, so no request can be funded.`)
+  ctx.say(`Read ${requests.length} pending ${requests.length === 1 ? 'request' : 'requests'}`)
+
+  // Each requester's record, when they have borrowed before.
+  const RANK: Record<string, number> = { GOOD: 0, OKAY: 1, new: 2, none: 2, BAD: 3 }
+  const records = await Promise.all(requests.map(async (r) => {
+    const found = (await runTool(ctx.userId, 'find_borrower', { name: full(r) })) as { borrowers?: { name: string; savedLabel: string; trackRecord: string }[] }
+    const b = found.borrowers?.find((x) => x.name.toLowerCase() === full(r).toLowerCase())
+    return { ...r, label: b ? (b.savedLabel === 'none' ? 'none' : b.savedLabel) : 'new', record: b?.trackRecord ?? '' }
+  }))
+  records.sort((a, b) => (RANK[a.label] ?? 2) - (RANK[b.label] ?? 2) || a.capitalCentavos - b.capitalCentavos)
+
+  // Fund in that order from what is still floating, the fullest pot first; a request that no longer fits is skipped.
+  const left = new Map<string, number>(use.map((p) => [p.id, p.position.floating as number]))
+  const fits: { r: (typeof records)[number]; from: { pot: (typeof use)[number]; centavos: number }[] }[] = []
+  const tooBig: (typeof records)[number][] = []
+  for (const r of records) {
+    const total = [...left.values()].reduce((t, v) => t + v, 0)
+    if (r.capitalCentavos > total) { tooBig.push(r); continue }
+    let need = r.capitalCentavos
+    const from: { pot: (typeof use)[number]; centavos: number }[] = []
+    for (const pot of [...use].sort((a, b) => left.get(b.id)! - left.get(a.id)!)) {
+      if (need <= 0) break
+      const take = Math.min(need, left.get(pot.id)!)
+      if (take <= 0) continue
+      from.push({ pot, centavos: take })
+      left.set(pot.id, left.get(pot.id)! - take)
+      need -= take
+    }
+    fits.push({ r, from })
+  }
+  const floating = use.reduce((t, p) => t + p.position.floating, 0)
+  const spent = fits.reduce((t, f) => t + f.r.capitalCentavos, 0)
+  // A borrower with no saved label yet is said by their record, not as new.
+  const word = (r: (typeof records)[number]) => (r.label === 'new' ? 'New borrower' : r.label === 'none' ? `No label yet${r.record ? ` (${r.record})` : ''}` : `${r.label.charAt(0)}${r.label.slice(1).toLowerCase()} borrower`)
+  const potWord = (p: (typeof use)[number]) => (p.isSelf ? 'my pot' : full(p))
+  if (fits.length === 0) return tell([`None of the ${requests.length} pending ${requests.length === 1 ? 'request fits' : 'requests fit'} in ${pesos(floating / 100)} floating (${potNames.join(' and ')}).`, ...tooBig.slice(0, 6).map((r) => `- ${full(r)}: ${pesos(r.capitalCentavos / 100)} | too much for what is floating`)].join('\n'))
+  return ask(
+    [
+      `**${fits.length} of ${requests.length}** pending ${requests.length === 1 ? 'request' : 'requests'} can be funded from ${potNames.join(' and ')} (${pesos(floating / 100)} floating).`,
+      ...fits.slice(0, 8).map(({ r, from }) => `- ${full(r)}: ${pesos(r.capitalCentavos / 100)} | ${word(r)} · ${describeTerm(r.termDays)} · from ${from.map((f) => `${potWord(f.pot)} ${pesos(f.centavos / 100)}`).join(' + ')}`),
+      ...tooBig.slice(0, 4).map((r) => `- ${full(r)}: ${pesos(r.capitalCentavos / 100)} | ${r.capitalCentavos > floating ? 'more than is floating in these pots' : 'too much for what is left after the ones above'}`),
+      `- Funding all of these: ${pesos(spent / 100)}, leaving ${pesos((floating - spent) / 100)} floating`,
+      'Best borrowers first. Tap one to make its loan card.',
+    ].join('\n'),
+    fits.slice(0, 4).map(({ r, from }) => ({
+      label: `Fund ${r.firstName} · ${pesos(r.capitalCentavos / 100)}`,
+      send: from.length === 1 ? `fund ${full(r)}'s request from ${potWord(from[0].pot)}` : `fund ${full(r)}'s request, ${from.map((f) => `${f.centavos / 100} from ${potWord(f.pot)}`).join(' and ')}`,
+    })),
+  )
+}
+
 /**
  * Plain checks on one person, answered from the app's own numbers: "how much
  * does Angel owe", "Rico's loans", "how much does Maria have". Only when the
@@ -1670,7 +1747,7 @@ async function compareCheck(ctx: Ctx): Promise<ServerReply | null> {
  */
 async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
   // The app's read-only screens, each answered from the same figures as the screen itself.
-  for (const check of [compareCheck, lenderPageCheck, earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
+  for (const check of [fundableCheck, compareCheck, lenderPageCheck, earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
     const answer = await check(ctx)
     if (answer) return answer
   }
@@ -1767,7 +1844,7 @@ export async function serverReply(userId: string, history: { role: 'user' | 'ass
   // A look at a lender's page said without a question ("Maria's starting capital history", "loans Jun funded that were
   // paid back"): no amount, so it cannot be a change. A borrower's name alone leaves it to the change rules.
   if (amountsIn(latest).length === 0) {
-    const looked = (await lenderPageCheck(ctx)) ?? (await moneyHistoryCheck(ctx))
+    const looked = (await fundableCheck(ctx)) ?? (await lenderPageCheck(ctx)) ?? (await moneyHistoryCheck(ctx))
     if (looked) return looked
   }
   let intent = intentByRules(latest)

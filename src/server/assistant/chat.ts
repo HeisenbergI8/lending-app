@@ -58,7 +58,7 @@ const MAX_OUTPUT_TOKENS = 1500
 export type ChatTurn = { role: 'user' | 'assistant'; text: string }
 export type ChatResult =
   | { ok: true; answer: string; tools: string[]; model: string; tokens: number; proposal: Proposal | null; usage: UsageSummary; quick?: boolean; choices?: Choice[] }
-  | { ok: false; error: string; usage: UsageSummary | null }
+  | { ok: false; error: string; usage: UsageSummary | null; retry?: boolean }
 
 type GroqMessage =
   | { role: 'system' | 'user'; content: string }
@@ -429,6 +429,13 @@ export function aboutEveryone(message: string, reply: ServerReply, people: { fir
   return said.every((name) => text.includes(name.toLowerCase()) || text.includes(name.split(' ')[0].toLowerCase()))
 }
 
+/** The soonest a resting model is free again, said plainly ("40 seconds", "a minute"). Groq's per-minute waits are short. */
+export function waitFor(usage: UsageSummary | null, now = Date.now()): string {
+  const waits = (usage?.models ?? []).map((m) => (m.coolUntil ? m.coolUntil.getTime() - now : 0)).filter((ms) => ms > 0)
+  const s = waits.length > 0 ? Math.ceil(Math.min(...waits) / 10_000) * 10 : 30
+  return s >= 60 ? (s < 120 ? 'a minute' : `${Math.round(s / 60)} minutes`) : `${s} seconds`
+}
+
 export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = () => {}, options: { serverOnly?: boolean; translateTest?: boolean } = {}): Promise<ChatResult> {
   let stepId = 0
   // Runs a lookup and tells the chat about it in plain words, before and after.
@@ -645,7 +652,7 @@ export async function ask(userId: string, history: ChatTurn[], onStep: OnStep = 
     if (error instanceof LimitError) {
       return error.daily
         ? { ok: false, error: 'Dex-E has used up today’s free AI limit.', usage }
-        : { ok: false, error: 'Dex-E is busy (free plan limit).', usage }
+        : { ok: false, error: `Dex-E is busy (free plan limit). Try again in about ${waitFor(usage)}.`, usage, retry: true }
     }
     if (!localModel() && !process.env.GROQ_API_KEY) {
       return { ok: false, error: 'Dex-E is not set up yet: GROQ_API_KEY is missing.', usage }
