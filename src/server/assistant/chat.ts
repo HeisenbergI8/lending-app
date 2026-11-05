@@ -436,6 +436,8 @@ export function aboutEveryone(message: string, reply: ServerReply, people: { fir
  */
 export function keepsDetails(message: string, says: string, people: { firstName: string; lastName: string }[], today = manilaToday()): boolean {
   const s = says.toLowerCase()
+  // "My funded loans" names no lender; "my pot" in the sentence would be the translator's guess (2026-11-05).
+  if (/\bmy pot\b/.test(s) && !/\b(pot|pots|ipon)\b/i.test(message)) return false
   const names = shapeOf(message, people).slots.p
   if (!names.every((name) => s.includes(name.toLowerCase()) || s.includes(name.split(' ')[0].toLowerCase()))) return false
   const asked = periodSaid(message, today)

@@ -220,6 +220,10 @@ describe('keepsDetails: a translation that drops a name, date or amount is not u
   test('an amount looked up from a figure is allowed', () => {
     assert.equal(keepsDetails('lend rico half of john ross floating 2 weeks', 'lend Rico Mendoza {amount} from John Ross Rivera for 2 weeks', people, today), true)
   })
+  test('"my pot" the Admin never said is caught', () => {
+    assert.equal(keepsDetails('compare my funded loans last month vs this month', 'compare how many loans did my pot fund last month and this month', people, today), false)
+    assert.equal(keepsDetails('how much is in my pot', 'how much does my pot have', people, today), true)
+  })
   test('a message with no details keeps any reading', () => {
     assert.equal(keepsDetails('sino may utang pa', 'who owes the most', people, today), true)
   })
