@@ -80,7 +80,9 @@ export function shapeOf(text: string, people: Person[]): Shape {
     pattern += `${t.slice(at, s.start)}{${s.kind}${slots[s.kind].length}}`
     at = s.end
   }
-  return { pattern: (pattern + t.slice(at)).replace(/\s+/g, ' ').trim(), slots }
+  // "In October", "nung October" and "last month" are the same slot: the small word before a date is dropped.
+  const tidy = (pattern + t.slice(at)).replace(/\b(in|for|during|of|on|sa|nung|noong|ngayong)\s+(\{d\d+\})/g, '$2')
+  return { pattern: tidy.replace(/\s+/g, ' ').trim(), slots }
 }
 
 /**

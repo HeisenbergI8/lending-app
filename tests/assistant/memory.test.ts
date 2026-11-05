@@ -14,16 +14,19 @@ const PEOPLE = [
 describe('memory: a message as a pattern', () => {
   test('names, dates and amounts become slots, in order', () => {
     const s = shapeOf('magkano tubo ni maria nung October?', PEOPLE)
-    assert.equal(s.pattern, 'magkano tubo ni {p1} nung {d1}')
+    assert.equal(s.pattern, 'magkano tubo ni {p1} {d1}')
     assert.deepEqual(s.slots, { p: ['Maria Cruz'], d: ['october'], n: [] })
   })
   test('a full name and a whole month', () => {
     const s = shapeOf('How much did john ross potential earnings from interest for this whole month', PEOPLE)
-    assert.equal(s.pattern, 'how much did {p1} potential earnings from interest for {d1}')
+    assert.equal(s.pattern, 'how much did {p1} potential earnings from interest {d1}')
     assert.deepEqual(s.slots.p, ['John Ross Santos'])
   })
   test('a last name two people share is not a name slot on its own', () => {
     assert.deepEqual(shapeOf('how much does cruz owe', PEOPLE).slots.p, [])
+  })
+  test('"in October" and "last month" are the same slot', () => {
+    assert.equal(shapeOf('is jun making money for me last month', PEOPLE).pattern, shapeOf('is maria making money for me in october', PEOPLE).pattern)
   })
   test('the same kind of question has the same pattern', () => {
     assert.equal(shapeOf('magkano tubo ni jun nung november', PEOPLE).pattern, shapeOf('magkano tubo ni Maria nung October', PEOPLE).pattern)
