@@ -30,11 +30,12 @@ export function translateModels(): string[] {
   const local = process.env.VERCEL ? null : process.env.ASSISTANT_LOCAL_MODEL?.trim()
   if (local) return [local]
   const list = (process.env.ASSISTANT_TRANSLATE_MODELS || '').split(',').map((m) => m.trim()).filter(Boolean)
-  return list.length > 0 ? list : ['llama-3.1-8b-instant', 'openai/gpt-oss-20b']
+  // llama-3.1-8b-instant was the first choice; Groq answers 404 for it now (seen 2026-11-05).
+  return list.length > 0 ? list : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b']
 }
 
 /** The sentences the server reads, one line per kind. <dates> is any of: this month, this whole month, last month, October, Oct 1 to Oct 15, this week, today, all time. */
-const APP_WORDS = `how much did <lender> earn <dates> | how much will <lender> earn this whole month | how much did each lender earn <dates> | who earned the most <dates>
+const APP_WORDS = `how much did <lender> earn <dates> | how much will <lender> earn <dates> | how much did each lender earn <dates> | who earned the most <dates>
 how much does <lender> have | how much is floating in each pot | how much is out on loan for <lender> | <lender>'s interest still to collect | <lender>'s starting capital history
 lender statement for <lender> <dates> | where is <lender>'s money | who has <lender>'s money | <lender>'s overdue loans | <lender>'s repaid loans | what rate does <lender> earn | where does my cut come from | show my lenders
 how much does <borrower> owe | who owes the most | who is overdue | how much did <borrower> pay <dates> | how much did each borrower pay <dates> | how much did <borrower> borrow <dates> | is <borrower> a good borrower
@@ -47,7 +48,7 @@ function instructions(lenders: string[], borrowers: string[]): string {
   return `You turn the Admin's message to Pondex, a private lending tracker, into ONE sentence in the app's words below. Never answer it. Reply with JSON only:
 {"kind":"ask|change|unclear|other","say":"","options":[],"understood":""}
 - ask: a question about figures or lists. change: add, edit, pay, delete or restore something (the app shows a card to confirm). unclear: two or three readings fit; put each as a full sentence in options. other: why, advice, comparing people, chat, or not about Pondex.
-- say: one line of the app's words. Full names from the lists. Keep the Admin's own words for dates and amounts ("this whole month", "Oct 1 to Oct 15", "5k"). Never add an amount, date or name the Admin did not say.
+- say: one line of the app's words. Full names from the lists. Copy the Admin's date and amount words exactly ("this month" stays "this month", "so far" stays "so far", "Oct 1 to Oct 15", "5k"); say "this whole month" only when the Admin says whole, entire, potential or will. Never add an amount, date or name the Admin did not say.
 - understood: under 8 words, like "Interest earned · John Ross Santos · this whole month".
 Today: ${manilaToday()}. The Admin's own pot is "my pot".
 Lenders: ${lenders.join(', ') || 'none'}
