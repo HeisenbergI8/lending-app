@@ -259,7 +259,8 @@ async function notEnough(userId: string, funders: { lenderId: string; amount: st
   const pots = await listLenders(userId)
   for (const f of funders) {
     const pot = pots.find((l) => full(l).toLowerCase() === f.lenderId.toLowerCase())
-    if (pot && Number(f.amount) * 100 > pot.position.floating) {
+    // In centavos, rounded: 9264.54 × 100 is 926454.0000000001 in floating point, a hair over the pot.
+    if (pot && Math.round(Number(f.amount) * 100) > pot.position.floating) {
       return tell(`${pot.isSelf ? 'Your pot' : pot.firstName} only has ${pesos(pot.position.floating / 100)} floating, so ${pot.isSelf ? 'you' : pot.firstName} can't ${verb} ${pesos(Number(f.amount))}.`)
     }
   }
