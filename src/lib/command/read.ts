@@ -272,3 +272,30 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
   }
   return null
 }
+
+/**
+ * Every period in a sentence, in the order said, for a comparison: "on Oct and Nov", "this month vs last month",
+ * "October compared to September". A single range ("from Oct 1 to Oct 15", "between Oct 1 and Oct 15") is one period.
+ */
+export function periodsSaid(text: string, today: Day): { from: Day; to: Day; label: string }[] {
+  const whole = periodSaid(text, today)
+  if (whole?.label === 'that time') return [whole]
+  const pieces = clean(text).split(/\b(?:and|vs\.?|versus|compared? (?:to|with)|against|than|at saka|tsaka|at)\b|,|\//)
+  const found: { from: Day; to: Day; label: string }[] = []
+  for (const piece of pieces) {
+    const p = periodSaid(piece, today)
+    if (p && !found.some((f) => f.from === p.from && f.to === p.to)) found.push(p)
+  }
+  return found.length > 0 ? found : whole ? [whole] : []
+}
+
+/** "For the last 3 months", "per month this year", "monthly": how many months back to list, or null. */
+export function monthsBack(text: string, today: Day): number | null {
+  const t = clean(text)
+  const words: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, twelve: 12 }
+  const n = /\b(?:last|past|previous|nakaraang) (\d{1,2}|two|three|four|five|six|twelve) (?:months|buwan)\b/.exec(t)
+  if (n) return Math.min(12, Number(n[1]) || words[n[1]])
+  if (/\b(this year|ngayong taon)\b/.test(t) && /\b(per|each|every|by) month\b|\bmonthly\b|\bmonth by month\b/.test(t)) return Number(today.slice(5, 7))
+  if (/\b(per|each|every|by) month\b|\bmonthly\b|\bmonth by month\b|\btrend\b|\bover the (?:last|past) months\b|\bbuwan-buwan\b/.test(t)) return 3
+  return null
+}

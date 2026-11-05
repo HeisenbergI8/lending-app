@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { amountsIn, daySaid, periodSaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, rateSaid, weekNumberSaid } from '../../src/lib/command/read.ts'
+import { amountsIn, daySaid, monthsBack, periodSaid, periodsSaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, rateSaid, weekNumberSaid } from '../../src/lib/command/read.ts'
 import { intentByRules, isQuestion } from '../../src/lib/command/intents.ts'
 
 const TODAY = '2026-11-04' // a Wednesday
@@ -177,4 +177,14 @@ describe('periodSaid: the whole month, days still to come included', () => {
 describe('periodSaid: money still to come looks to the end of the month', () => {
   const whole = { from: '2026-11-01', to: '2026-11-30', label: 'this whole month' }
   for (const text of ['how many loans to be collected on this month on john ross account?', 'which loans are due this month', 'ano ang babayaran ngayong buwan']) test(text, () => assert.deepEqual(periodSaid(text, '2026-11-05'), whole))
+})
+
+describe('periodsSaid and monthsBack: comparisons', () => {
+  const T = '2026-11-05'
+  test('two months said', () => assert.deepEqual(periodsSaid('how much did john ross earned on oct and nov compare that', T).map((p) => p.label), ['October 2026', 'November 2026']))
+  test('this month vs last month', () => assert.deepEqual(periodsSaid('collections this month vs last month', T).map((p) => p.label), ['this month', 'October 2026']))
+  test('a range stays one period', () => assert.equal(periodsSaid('how much did Maria earn between Oct 1 and Oct 15', T).length, 1))
+  test('last 3 months', () => assert.equal(monthsBack('my earnings for the last 3 months', T), 3))
+  test('each month this year', () => assert.equal(monthsBack('loans made each month this year', T), 11))
+  test('no months', () => assert.equal(monthsBack('how much did Maria earn in October', T), null))
 })

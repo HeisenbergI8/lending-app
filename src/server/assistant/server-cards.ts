@@ -1,6 +1,6 @@
 import { db } from '../db.ts'
 import { listBorrowerNames, listBorrowers } from '../borrowers/queries.ts'
-import { borrowerReport, lenderReport } from '../reports/queries.ts'
+import { borrowerReport, lenderReport, summaryReport } from '../reports/queries.ts'
 import { BELONGS_TO, countCondition, lenderTopic, type Metric, type Question, readQuestion } from '../../lib/command/question.ts'
 import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
@@ -9,7 +9,7 @@ import { parseReportRange, rangeFilter } from '../../lib/report-range.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
   amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
-  periodSaid, requestRef, SPLIT_EVENLY, weekNumberSaid,
+  monthsBack, periodSaid, periodsSaid, requestRef, SPLIT_EVENLY, weekNumberSaid,
 } from '../../lib/command/read.ts'
 import { closestNames, distance, type Named } from './names.ts'
 import { meaningOf } from './meaning.ts'
@@ -1449,6 +1449,176 @@ async function lenderPageAnswer(ctx: Ctx, topic: Exclude<ReturnType<typeof lende
   ].join('\n'))
 }
 
+// ---------------------------------------------------------------- comparisons
+
+type Period = { from: string; to: string; label: string }
+type Figure = Exclude<Metric, 'count'> | 'count' | 'lent' | 'collected'
+
+const COMPARE = /\b(compare\w*|vs\.?|versus|against|than|difference|kumpara\w*|ikumpara|mas (malaki|maliit|marami|kaunti))\b/i
+const NOW_ONLY: Figure[] = ['floating', 'outOnLoan', 'interestOwed', 'startingCapital', 'owes', 'overdue']
+
+/** The text with people's names hidden, so "Jun" is never read as June. */
+function namesHidden(ctx: Ctx): string {
+  const names = new Set(ctx.names ?? [])
+  return ctx.text.replace(/[\p{L}']+/gu, (w) => (names.has(w.toLowerCase().replace(/'s$/, '')) ? 'someone' : w))
+}
+
+/** The figure being compared: one the app shows, or lending, collections and loans made. */
+function figureOf(text: string, today: string): Figure | null {
+  const q = readQuestion(text.replace(COMPARE, ' '), today)
+  if (q && q.metric !== 'count') return q.metric
+  const t = clean(text)
+  if (q?.metric === 'count' || /\b(loans? (made|released|given|funded)|new loans|how many loans)\b/.test(t)) return 'count'
+  if (/\b(lend|lent|lending|pinautang|napautang)\b/.test(t)) return 'lent'
+  if (/\b(collect|collected|collections?|nakolekta|nasingil)\b/.test(t)) return 'collected'
+  return null
+}
+
+const FIGURE_WORDS: Record<Figure, string> = {
+  earned: 'interest earned', floating: 'floating', outOnLoan: 'out on loan', interestOwed: 'interest still to come', startingCapital: 'starting capital',
+  deposits: 'deposited', withdrawals: 'withdrawn', owes: 'still owed', overdue: 'overdue', paid: 'paid', borrowed: 'borrowed',
+  count: '', lent: 'lent out', collected: 'collected',
+}
+
+/** One figure for one person (or everyone of that kind) over one period, from the same functions as the screens. */
+async function figureFor(ctx: Ctx, figure: Figure, kind: 'lender' | 'borrower', person: Person | null, period: Period | null): Promise<number | null> {
+  const range = period ? parseReportRange(period) : parseReportRange(ALL_TIME(ctx.today))
+  if (figure === 'lent' || figure === 'collected' || (figure === 'count' && !person)) {
+    if (person) return null
+    const r = await summaryReport(ctx.userId, range)
+    return figure === 'lent' ? r.lentOut : figure === 'collected' ? r.collected : r.loansMade
+  }
+  if (figure === 'count') {
+    return db.loan.count({ where: { userId: ctx.userId, deletedAt: null, ...(kind === 'lender' ? { fundings: { some: { lenderId: person!.id } } } : { borrowerId: person!.id }), ...(period ? { startOn: rangeFilter(range) } : {}) } })
+  }
+  if (BELONGS_TO[figure] === 'lender') {
+    const lenders = (await listLenders(ctx.userId)).filter((l) => !person || l.id === person.id)
+    let total = 0
+    for (const l of lenders) {
+      if (figure === 'earned') total += period ? ((await getLender(ctx.userId, l.id, range))?.rangeInterest ?? 0) : l.position.earned
+      else if (figure === 'deposits' || figure === 'withdrawals') {
+        const r = await lenderReport(ctx.userId, l.id, range)
+        total += (figure === 'deposits' ? r?.putIn : r?.tookOut) ?? 0
+      } else total += figure === 'floating' ? l.position.floating : figure === 'outOnLoan' ? l.position.outOnLoan : figure === 'interestOwed' ? l.position.pending : l.startingCapital
+    }
+    return total
+  }
+  const { rows } = await listBorrowers(ctx.userId, { page: 1, skip: 0, take: 1000 })
+  let total = 0
+  for (const b of rows.filter((b) => !person || b.id === person.id)) {
+    if (figure === 'owes') total += b.outstanding
+    else if (figure === 'overdue') total += b.overdueOutstanding
+    else {
+      const r = await borrowerReport(ctx.userId, b.id, range, { withProof: false })
+      total += (figure === 'paid' ? r?.paidInPeriod : r?.borrowedInPeriod) ?? 0
+    }
+  }
+  return total
+}
+
+const monthTitle = (p: Period) => (/^(this|last|next|today|yesterday)\b/.test(p.label) ? p.label.charAt(0).toUpperCase() + p.label.slice(1) : p.label)
+/** A month that is not over yet, compared as it stands. */
+const partial = (p: Period, today: string) => p.to === today && toDateInput(new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0))) !== today && p.from.slice(0, 7) === today.slice(0, 7)
+
+/**
+ * Comparisons, the same figures side by side: two periods ("John Ross's earnings in October and November"),
+ * two people ("Maria vs Jun earnings in October"), or month by month ("my earnings for the last 3 months").
+ * Each figure comes from the same function as the screen that shows it.
+ */
+async function compareCheck(ctx: Ctx): Promise<ServerReply | null> {
+  const hidden = namesHidden(ctx)
+  const periods = periodsSaid(hidden, ctx.today)
+  const months = monthsBack(hidden, ctx.today)
+  if (!COMPARE.test(ctx.text) && periods.length < 2 && months === null) return null
+  if (!isQuestion(ctx.text) && !/^(compare|ikumpara|kumpara)/i.test(clean(ctx.text)) && amountsIn(ctx.text).length > 0) return null
+  const figure = figureOf(ctx.text, ctx.today)
+  if (!figure) return null
+  const kind = figure === 'count' || figure === 'lent' || figure === 'collected' ? null : BELONGS_TO[figure]
+
+  // Who: one or two named people of the figure's kind (a count can be either), "my pot", or everyone.
+  const [lenderNames, borrowerNames] = await Promise.all([listLenderNames(ctx.userId), listBorrowerNames(ctx.userId)])
+  const self = lenderNames.find((l) => l.isSelf)
+  const asLender = mentions(ctx.text, lenderNames.filter((l) => !l.isSelf))
+  const asBorrower = mentions(ctx.text, borrowerNames)
+  const whoKind: 'lender' | 'borrower' = kind ?? (asBorrower.length > 0 && asLender.length === 0 ? 'borrower' : 'lender')
+  const groups = whoKind === 'lender' ? asLender : asBorrower
+  if (groups.some((g) => g.length > 1)) return whichPerson(ctx.text, groups.find((g) => g.length > 1)!, whoKind)
+  const people: Person[] = groups.map((g) => g[0])
+  if (people.length === 0 && self && whoKind === 'lender' && /\b(my|i|me|mine|admin|akin|ko)\b/i.test(clean(ctx.text))) people.push(self)
+  const fmt = (v: number) => (figure === 'count' ? `${v} ${v === 1 ? 'loan' : 'loans'}` : pesos(v / 100))
+  const change = (older: number, newer: number) => (older === 0 ? (newer === 0 ? 'no change' : 'up from nothing') : `${newer >= older ? '+' : '−'}${Math.round((Math.abs(newer - older) / older) * 100)}%`)
+  const whose = (p: Person | null) => (p ? full(p) : whoKind === 'lender' ? 'all lenders' : 'all borrowers')
+  // A count's unit is in the figure ("3 loans"), so its word is only what happened to them.
+  const word = figure === 'count' ? (people.length === 1 ? (whoKind === 'lender' ? 'funded' : 'taken') : 'made') : FIGURE_WORDS[figure]
+
+  // Two people, the same dates.
+  if (people.length === 2) {
+    const period = periods[0] ?? (NOW_ONLY.includes(figure) ? null : ALL_TIME(ctx.today))
+    const [a, b] = await Promise.all(people.map((p) => figureFor(ctx, figure, whoKind, p, period)))
+    if (a === null || b === null) return null
+    ctx.say(`Compared ${full(people[0])} and ${full(people[1])}`)
+    const when = period ? (period.label === 'all time' ? ' in all' : ` ${whenText(period)}`) : ' now'
+    const [hi, lo] = a >= b ? [people[0], people[1]] : [people[1], people[0]]
+    return tell([
+      a === b ? `${full(people[0])} and ${full(people[1])}: the same ${word}${when}, **${fmt(a)}** each.` : `**${fmt(Math.abs(a - b))} more** ${word} by ${full(hi)} than ${full(lo)}${when}.`,
+      `- ${full(people[0])}: ${fmt(a)}`,
+      `- ${full(people[1])}: ${fmt(b)}`,
+      ...(period && period.label !== 'all time' ? [datesRow(period)] : []),
+    ].join('\n'))
+  }
+  if (people.length > 2) return null
+  const person = people[0] ?? null
+
+  if (NOW_ONLY.includes(figure) && (periods.length >= 2 || months !== null)) {
+    const now = await figureFor(ctx, figure, whoKind, person, null)
+    return tell(`${FIGURE_WORDS[figure].charAt(0).toUpperCase() + FIGURE_WORDS[figure].slice(1)} is only known as of today, so it cannot be compared between months. Today for ${whose(person)}: **${fmt(now ?? 0)}**.`)
+  }
+
+  // Month by month.
+  if (months !== null && periods.length < 2) {
+    const y = Number(ctx.today.slice(0, 4))
+    const m = Number(ctx.today.slice(5, 7))
+    const list: Period[] = []
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(y, m - 1 - i, 1))
+      const from = d.toISOString().slice(0, 10)
+      const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
+      list.push({ from, to: end > ctx.today ? ctx.today : end, label: `${d.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' })} ${d.getUTCFullYear()}` })
+    }
+    const values: number[] = []
+    for (const p of list) values.push((await figureFor(ctx, figure, whoKind, person, p)) ?? 0)
+    ctx.say(`Added up ${list.length} months`)
+    const total = values.reduce((t, v) => t + v, 0)
+    return tell([
+      `**${fmt(total)}** ${word}${person ? ` by ${full(person)}` : ''} ${/\b(this year|ngayong taon)\b/i.test(ctx.text) ? 'so far this year' : `over the last ${list.length} months`}.`,
+      ...list.map((p, i) => `- ${p.label}: ${fmt(values[i])}${i > 0 ? ` | ${change(values[i - 1], values[i])} vs ${list[i - 1].label.split(' ')[0]}` : ''}${partial(p, ctx.today) ? ' · so far' : ''}`),
+    ].join('\n'))
+  }
+
+  // Two periods, older first.
+  if (periods.length < 2) return null
+  const [older, newer] = [...periods].sort((a, b) => a.from.localeCompare(b.from)).slice(0, 2)
+  const [a, b] = [await figureFor(ctx, figure, whoKind, person, older), await figureFor(ctx, figure, whoKind, person, newer)]
+  if (a === null || b === null) return null
+  ctx.say(`Compared ${monthTitle(older)} and ${monthTitle(newer)}`)
+  const soFar = partial(newer, ctx.today)
+  // Interest earned can be read for the days still to come too, as the lender page does with those dates.
+  const wholeMonth = figure === 'earned' && soFar ? await figureFor(ctx, figure, whoKind, person, { from: newer.from, to: toDateInput(new Date(Date.UTC(Number(newer.from.slice(0, 4)), Number(newer.from.slice(5, 7)), 0))), label: 'whole' }) : null
+  const by = person ? ` by ${full(person)}` : whoKind === 'lender' && (figure === 'earned' || figure === 'deposits' || figure === 'withdrawals') ? ' by all lenders' : ''
+  return tell([
+    // A month not over yet is not "less": it is said as so far, beside the whole of the other.
+    soFar
+      ? `**${fmt(b)}** ${word}${by} ${whenText(newer)} so far, against ${fmt(a)} in all of ${monthTitle(older)}.`
+      : a === b ? `The same ${word}${by} ${whenText(newer)} as ${whenText(older)}: **${fmt(a)}**.` : `**${fmt(Math.abs(b - a))} ${b > a ? 'more' : 'less'}** ${word}${by} ${whenText(newer)} than ${whenText(older)}.`,
+    `- ${monthTitle(older)}: ${fmt(a)}`,
+    `- ${monthTitle(newer)}: ${fmt(b)}${soFar ? ` | so far, to ${spellDate(ctx.today)}` : ''}`,
+    `- Change${soFar ? ' so far' : ''}: ${change(a, b)}`,
+    ...(wholeMonth !== null ? [`- ${monthTitle(newer)}, whole month if every loan runs as set: ${fmt(wholeMonth)} | ${change(a, wholeMonth)} vs ${monthTitle(older)}`] : []),
+    `- Dates: ${spellDate(older.from)} to ${spellDate(older.to)}, and ${spellDate(newer.from)} to ${spellDate(newer.to)}`,
+    ...(soFar ? [`${monthTitle(newer)} is not over yet, so this compares part of it with all of ${monthTitle(older)}.`] : []),
+  ].join('\n'))
+}
+
 /**
  * Plain checks on one person, answered from the app's own numbers: "how much
  * does Angel owe", "Rico's loans", "how much does Maria have". Only when the
@@ -1457,7 +1627,7 @@ async function lenderPageAnswer(ctx: Ctx, topic: Exclude<ReturnType<typeof lende
  */
 async function personCheck(ctx: Ctx): Promise<ServerReply | null> {
   // The app's read-only screens, each answered from the same figures as the screen itself.
-  for (const check of [lenderPageCheck, earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
+  for (const check of [compareCheck, lenderPageCheck, earningsCheck, deletedCheck, trackRecordCheck, borrowerPeriodCheck, adminCutCheck, floatingOnCheck, loansDueCheck, moneyHistoryCheck, summaryCheck, anyFigureCheck]) {
     const answer = await check(ctx)
     if (answer) return answer
   }

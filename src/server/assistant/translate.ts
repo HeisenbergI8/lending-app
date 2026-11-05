@@ -41,7 +41,8 @@ lender statement for <lender> <dates> | where is <lender>'s money | who has <len
 how much does <borrower> owe | who owes the most | who is overdue | how much did <borrower> pay <dates> | how much did each borrower pay <dates> | how much did <borrower> borrow <dates> | is <borrower> a good borrower
 how many borrowers are overdue | how many loans were made <dates> | how many loans did <lender> fund <dates> | how many loans did <borrower> take <dates> | which loans are due <dates> | which of <lender>'s loans are due <dates> (also "to be collected", "on <lender>'s account") | who is due next
 <lender>'s deposits <dates> | withdrawals <dates> | what came in <dates> | <lender>'s lent out history | how much did we lend <dates> | how much was collected <dates>
-how much is my cut <dates> | how much will be floating by <date> | what is in recently deleted | any pending requests
+how much is my cut <dates> | compare how much <person> earned <dates> and <dates> | compare <person> and <person> <figure> <dates> | <figure> this month vs last month | <figure> for the last 3 months by month | did we lend more <dates> than <dates>
+ how much will be floating by <date> | what is in recently deleted | any pending requests
 Changes: lend <borrower> <amount> from <lender> for <n> weeks | <borrower> wants to borrow <amount> for <n> weeks | fund <borrower>'s request from <lender> | <borrower> fully paid | <borrower> paid week <n> | undo <borrower>'s payment | deposit <amount> to <lender>'s pot | withdraw <amount> from <lender>'s pot | extend <borrower>'s loan by <n> weeks | add a note to <borrower>'s loan: <text> | rename <person> to <new name> | label <borrower> good / okay / bad | delete <thing> | restore <thing> | set <lender>'s starting capital to <amount> | add borrower <name> | add lender <name>`
 
 function instructions(lenders: string[], borrowers: string[]): string {
