@@ -312,7 +312,8 @@ function borrowerAndLenders(ctx: Ctx, borrowers: Person[], lenders: Person[]): {
   const { before, after } = splitFrom(ctx.text)
   const asBefore = (borrower: Person | ServerReply | null) => ({
     borrower,
-    lenderPart: after || (borrower && !isReply(borrower) ? ctx.text.replace(new RegExp(`\\b${borrower.firstName}\\b`, 'i'), '') : ctx.text),
+    // The borrower's whole name comes out first ("to Aby Yamio"): a last name left behind read as a borrower among the lenders.
+    lenderPart: after || (borrower && !isReply(borrower) ? ctx.text.replace(new RegExp(`\\b${full(borrower)}\\b`, 'i'), ' ').replace(new RegExp(`\\b${borrower.firstName}\\b`, 'i'), ' ') : ctx.text),
   })
   if (!after || mentions(before, borrowers).length > 0) return asBefore(onePerson(ctx, before, borrowers, 'borrower'))
   for (const m of after.matchAll(TO_BORROWER)) {
@@ -338,6 +339,15 @@ async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
   const lenders = await lendersFor(ctx, lenderPart, lenderNames)
   if (isReply(lenders)) return lenders
   const amounts = amountsIn(ctx.text)
+  // "All the remaining floating of John Ross", "lahat ng natitira ni Maria": one lender's whole floating money.
+  if (amounts.length === 0 && lenders.length === 1 && /\b(all|whole|entire|remaining|everything|lahat|natitira|buong|buo)\b/i.test(ctx.text) && /\b(floating|available|remaining|natitira|pot|money|pera|balance|left)\b/i.test(ctx.text)) {
+    const pot = (await listLenders(ctx.userId)).find((l) => l.id === lenders[0].id)
+    if (!pot || pot.position.floating <= 0) return tell(`${pot?.isSelf ? 'Your pot has' : `${lenders[0].firstName} has`} nothing floating to lend right now.`)
+    ctx.say(`All of ${full(pot)}'s floating: ${pesos(pot.position.floating / 100)}`)
+    amounts.push(pot.position.floating / 100)
+  }
+  // The card's own check wants every amount in the Admin's words; "all the floating" is that amount, read from the pot.
+  const said = amountsIn(ctx.text).length === 0 && amounts.length === 1 ? `${ctx.text} (${amounts[0]})` : ctx.text
   const length = lengthSaid(ctx.text, ctx.today)
   if (amounts.length === 0) return tell(`How much is the loan to ${borrower.firstName}? For example "10k".`)
   if (!length) return askLength(ctx)
@@ -357,7 +367,7 @@ async function newLoan(ctx: Ctx): Promise<ServerReply | null> {
   const capital = funders.reduce((s, f) => s + Number(f.amount), 0)
   const start = daySaid(splitDue(ctx.text), ctx.today, 'future') ?? ctx.today
   const rate = rateSaid(ctx.text)
-  return card(ctx, 'create_loan', {
+  return card({ ...ctx, text: said }, 'create_loan', {
     borrowerId: full(borrower),
     capital: String(capital),
     startOn: start,
@@ -1682,8 +1692,8 @@ export async function appLookup(userId: string, question: string): Promise<{ fou
  */
 function oneAtATime(text: string): ServerReply | null {
   const t = clean(text)
-  // "lahat" alone is "all", but "bayad na lahat" is one person paying everything.
-  const allOfThem = /\b(everyone|everybody|all (the )?(loans|borrowers|lenders|of them|payments)|every (loan|borrower|lender))\b/.test(t) || (/\blahat\b/.test(t) && !/\b(bayad|binayaran|binalik|ibinalik|nagbayad)\b/.test(t))
+  // "lahat" alone is "all", but "bayad na lahat" is one person paying everything, and "lahat ng natitira ni Maria" one pot's money.
+  const allOfThem = /\b(everyone|everybody|all (the )?(loans|borrowers|lenders|of them|payments)|every (loan|borrower|lender))\b/.test(t) || (/\blahat\b/.test(t) && !/\b(bayad|binayaran|binalik|ibinalik|nagbayad)\b/.test(t) && !/\blahat ng (natitira|pera|floating|available|laman)\b/.test(t))
   if (allOfThem) {
     return tell('For safety, I change one thing at a time. Tell me which one, for example "Dan fully paid".')
   }

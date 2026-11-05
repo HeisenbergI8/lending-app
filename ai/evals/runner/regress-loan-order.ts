@@ -14,6 +14,9 @@ const ANGEL = 'Angel Dela Cruz', RICO = 'Rico Mendoza', BEA = 'Bea Villanueva', 
 type Card = { b: string; l: string[]; cap: number }
 type Expect = Card | { says: RegExp } | { noCardFor: string[] }
 const CASES: [string, Expect][] = [
+  // the whole of one pot's floating money, no amount said (the card shows it; the floating changes with the data)
+  ['Lend all the remaining floating amount of john ross to rico mendoza for 2 weeks', { says: /Here is the change/ }],
+  ['pahiram lahat ng natitira ni maria kay angel dela cruz 3 weeks', { says: /Here is the change/ }],
   // borrower first (the order that already worked)
   ['lend Rico 5k from Maria for 2 weeks', { b: RICO, l: [MARIA], cap: 5000 }],
   ['Lend Bea 3000 from Jun for 1 week', { b: BEA, l: [JUN], cap: 3000 }],
