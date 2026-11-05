@@ -108,7 +108,7 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'lender_earnings',
-    description: 'What one lender earned between two dates (inclusive), the same figure as their Lender statement on the Reports page (every lender has one; the Admin pot too): loans repaid in that time plus weekly interest collected in it. Use for "this month", "in October", "last week".',
+    description: 'What one lender\'s money earned between two dates (inclusive). earned is the lender page\'s "Interest earned": each loan\'s interest spread over the days it ran, the answer to "how much interest did X earn this month". collectedInTheseDates is the Lender statement\'s figure on the Reports page (loans repaid plus weekly interest collected in those dates), cash that came in, which can include interest built up earlier. Say which one you give.',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string' }, from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } },
@@ -673,14 +673,18 @@ export async function lenderEarnings(userId: string, name: string, from: string,
   if (!fromDay || !toDay) return { error: 'Give both dates as YYYY-MM-DD.' }
   const who = (await lenderDetail(userId, name)) as { found: boolean; id?: string; name?: string }
   if (!who.found || !who.id) return who
-  const report = await lenderReport(userId, who.id, fromDay <= toDay ? { from: fromDay, to: toDay } : { from: toDay, to: fromDay })
-  if (!report) return { found: false, reason: `No lender named "${name}".` }
+  const range = fromDay <= toDay ? { from: fromDay, to: toDay } : { from: toDay, to: fromDay }
+  // Interest earned is the lender page's figure: each loan's interest spread over the days it ran.
+  // What was collected in the same dates (the Lender statement's) is said beside it, never in its place.
+  const [report, page] = await Promise.all([lenderReport(userId, who.id, range), getLender(userId, who.id, range)])
+  if (!report || !page) return { found: false, reason: `No lender named "${name}".` }
   return {
     found: true,
     name: who.name,
     from: day(fromDay),
     to: day(toDay),
-    earned: peso(report.earnedInPeriod),
+    earned: peso(page.rangeInterest),
+    collectedInTheseDates: peso(report.earnedInPeriod),
     ...(report.adminCutInPeriod > 0 ? { includesAdminCut: peso(report.adminCutInPeriod) } : {}),
     loansRepaid: report.repaid.length,
     weeksOfInterestCollected: report.weeksPaid.length,

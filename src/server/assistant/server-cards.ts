@@ -5,6 +5,7 @@ import { BELONGS_TO, countCondition, lenderTopic, type Metric, type Question, re
 import { getLender, listLenderNames, listLenders } from '../lenders/queries.ts'
 import { spellDate } from '../../lib/dates.ts'
 import { toDateInput } from '../../lib/money/weeks.ts'
+import { parseReportRange } from '../../lib/report-range.ts'
 import { type Intent, intentByRules, isQuestion } from '../../lib/command/intents.ts'
 import {
   amountsIn, clean, daySaid, readDate, entryRef, labelSaid, lengthSaid, loanRef, newNameSaid, noteBodySaid, noteRef, pesos, rateSaid,
@@ -993,7 +994,7 @@ async function summaryCheck(ctx: Ctx): Promise<ServerReply | null> {
 
 /** How each figure reads in an answer. "Now" figures are today's, whatever period is asked. */
 const FIGURE: Record<Exclude<Metric, 'count'>, { word: string; now: boolean; one: (name: string) => string }> = {
-  earned: { word: 'earned', now: false, one: (n) => `earned by ${n}` },
+  earned: { word: 'interest earned', now: false, one: (n) => `interest earned by ${n}` },
   floating: { word: 'floating', now: true, one: (n) => `floating in ${n}'s pot` },
   outOnLoan: { word: 'out on loan', now: true, one: (n) => `of ${n}'s money out on loan` },
   interestOwed: { word: 'interest still to come', now: true, one: (n) => `interest still to come for ${n}` },
@@ -1048,7 +1049,8 @@ async function anyFigureCheck(ctx: Ctx): Promise<ServerReply | null> {
       case 'outOnLoan': return l.position.outOnLoan
       case 'interestOwed': return l.position.pending
       case 'startingCapital': return l.startingCapital
-      case 'earned': return range && q.period ? ((await lenderReport(ctx.userId, l.id, range))?.earnedInPeriod ?? 0) : l.position.earned
+      // Over a period, the lender page's "Interest earned" (spread over the days each loan ran); all time, the Lenders list's Earned.
+      case 'earned': return q.period ? ((await getLender(ctx.userId, l.id, parseReportRange(q.period)))?.rangeInterest ?? 0) : l.position.earned
       case 'deposits': return (await lenderReport(ctx.userId, l.id, range!))?.putIn ?? 0
       case 'withdrawals': return (await lenderReport(ctx.userId, l.id, range!))?.tookOut ?? 0
       default: return 0
@@ -1205,18 +1207,18 @@ async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
     return tell([`**${pesos(pot.position.earned / 100)}** earned by ${full(lender)} in all.`, `- Floating now: ${pesos(pot.position.floating / 100)}`, `- Out on loan: ${pesos(pot.position.outOnLoan / 100)}`, 'Ask for a month too, like "this month" or "in October".'].join('\n'))
   }
   const r = (await lenderEarnings(ctx.userId, full(lender), period.from, period.to)) as {
-    found?: boolean; name?: string; earned?: string; includesAdminCut?: string; loansRepaid?: number; weeksOfInterestCollected?: number
+    found?: boolean; name?: string; earned?: string; collectedInTheseDates?: string; includesAdminCut?: string; loansRepaid?: number; weeksOfInterestCollected?: number
   }
   if (!r.found) return null
-  ctx.say(`Added up ${r.name}'s earnings, ${spellDate(period.from)} to ${spellDate(period.to)}`)
-  const when = period.label === 'that time' ? `from ${spellDate(period.from)} to ${spellDate(period.to)}` : /^(this|last|today|yesterday)\b/.test(period.label) ? period.label : `in ${period.label}`
+  ctx.say(`Added up the interest ${r.name}'s money earned, ${spellDate(period.from)} to ${spellDate(period.to)}`)
+  // The big figure is the lender page's Interest earned; what came in over the same dates is beside it, labelled.
   return tell([
-    `**${r.earned}** earned by ${r.name} ${when}.`,
-    // On the Admin's pot most of it is the cut on other lenders' loans, so that comes first and the loans are "own" ones.
-    ...(r.includesAdminCut ? [`- From the Admin's cut: ${r.includesAdminCut}`] : []),
+    `**${r.earned}** interest earned by ${r.name} ${whenText(period)}, as on the lender page.`,
+    `- Collected in these dates: ${r.collectedInTheseDates} | Lender statement, can include interest from before`,
+    ...(r.includesAdminCut ? [`- From the Admin's cut (collected): ${r.includesAdminCut}`] : []),
     `- ${r.includesAdminCut ? 'Own loans repaid' : 'Loans repaid'}: ${r.loansRepaid ?? 0}`,
     ...(r.weeksOfInterestCollected ? [`- Weeks of interest collected: ${r.weeksOfInterestCollected}`] : []),
-    `- Dates: ${spellDate(period.from)} to ${spellDate(period.to)}`,
+    datesRow(period),
   ].join('\n'))
 }
 
@@ -1273,7 +1275,7 @@ async function lenderPageCheck(ctx: Ctx): Promise<ServerReply | null> {
 
 async function lenderPageAnswer(ctx: Ctx, topic: Exclude<ReturnType<typeof lenderTopic>, null | 'list'>, who: Person): Promise<ServerReply | null> {
   const period = periodIn(ctx)
-  const range = period ? { from: new Date(`${period.from}T00:00:00`), to: new Date(`${period.to}T00:00:00`) } : undefined
+  const range = period ? parseReportRange(period) : undefined
   const lender = await getLender(ctx.userId, who.id, range)
   if (!lender) return null
   const name = full(lender)
@@ -1289,15 +1291,17 @@ async function lenderPageAnswer(ctx: Ctx, topic: Exclude<ReturnType<typeof lende
     ctx.say(`Read ${name}'s statement`)
     const when = period ? ` ${whenText(period)}` : ' in all'
     const fundedTotal = report.funded.reduce((s, r) => s + r.principal, 0)
+    // Interest earned as on the lender page (all time: the Lenders list's Earned); what came in beside it.
+    const earned = period ? (await getLender(ctx.userId, lender.id, parseReportRange(period)))?.rangeInterest ?? 0 : p.earned
     return tell([
-      `**${peso(report.earnedInPeriod)}** earned by ${name}${when}. This is the lender statement.`,
+      `**${peso(earned)}** interest earned by ${name}${when}. This is the lender statement.`,
+      ...(period ? [`- Collected in these dates: ${peso(report.earnedInPeriod)}`] : []),
       `- Money put in: ${peso(report.putIn)}`,
       `- Money taken out: ${peso(report.tookOut)}`,
       `- Loans funded: ${peso(fundedTotal)} | ${loansWord(report.funded.length)}`,
       `- Loans repaid: ${report.repaid.length}`,
       ...(report.weeksPaid.length ? [`- Weeks of interest collected: ${report.weeksPaid.length}`] : []),
       ...(lender.isSelf && report.adminCutInPeriod > 0 ? [`- From the Admin's cut: ${peso(report.adminCutInPeriod)}`] : []),
-      ...(period ? [`- Interest earned, spread by day: ${peso(lender.rangeInterest)} | as on the lender page`] : []),
       `- Floating now: ${peso(p.floating)}`,
       `- Out on loan now: ${peso(p.outOnLoan)} | ${loansWord(lender.fundings.length)}`,
       `- Interest still coming: ${peso(p.pending - p.adminCutPending)}`,
