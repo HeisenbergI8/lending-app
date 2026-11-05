@@ -46,6 +46,8 @@ type Person = Named & { isSelf?: boolean }
 type Ctx = { userId: string; text: string; today: string; say: Say; names?: string[] }
 
 const CARD = 'Here is the change. Check it, then tap Confirm.'
+/** The words that say when, taken out of an earlier question before a follow-up's dates are added. */
+const PERIOD_WORDS = /\b(for |in |during |of |nung |noong )?(the )?(this|last|next|previous|ngayong|nakaraang|susunod na) (whole |entire |full )?(week|month|year|linggo|buwan|taon)( alone)?\b|\b(today|yesterday|all time|in all|so far)\b|\b(for |in |nung |noong )?(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)( \d{4})?\b|\bfrom .+ (to|until) .+$/gi
 
 /**
  * The period in the question, with people's names hidden first: "ni Jun" is the lender Jun, not June,
@@ -796,6 +798,7 @@ function whenText(period: { from: string; to: string; label: string }): string {
   if (period.label === 'that time') return `from ${spellDate(period.from)} to ${spellDate(period.to)}`
   return /^(this|last|next|today|yesterday)\b/.test(period.label) ? period.label : `in ${period.label}`
 }
+const addDay = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
 const datesRow = (period: { from: string; to: string }) => `- Dates: ${spellDate(period.from)} to ${spellDate(period.to)}`
 /** Whether the text names anyone at all: a figure for "everyone" must not be given for one person's question. */
 async function namesSomeone(ctx: Ctx): Promise<boolean> {
@@ -1066,7 +1069,7 @@ async function anyFigureCheck(ctx: Ctx): Promise<ServerReply | null> {
     }
   }
   const when = period && period.label !== 'all time' ? ` ${whenText(period)}` : period ? ' in all' : ''
-  const tail = [...(period && period.label !== 'all time' ? [datesRow(period)] : []), ...(figure.now && q.period ? ['These are as of today.'] : [])]
+  const tail = [...(period && period.label !== 'all time' ? [datesRow(period)] : []), ...(period && period.to > ctx.today && q.metric === 'earned' ? [`Includes the days still to come, to ${spellDate(period.to)}, if every loan runs as set.`] : []), ...(figure.now && q.period ? ['These are as of today.'] : [])]
 
   // One named person, or the Admin's own pot.
   const people: Person[] = kind === 'lender' ? lenders.filter((l) => !l.isSelf) : borrowers
@@ -1194,7 +1197,7 @@ async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
   const lenders = await listLenderNames(ctx.userId)
   const self = lenders.find((l) => l.isSelf)
   // "the admin", "my pot", "I": the Admin's own pot.
-  const mine = self && (ADMIN_WORDS.test(ctx.text) || /\b(did i|have i|i earned|my earnings)\b/i.test(ctx.text))
+  const mine = self && (ADMIN_WORDS.test(ctx.text) || /\b(did i|have i|will i|do i|would i|i earned|i will|my earnings|my interest)\b/i.test(ctx.text))
   const groups = mine ? [[self]] : mentions(ctx.text, lenders)
   if (groups.length !== 1) return null
   if (groups[0].length > 1) return whichPerson(ctx.text, groups[0], 'lender')
@@ -1212,9 +1215,14 @@ async function earningsCheck(ctx: Ctx): Promise<ServerReply | null> {
   if (!r.found) return null
   ctx.say(`Added up the interest ${r.name}'s money earned, ${spellDate(period.from)} to ${spellDate(period.to)}`)
   // The big figure is the lender page's Interest earned; what came in over the same dates is beside it, labelled.
+  // Dates running past today ("this whole month", "potential earnings"): what the money will have earned if every loan runs as set.
+  const ahead = period.to > ctx.today
   return tell([
-    `**${r.earned}** interest earned by ${r.name} ${whenText(period)}, as on the lender page.`,
-    `- Collected in these dates: ${r.collectedInTheseDates} | Lender statement, can include interest from before`,
+    ahead
+      ? `**${r.earned}** interest ${r.name}'s money will earn ${whenText(period)}, if every loan runs as set. Same as the lender page with these dates.`
+      : `**${r.earned}** interest earned by ${r.name} ${whenText(period)}, as on the lender page.`,
+    ...(ahead ? [`- Earned so far: ${(await lenderEarnings(ctx.userId, full(lender), period.from, ctx.today) as { earned?: string }).earned ?? '₱0.00'} | to ${spellDate(ctx.today)}`, `- Still to come: ${spellDate(addDay(ctx.today))} to ${spellDate(period.to)}`] : []),
+    `- Collected ${ahead ? 'so far' : 'in these dates'}: ${r.collectedInTheseDates} | Lender statement, can include interest from before`,
     ...(r.includesAdminCut ? [`- From the Admin's cut (collected): ${r.includesAdminCut}`] : []),
     `- ${r.includesAdminCut ? 'Own loans repaid' : 'Loans repaid'}: ${r.loansRepaid ?? 0}`,
     ...(r.weeksOfInterestCollected ? [`- Weeks of interest collected: ${r.weeksOfInterestCollected}`] : []),
@@ -1472,6 +1480,16 @@ export async function serverReply(userId: string, history: { role: 'user' | 'ass
   const [borrowerNames, lenderNames] = await Promise.all([listBorrowerNames(userId), listLenderNames(userId)])
   const names = [...borrowerNames, ...lenderNames].flatMap((p) => wordsOf(full(p))).filter((w) => w.length > 1)
   const ctx: Ctx = { userId, text: latest, today: manilaToday(), say, names }
+  // A short follow-up that only gives the dates ("November", "last month", "this whole month") to the server's own
+  // answer: the earlier question again with these dates, so a one-word reply never needs the AI.
+  const n = history.length
+  const [prevUser, prevBot] = [history[n - 3], history[n - 2]]
+  if (latest.trim().split(/\s+/).length <= 4 && periodSaid(latest, ctx.today) && prevBot?.role === 'assistant' && !/\?\s*$|:\s*$|Confirm/.test(prevBot.text) && prevUser?.role === 'user' && amountsIn(prevUser.text).length === 0) {
+    // A month word that is someone's name ("Jun") stays: it says who, not when.
+    const before = prevUser.text.replace(PERIOD_WORDS, (w) => (names.includes(w.trim().toLowerCase().split(' ').at(-1) ?? '') ? w : ' ')).replace(/\s+/g, ' ').trim()
+    const again = await personCheck({ ...ctx, text: `${before} ${latest.trim()}` })
+    if (again) return again
+  }
   if (isQuestion(latest)) return personCheck(ctx)
 
   // A look at a lender's page said without a question ("Maria's starting capital history", "loans Jun funded that were

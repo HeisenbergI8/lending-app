@@ -157,3 +157,19 @@ describe('reading questions about the screens', () => {
     assert.equal(intentByRules("fix Maria's money entry to 6k"), 'update_money')
   })
 })
+
+describe('periodSaid: the whole month, days still to come included', () => {
+  const T = '2026-11-05'
+  const whole = { from: '2026-11-01', to: '2026-11-30', label: 'this whole month' }
+  for (const text of [
+    'How much did john ross potential earnings from interest for this whole month',
+    'interest earned for the entire month',
+    'how much will Maria earn this month',
+    'expected interest this month',
+    'kita ni Maria buong buwan',
+  ]) test(text, () => assert.deepEqual(periodSaid(text, T), whole))
+  test('this month alone stays to today', () => assert.deepEqual(periodSaid('how much did Maria earn this month', T), { from: '2026-11-01', to: T, label: 'this month' }))
+  test('last month is untouched by "will"', () => assert.equal(periodSaid('what will last month look like', T)?.label, 'October 2026'))
+  test('the whole of November', () => assert.deepEqual(periodSaid('interest in the whole of November', T), { from: '2026-11-01', to: '2026-11-30', label: 'November 2026' }))
+  test('November alone stays to today', () => assert.equal(periodSaid('interest in November', T)?.to, T))
+})

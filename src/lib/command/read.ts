@@ -243,6 +243,14 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
     const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1]
     return { from: `${ny}-${pad(nm)}-01`, to: monthEnd(ny, nm), label: `${monthName(nm)} ${ny}` }
   }
+  // "This whole month", "the entire month", "buong buwan", or what WILL be earned this month: the 1st to the last day,
+  // days still to come included (the lender page shows the same when its dates are set that way).
+  const whole = /\b(whole|entire|full|buong|buo)\b/.test(t)
+  const ahead = /\b(potential|projected|projection|expected|expect|forecast|estimated?|will|would|going to|gonna|should|by the end|end of (the )?month|until the end)\b/.test(t)
+  if ((whole || ahead) && /\b(month|buwan)\b/.test(t) && !/\b(last|previous|nakaraang|next|susunod)\b/.test(t) && !new RegExp(`\\b${MONTH}\\b`).test(t)) {
+    return { from: `${today.slice(0, 7)}-01`, to: monthEnd(y, m), label: 'this whole month' }
+  }
+  if ((whole || ahead) && /\b(this year|ngayong taon|the year)\b/.test(t)) return { from: `${y}-01-01`, to: `${y}-12-31`, label: `the whole of ${y}` }
   if (/\b(this month|ngayong buwan|so far this month|month alone|the month)\b/.test(t)) return { from: `${today.slice(0, 7)}-01`, to: today, label: 'this month' }
   if (/\b(last month|nakaraang buwan|previous month)\b/.test(t)) {
     const [py, pm] = m === 1 ? [y - 1, 12] : [y, m - 1]
@@ -257,7 +265,9 @@ export function periodSaid(text: string, today: Day): { from: Day; to: Day; labe
   if (named && mayIsMonth(named)) {
     const month = MONTHS.indexOf(named[1].slice(0, 3)) + 1
     const year = named[2] ? Number(named[2]) : month > m ? y - 1 : y
-    return { from: `${year}-${pad(month)}-01`, to: cap(monthEnd(year, month)), label: `${monthName(month)} ${year}` }
+    // "The whole of November", "potential earnings in November": every day of it, days still to come included.
+    const uncapped = /\b(whole|entire|full|buong|buo|potential|projected|expected|forecast|will|going to)\b/.test(t)
+    return { from: `${year}-${pad(month)}-01`, to: uncapped ? monthEnd(year, month) : cap(monthEnd(year, month)), label: `${monthName(month)} ${year}` }
   }
   return null
 }
