@@ -38,10 +38,19 @@ export function LiveSearch() {
     }
 
     const onInput = (event: Event) => {
+      // Mid-composition (a phone's predictive keyboard, an IME), the text is not
+      // what the Admin means yet; the input that ends composition comes next.
+      if ((event as InputEvent).isComposing) return
       clearTimeout(timer)
-      // A date is a finished choice the moment it is picked; text is not.
-      const typed = event.target instanceof HTMLInputElement && event.target.type !== 'date'
-      timer = typed ? setTimeout(apply, TYPING_PAUSE_MS) : setTimeout(apply, 0)
+      const field = event.target instanceof HTMLInputElement ? event.target : null
+      if (field?.type === 'date') {
+        // A date picked from the calendar is finished at once. One typed by hand
+        // reports every keystroke of the year ("0002"), so only a cleared box or
+        // a four-digit year from 1900 on is acted on.
+        if (field.value === '' || Number(field.value.slice(0, 4)) >= 1900) timer = setTimeout(apply, 0)
+        return
+      }
+      timer = setTimeout(apply, TYPING_PAUSE_MS)
     }
     const onSubmit = (event: Event) => {
       event.preventDefault()
