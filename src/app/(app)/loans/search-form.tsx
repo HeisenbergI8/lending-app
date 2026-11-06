@@ -3,18 +3,19 @@ import { Search, X } from 'lucide-react'
 
 import { type LoanFilter, type LoanStatusFilter, isFiltered, loanFilterHref } from '@/lib/loan-filter.ts'
 import { toDateInput } from '@/lib/money/weeks.ts'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+
+import { LiveSearch } from './live-search.tsx'
 
 /**
  * Finding a loan.
  *
  * A plain GET form, not a server action and not a client component: the browser
  * turns the fields into the query string by itself, so the search works with no
- * JavaScript, the result is a link you can keep, and this file stays out of the
- * browser bundle entirely.
+ * JavaScript and the result is a link you can keep. LiveSearch, the one small
+ * client piece inside it, makes it apply itself as the Admin types.
  *
  * The status chips are links rather than radio buttons for the same reason —
  * one tap, no submit, and tapping the chip that is already on clears it.
@@ -81,9 +82,14 @@ export function LoanSearch({ filter }: { filter: LoanFilter }) {
           </div>
         </div>
 
-        <Button type="submit" variant="secondary" className="sm:w-auto">
+        {/* NO SEARCH BUTTON TO PRESS: LiveSearch applies the form as the
+            Admin types or picks a date. The button stays, out of sight, so
+            Enter still submits — and so the form still works without
+            JavaScript, which is why this file is not a client component. */}
+        <LiveSearch />
+        <button type="submit" className="sr-only">
           Search
-        </Button>
+        </button>
       </form>
 
       <div className="border-border/70 flex flex-wrap items-center gap-2 border-t pt-3">
