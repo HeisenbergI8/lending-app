@@ -476,3 +476,38 @@ export function lateInView(sim: Simulation, view: View): Centavos {
 
 /** Used only when amounts were late but none of the late ones has been paid yet. Flagged in the plan. */
 export const FALLBACK_LATE_DAYS = 30
+
+/** The time frames offered: months, the current one counting as the first. */
+export const RANGES = [3, 6, 12, 24] as const
+export const DEFAULT_RANGE = 12
+
+export function rangeLabel(months: number): string {
+  return months === 12 ? '1 year' : months === 24 ? '2 years' : `${months} months`
+}
+
+/**
+ * The automatic plan as the engine's Plan: carry on lending the way the history
+ * shows (forecast-history.ts autoPlan), at the usual rate, cut and collection.
+ *
+ * RE-LENDING IS OFF, and on purpose: the "loans a month" it copies were already
+ * paid for partly with money that came back, so re-lending on top would count
+ * that money twice. The Admin can turn it on by customizing.
+ */
+export function automaticPlan(
+  auto: { newLoansPerMonth: number; loanAmount: Centavos; termWeeks: number },
+  defaults: { borrowerRateBps: BasisPoints; adminCutBps: BasisPoints; collection: InterestCollection },
+  horizonMonths: number,
+): Plan {
+  const weeklyOk = defaults.collection !== 'WEEKLY' || auto.termWeeks >= MIN_WEEKLY_WEEKS
+  return {
+    horizonMonths,
+    newLoansPerMonth: auto.newLoansPerMonth,
+    loanAmount: auto.loanAmount,
+    termWeeks: auto.termWeeks,
+    borrowerRateBps: defaults.borrowerRateBps,
+    adminCutBps: defaults.adminCutBps,
+    collection: weeklyOk ? defaults.collection : 'AT_END',
+    relend: false,
+    moves: [],
+  }
+}

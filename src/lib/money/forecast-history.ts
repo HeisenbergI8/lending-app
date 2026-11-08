@@ -309,3 +309,53 @@ export function relendHabits(
   }
   return habits
 }
+
+// ---------------------------------------------------------------- the automatic plan
+
+export type HabitLoan = {
+  startOn: Date
+  capital: Centavos
+  termDays: number
+  /** A continuation loan (made by an "interest paid now" extension) moved no new capital. */
+  continuation: boolean
+}
+
+export type AutoPlan = {
+  newLoansPerMonth: number
+  loanAmount: Centavos
+  termWeeks: number
+  /** New loans started in the window — printed beside the plan ("from 8 loans since 1 May"). */
+  basedOn: number
+}
+
+/** Rounded to the nearest ₱1,000, so the plan reads as a figure a person would choose. */
+const ROUND_TO = 100_000
+
+/**
+ * THE PLAN NOBODY HAS TO TYPE (owner, 2026-11-08): "carry on lending the way
+ * you have been". From the new loans started in the history window:
+ *
+ *   loans a month   their count over HISTORY_MONTHS, rounded; at least 1 when
+ *                   there were any, so a light lender is not projected as none
+ *   amount          their average capital, to the nearest ₱1,000 (at least ₱1,000)
+ *   length          the most common whole-week term; 4 weeks when none is whole
+ *
+ * Continuation loans are left out: they are the same money carried on, not new
+ * lending. With no new loans in the window the plan makes none, and the page
+ * projects the running loans alone.
+ */
+export function autoPlan(loans: readonly HabitLoan[], today: Date): AutoPlan {
+  const from = historyWindowStart(today)
+  const recent = loans
+    .filter((l) => !l.continuation && daysBetween(from, l.startOn) >= 0 && daysBetween(l.startOn, today) >= 0)
+    .sort((a, b) => b.startOn.getTime() - a.startOn.getTime())
+  if (recent.length === 0) return { newLoansPerMonth: 0, loanAmount: centavos(0), termWeeks: 4, basedOn: 0 }
+  const average = recent.reduce((s, l) => s + l.capital, 0) / recent.length
+  const weeks = mostCommon(recent.filter((l) => l.termDays % DAYS_PER_WEEK === 0).map((l) => l.termDays / DAYS_PER_WEEK))
+  return {
+    newLoansPerMonth: Math.max(1, Math.round(recent.length / HISTORY_MONTHS)),
+    loanAmount: centavos(Math.max(ROUND_TO, Math.round(average / ROUND_TO) * ROUND_TO)),
+    termWeeks: weeks ?? 4,
+    basedOn: recent.length,
+  }
+}

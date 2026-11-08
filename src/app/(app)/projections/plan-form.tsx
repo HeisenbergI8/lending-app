@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native.tsx'
 import { NO_ERROR } from '@/lib/form-state.ts'
-import { MAX_HORIZON_MONTHS, MAX_LOANS_PER_MONTH } from '@/lib/money/forecast.ts'
+import { MAX_LOANS_PER_MONTH } from '@/lib/money/forecast.ts'
 import { type KeptState, addMove, createPlan, deletePlan, removeMove, updatePlan } from '@/server/projections/actions.ts'
 
 export type PlanDefaults = {
@@ -74,10 +74,9 @@ export function PlanForm({ planId, values, defaultsNote }: { planId: string | nu
         </Field>
       </Group>
 
-      <Group title="How far ahead">
-        <Field label="Months to show" hint={`1 to ${MAX_HORIZON_MONTHS}.`}>
-          <Input id="horizonMonths" name="horizonMonths" type="number" inputMode="numeric" min={1} max={MAX_HORIZON_MONTHS} defaultValue={kept('horizonMonths', values.horizonMonths)} />
-        </Field>
+      {/* The time frame is picked on the page, not stored per plan any more; the column keeps its value. */}
+      <input type="hidden" name="horizonMonths" value={kept('horizonMonths', values.horizonMonths)} />
+      <Group title="Re-lending">
         <label className="bg-muted/50 flex items-start gap-3 rounded-xl p-3 text-sm">
           <input type="checkbox" name="relend" defaultChecked={state.fields ? state.fields.relend === 'on' : values.relend} className="mt-0.5 size-4 shrink-0" />
           <span>

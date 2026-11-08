@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { centavos } from '../../src/lib/money/centavos.ts'
 import {
   type HistoryLoan,
+  autoPlan,
   capitalShares,
   dueRecords,
   historyDefaults,
@@ -121,4 +122,18 @@ test('relendHabits: thin history falls back to the labelled default; never re-le
   const r = (m: number) => ({ lenderId: 'a', on: day(2026, m, 10), amount: centavos(100_000) })
   assert.equal(relendHabits([r(6)], [], today, ['a']).get('a')?.basis, 'default')
   assert.equal(relendHabits([r(6), r(8)], [], today, ['a']).get('a')?.shareBps, 0)
+})
+
+test('autoPlan: carries on the last 6 months of new lending, ignoring continuations and older loans', () => {
+  const l = (m: number, pesos: number, weeks = 4, continuation = false) => ({
+    startOn: day(2026, m, 5), capital: centavos(pesos * 100), termDays: weeks * 7, continuation,
+  })
+  const plan = autoPlan(
+    [l(5, 10_000), l(6, 12_000), l(7, 9_000, 8), l(8, 11_000), l(9, 10_400), l(10, 10_000), l(10, 15_000, 4, true), l(3, 99_000)],
+    today,
+  )
+  // 6 new loans in the window: 1 a month, average ₱10,400 -> ₱10,000, mostly 4 weeks
+  assert.deepEqual(plan, { newLoansPerMonth: 1, loanAmount: 1_000_000, termWeeks: 4, basedOn: 6 })
+  assert.equal(autoPlan([l(9, 5_000)], today).newLoansPerMonth, 1) // a light lender is not "none"
+  assert.equal(autoPlan([], today).newLoansPerMonth, 0)
 })

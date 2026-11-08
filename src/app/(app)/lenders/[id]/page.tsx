@@ -18,6 +18,7 @@ import { type Projection } from '@/lib/money/projection.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { HISTORY_FILTERS, type HistoryFilterKey, filterHistory, parseHistoryFilter } from '@/lib/money/history-filter.ts'
 import { cn } from '@/lib/utils'
+import { DEFAULT_RANGE } from '@/lib/money/forecast.ts'
 import {
   type ReportRange,
   describeRange,
@@ -36,6 +37,7 @@ import { EditTransaction, TransactionForm } from './transaction-form.tsx'
 import { ChangeCapitalForm } from './capital-history.tsx'
 import { HoldNoteRow } from './hold-note.tsx'
 import { WhereTheMoneyIs } from './where-the-money-is.tsx'
+import { LenderProjection } from './lender-projection.tsx'
 
 /** First value only. A query string can carry a key twice; a date box cannot. */
 const one = (value: string | string[] | undefined): string =>
@@ -528,6 +530,24 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
               ]
             : []),
         ]}
+      />
+
+      {/* PROJECTED INTEREST: automatic, nothing to set up (owner, 2026-11-08).
+          `proj` is the time frame in months; only 3, 6 and 12 are offered here. */}
+      <LenderProjection
+        userId={user.id}
+        lenderId={lender.id}
+        lenderName={lender.isSelf ? 'Admin' : `${lender.firstName} ${lender.lastName}`}
+        range={[3, 6, 12].includes(Number(one(query.proj))) ? Number(one(query.proj)) : DEFAULT_RANGE}
+        rangeHref={(months) => {
+          const next = new URLSearchParams()
+          for (const [name, value] of Object.entries(query)) {
+            const first = one(value)
+            if (first && name !== 'proj') next.set(name, first)
+          }
+          next.set('proj', String(months))
+          return `/lenders/${lender.id}?${next.toString()}#projection`
+        }}
       />
 
       {/* WHERE THE CUT COMES FROM. Cut coming above, and Earned, carry money that belongs

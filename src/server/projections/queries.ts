@@ -1,6 +1,7 @@
 import { type BasisPoints, type Centavos, centavos } from '../../lib/money/centavos.ts'
 import {
   type DueRecord,
+  autoPlan,
   capitalShares,
   dueRecords,
   historyDefaults,
@@ -37,6 +38,8 @@ export type ProjectionContext = {
   lateDelayDays: number | null
   defaults: ReturnType<typeof historyDefaults>
   habits: ReturnType<typeof relendHabits>
+  /** "Carry on lending the way you have been": the plan the page uses until the Admin customizes one. */
+  auto: ReturnType<typeof autoPlan>
 }
 
 export async function projectionContext(
@@ -79,6 +82,7 @@ export async function projectionContext(
         startOn: true,
         dueOn: true,
         termDays: true,
+        capitalCentavos: true,
         interestBasis: true,
         interestCollection: true,
         borrowerRateBps: true,
@@ -178,6 +182,15 @@ export async function projectionContext(
       adminCutBps: DEFAULT_ADMIN_CUT_BPS as BasisPoints,
     }),
     habits: relendHabits(returns, lends, today, lenders.map((l) => l.id)),
+    auto: autoPlan(
+      history.map((loan) => ({
+        startOn: storedCalendarDate(loan.startOn),
+        capital: centavos(loan.capitalCentavos),
+        termDays: loan.termDays,
+        continuation: loan.continuedFrom.length > 0,
+      })),
+      today,
+    ),
   }
 }
 
