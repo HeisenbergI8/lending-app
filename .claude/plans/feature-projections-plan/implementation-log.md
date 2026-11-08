@@ -39,3 +39,18 @@
 **Deviations from plan:** none — verbatim. (`projectionContext` takes no pre-loaded lenders yet; Phase 7 adds that.)
 **Gate:** `npm run verify` green (lint: 3 pre-existing warnings in theme.ts / auth/actions.ts, not touched).
 **Notes:** reads are exercised end to end by the tester in Phase 6/7 against the local demo database.
+
+## Phase 6: The Projections page — 2026-11-08
+
+**Steps completed:** 6.1, 6.2, 6.3, 6.4 (+ `loading.tsx`, as the plan's issues asked)
+**Files changed:** `src/components/shell/nav-items.ts`, `src/lib/loan-export.ts` (exported `rate`), `src/app/(app)/projections/{page,plan-form,projection-chart,loading}.tsx` (new)
+**Deviations from plan:**
+- Percent formatting reuses `rate` from `src/lib/loan-export.ts` (now exported) instead of a local `pct`, as the plan's issues asked.
+- Added a "+ New plan" link (`?plan=new`). Without it, once one plan existed the form only ever edited it, so a second plan could not be created and "compare" was unreachable.
+- Current-month tile reads "Estimated interest from today to the end of {month}" when the selected month is this month: the engine counts only arrivals from today, so "in November" would overstate what it covers (label-truth).
+- Chart: added first/middle/last month labels on the axis and capped its height; view links styled as pills with the selected one filled (the plan left them unstyled, so the current view was not visible).
+- Planned moves list says which month(s) they apply to.
+- `href` helper's ternary-as-statement rewritten as if/else (lint).
+- The `dataviz` skill was not loaded; the chart follows the existing hand-drawn SVG pattern and the plan's colour rules (`--series-N` only).
+**Gate:** `npm run verify` green (941 pass). Browser check as the DEMO user against the local database: page renders, plan created, monthly deposit added, month pick and target work, no page errors.
+**Notes:** "Pot size (cash + capital out)" is deliberately NOT the lender page's "Pot total" (floating + out on loan + interest pending); the different words keep them apart.
