@@ -1,6 +1,6 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
 import { type HistoryRow, type RunningRow, type SimpleInput, historyWindowStart } from '../../lib/money/simple-forecast.ts'
-import { calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
+import { calendarDate, firstOfMonth, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
 import { listLenders } from '../lenders/queries.ts'
 
@@ -115,7 +115,11 @@ export async function projectionContext(
         adminCut: centavos(f.adminCutCentavos),
       })),
     ),
-    newLoans: started.length,
+    // The average uses full months (this month's loans are already running), so count those —
+    // unless the book began this month, when this month is all there is.
+    newLoans: started.some((l) => storedCalendarDate(l.startOn) < firstOfMonth(today))
+      ? started.filter((l) => storedCalendarDate(l.startOn) < firstOfMonth(today)).length
+      : started.length,
     firstLoanOn: first ? storedCalendarDate(first.startOn) : null,
   }
 }

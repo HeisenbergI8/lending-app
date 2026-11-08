@@ -7,6 +7,7 @@ import { Money } from '@/components/money.tsx'
 import { type Centavos, centavos, parsePesos } from '@/lib/money/centavos.ts'
 import { rate as pct } from '@/lib/loan-export.ts'
 import { DEFAULT_RANGE, HISTORY_MONTHS, PACES, type Pace, RANGES, type Whose, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
+import { firstOfMonth } from '@/lib/money/weeks.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { projectionContext, simpleInput } from '@/server/projections/queries.ts'
 
@@ -91,7 +92,9 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         </p>
         {f.historyMonths < HISTORY_MONTHS ? (
           <p className="bg-chip-amber/10 text-foreground mt-3 rounded-xl px-3 py-2 text-sm">
-            Based on only {f.historyMonths} {f.historyMonths === 1 ? 'month' : 'months'} of loans so far. It gets more accurate each month, up to {HISTORY_MONTHS}.
+            {f.historyMonths === 0
+              ? 'Based on this month’s loans only, so far. It gets more accurate each month'
+              : `Based on only ${f.historyMonths} full ${f.historyMonths === 1 ? 'month' : 'months'} of loans so far. It gets more accurate each month`}, up to {HISTORY_MONTHS}.
           </p>
         ) : null}
       </header>
@@ -241,7 +244,12 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <h2 id="how-title" className="text-base font-semibold">How we got this</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <HowCard icon={History} tint="indigo" title="Your past lending">
-            {f.basedOnLoans} loans since {f.historyFrom.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })} earned {who} about <Money amount={f.usual} variant="display" /> a month.
+            {f.historyMonths === 0
+              ? `${f.basedOnLoans} loans this month so far earned ${who} about `
+              : f.historyMonths === 1
+                ? `${f.basedOnLoans} loans in ${f.historyFrom.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })} earned ${who} about `
+                : `${f.basedOnLoans} loans from ${f.historyFrom.toLocaleDateString('en-PH', { month: 'long' })} to ${firstOfMonth(ctx.today, -1).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })} earned ${who} about `}
+            <Money amount={f.usual} variant="display" /> a month.
           </HowCard>
           <HowCard icon={TrendingUp} tint="mint" title="Interest earns interest">
             Interest you leave in gets lent out again from the next month.
@@ -250,9 +258,9 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             A month never goes above your busiest month so far. More money doesn’t bring more borrowers by itself.
           </HowCard>
           <HowCard icon={Gauge} tint="violet" title="Slow or busy">
-            {f.basedOnLoans > 0
+            {f.basedOnLoans > 0 && f.historyMonths > 0
               ? `Slow is like your slowest month (${Math.round(slow.paceFactor * 100)}% of usual). Busy is like your busiest (${Math.round(busy.paceFactor * 100)}%).`
-              : 'Shows once you have some loans recorded.'}
+              : 'Shows once you have a full month of loans recorded.'}
           </HowCard>
         </div>
         <details className="group bg-card ring-border/70 rounded-2xl px-4 py-1 ring-1">
@@ -263,7 +271,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <ul className="text-muted-foreground list-disc space-y-1.5 pb-3 pl-4 text-sm">
             <li>A lender sees only their own earnings. The Admin also gets the cut, which grows with the other lenders’ money.</li>
             <li>“Running loans” in the table means that month comes from loans already out.</li>
-            <li>Money you add starts earning the month after.</li>
+            <li>Money you add starts earning the month after. On the whole pot it is shared across lenders by the size of their pots.</li>
+            <li>A month never shows less than your running loans will pay in it. A month when a big loan falls due can read high, because its whole interest counts that day.</li>
+            <li>The return uses the money there is today, so a big recent deposit or withdrawal can make it read low or high.</li>
+            {pace === 'usual' ? <li>Money past your busiest month is shown above as having no borrower.</li> : null}
+            <li>The pot is today’s cash plus money out on loan, plus interest, plus or minus money in and out. It never goes below zero.</li>
             <li>This month counts from today only, so it reads a little low.</li>
             {f.capped ? <li>One lender has very little money left, so their return was held to about 30% a month.</li> : null}
             {f.overdue > 0 ? <li>Not counted: <Money amount={f.overdue} variant="display" /> already overdue.</li> : null}

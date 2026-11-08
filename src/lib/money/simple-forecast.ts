@@ -10,8 +10,9 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  *   known    what the loans running today will pay in that month (their stored
  *            earnings and cut, on their due dates — scheduleArrivals), and
  *   usual    the interest a month that new lending has earned over the last
- *            HISTORY_MONTHS months: loans started in the window, their stored
- *            earnings and cut, divided by the months.
+ *            HISTORY_MONTHS FULL months: loans started in them, their stored
+ *            earnings and cut, divided by the months. (This month's loans
+ *            are already in `known`.)
  * A NEW BOOK (owner, 2026-11-08): when the first loan ever recorded is inside
  * the window, the months before it are not months of no lending, just months
  * before the app was used. The average then runs from the first loan's month
@@ -126,7 +127,7 @@ export type SimpleForecast = {
   monthlyReturnBps: number | null
   /** True when some lender's return was held to MAX_MONTHLY_RETURN. */
   capped: boolean
-  /** Where the average starts (the window's start, or the first loan's month if later) and how many months it divides by. */
+  /** Where the average starts (the window's start, or the first loan's month if later) and how many FULL months it divides by (0: this month only). */
   historyFrom: Date
   historyMonths: number
   /** The pace used, and its factor on the usual return (1 for usual). */
@@ -191,14 +192,17 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   const from = historyWindowStart(today)
   const usualOwn = new Map(ids.map((id) => [id, 0]))
   const usualCut = new Map(ids.map((id) => [id, 0]))
+  const nowOwn = new Map(ids.map((id) => [id, 0])) // loans started this month, so far
+  const nowCut = new Map(ids.map((id) => [id, 0]))
   const byMonth = new Map<string, { own: number; cut: number }>() // `${lenderId} ${monthIndex}`
   const potMonths = Array.from({ length: HISTORY_MONTHS }, () => 0) // full months only, oldest first
   let potThisMonth = 0 // the current month so far: in the ceiling, not in the pace
   for (const r of input.history) {
     if (daysBetween(from, r.startOn) < 0 || daysBetween(r.startOn, today) < 0) continue
-    usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + r.earnings)
-    usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut)
     const m = index(r.startOn)
+    const [o, c] = m < 0 ? [usualOwn, usualCut] : [nowOwn, nowCut]
+    o.set(r.lenderId, (o.get(r.lenderId) ?? 0) + r.earnings)
+    c.set(r.lenderId, (c.get(r.lenderId) ?? 0) + r.adminCut)
     const key = `${r.lenderId} ${m}`
     const b = byMonth.get(key) ?? { own: 0, cut: 0 }
     byMonth.set(key, { own: b.own + r.earnings, cut: b.cut + r.adminCut })
@@ -209,10 +213,13 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   const firstLoan =
     input.firstLoanOn ?? input.history.reduce<Date | null>((a, r) => (a === null || daysBetween(r.startOn, a) > 0 ? r.startOn : a), null)
   const startIdx = firstLoan === null ? -HISTORY_MONTHS : Math.min(0, Math.max(-HISTORY_MONTHS, index(firstLoan)))
-  const historyMonths = Math.max(1, -startIdx)
+  // FULL months only: this month is not over, and its loans are already in `known`.
+  // A book whose first loan is this month has no full month yet, so it uses this one.
+  const historyMonths = startIdx === 0 ? 0 : -startIdx
   for (const id of ids) {
-    usualOwn.set(id, (usualOwn.get(id) as number) / historyMonths)
-    usualCut.set(id, (usualCut.get(id) as number) / historyMonths)
+    const [o, c] = historyMonths > 0 ? [usualOwn.get(id) as number, usualCut.get(id) as number] : [nowOwn.get(id) as number, nowCut.get(id) as number]
+    usualOwn.set(id, o / Math.max(1, historyMonths))
+    usualCut.set(id, c / Math.max(1, historyMonths))
   }
   const ceilOwn = new Map(ids.map((id) => [id, 0]))
   const ceilCut = new Map(ids.map((id) => [id, 0]))

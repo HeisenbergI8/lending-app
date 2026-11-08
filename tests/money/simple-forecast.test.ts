@@ -159,3 +159,12 @@ test('a book started inside the window averages from its first loan, not over th
   assert.equal(old.historyMonths, 6)
   assert.equal(old.usual, 300_000)
 })
+
+test('this month’s new loans are not in the average (they are already running); a book that began this month uses them', () => {
+  const now = { lenderId: 'john', startOn: day(2026, 11, 2), earnings: centavos(9_000_000), adminCut: centavos(0) }
+  const f = simpleForecast(input({ history: [...history, now] }), { kind: 'lender', lenderId: 'john' }, 7)
+  assert.equal(f.usual, 600_000)
+  const fresh = simpleForecast(input({ history: [now], firstLoanOn: now.startOn }), { kind: 'lender', lenderId: 'john' }, 1)
+  assert.equal(fresh.historyMonths, 0)
+  assert.equal(fresh.usual, 9_000_000)
+})
