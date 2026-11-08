@@ -6,6 +6,7 @@ import { type RowArrival, type ScheduledRow, scheduleArrivals } from './projecti
 import { splitByWeight, splitLoan } from './split.ts'
 import { DAYS_PER_WEEK, addDays, daysBetween, dueDateAfterWeeks, firstOfMonth, monthKey } from './weeks.ts'
 import { MIN_WEEKLY_WEEKS } from './weekly.ts'
+import { type Result, err, ok } from './result.ts'
 
 /**
  * THE PROJECTIONS ESTIMATE. Month by month, what every lender's pot would do if
@@ -112,6 +113,12 @@ export type Simulation = {
   months: MonthResult[]
   /** Owed on running loans before today and still unpaid. Assumed in NEITHER line, as in projectFloating. */
   lateNow: Centavos
+  /**
+   * lateNow by whose pot it would come back to: `own` is the funder's capital
+   * and earnings, `adminCut` the cut owed to the Admin pot. So each view can say
+   * how much of ITS money is overdue, not the whole pot's.
+   */
+  lateByLender: ReadonlyMap<string, { own: Centavos; adminCut: Centavos }>
   /** Why pretend loans could not be made at all, or null. Real loans are still projected. */
   refused: string | null
 }
@@ -193,6 +200,11 @@ export function simulate(input: ForecastInput, scenario: Scenario): Simulation {
   const relendQueue = Array.from({ length: horizon }, () => new Map<string, number>())
   const pool = new Map(lenders.map((l) => [l.id, 0]))
   let lateNow = 0
+  const lateByLender = new Map<string, { own: Centavos; adminCut: Centavos }>()
+  const addLate = (lenderId: string, own: number, adminCut: number) => {
+    const now = lateByLender.get(lenderId) ?? { own: centavos(0), adminCut: centavos(0) }
+    lateByLender.set(lenderId, { own: centavos(now.own + own), adminCut: centavos(now.adminCut + adminCut) })
+  }
 
   const credit = (month: number, lenderId: string, part: Amounts) => {
     if (month < 0 || month >= horizon) return // past the horizon: not lost, just not drawn
@@ -242,6 +254,8 @@ export function simulate(input: ForecastInput, scenario: Scenario): Simulation {
     for (const a of scheduleArrivals(row)) {
       if (daysBetween(today, a.on) < 0) {
         lateNow += a.capital + a.interest + a.adminCut
+        addLate(row.lenderId, a.capital + a.interest, 0)
+        if (a.adminCut > 0 && adminId !== null) addLate(adminId, 0, a.adminCut)
         continue
       }
       book(row.lenderId, a, 1)
@@ -337,7 +351,7 @@ export function simulate(input: ForecastInput, scenario: Scenario): Simulation {
     months.push({ month, plannedLoans: planned, relent: centavos(relent), byLender, warnings })
   }
 
-  return { months, lateNow: centavos(lateNow), refused }
+  return { months, lateNow: centavos(lateNow), lateByLender, refused }
 }
 
 export type View = { kind: 'admin-cut' } | { kind: 'lender'; lenderId: string } | { kind: 'pot' }
@@ -432,6 +446,32 @@ export function forecast(
         ? null
         : simulate(input, { kind: 'realistic', onTimeBps: history.onTimeBps, lateDelayDays: history.lateDelayDays ?? FALLBACK_LATE_DAYS }),
   }
+}
+
+/**
+ * forecast(), or 'too-large' when a plan grows past what whole-number money
+ * arithmetic can hold (checkedProduct throws past 2^53 centavos — about ₱90
+ * trillion). A long horizon with re-lending compounds far enough to get there,
+ * and the page must still render so the plan can be shortened or deleted.
+ * Any other error is a bug and is rethrown.
+ */
+export function forecastSafely(
+  input: ForecastInput,
+  history: { onTimeBps: BasisPoints | null; lateDelayDays: number | null },
+): Result<ReturnType<typeof forecast>, 'too-large'> {
+  try {
+    return ok(forecast(input, history))
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Money calculation exceeded safe integer range')) return err('too-large')
+    throw e
+  }
+}
+
+/** Overdue money that would come back to the money in this view. Not in either line. */
+export function lateInView(sim: Simulation, view: View): Centavos {
+  if (view.kind === 'pot') return sim.lateNow
+  if (view.kind === 'lender') return sim.lateByLender.get(view.lenderId)?.own ?? centavos(0)
+  return centavos([...sim.lateByLender.values()].reduce((s, l) => s + l.adminCut, 0))
 }
 
 /** Used only when amounts were late but none of the late ones has been paid yet. Flagged in the plan. */

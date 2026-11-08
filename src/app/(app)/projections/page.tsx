@@ -8,7 +8,8 @@ import {
   DEFAULT_HORIZON_MONTHS,
   type Plan,
   type View,
-  forecast,
+  forecastSafely,
+  lateInView,
   type TargetKind,
   forecastView,
   monthOf,
@@ -50,13 +51,23 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
     : one('view') === 'lender' ? { kind: 'lender', lenderId: one('lender') ?? admin?.id ?? '' }
     : { kind: 'pot' }
 
-  const runs = plans.map((p) => {
+  // A plan that compounds past safe whole-number arithmetic (long horizon +
+  // re-lending) is left off the chart and NAMED, rather than crashing the page:
+  // the page must still load so that plan can be shortened or deleted.
+  const tooLarge: string[] = []
+  const run = (p: { id: string; name: string; plan: Plan }) => {
     const input = { today: ctx.today, plan: p.plan, lenders: ctx.lenders, realRows: ctx.realRows, shares: ctx.shares, habits: ctx.habits }
-    const f = forecast(input, { onTimeBps: ctx.onTime.bps, lateDelayDays: ctx.lateDelayDays })
-    return { ...p, f, best: forecastView(f.best, view), realistic: f.realistic ? forecastView(f.realistic, view) : null }
-  })
-  // A plan too large for safe integer arithmetic throws from checkedProduct.
-  // Caught by the route's error boundary today; see Phase 6 issues.
+    const r = forecastSafely(input, { onTimeBps: ctx.onTime.bps, lateDelayDays: ctx.lateDelayDays })
+    if (!r.ok) {
+      tooLarge.push(p.name)
+      return []
+    }
+    const f = r.value
+    return [{ ...p, f, best: forecastView(f.best, view), realistic: f.realistic ? forecastView(f.realistic, view) : null }]
+  }
+  const drawn = plans.flatMap(run)
+  // Running loans alone never overflow: they are real, stored amounts.
+  const runs = drawn.length > 0 ? drawn : run({ id: 'real', name: 'Running loans only', plan: realOnly })
 
   const first = runs[0]
   const selectedKey = one('month') ?? monthKey(ctx.today)
@@ -93,7 +104,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
      is in NEITHER line, and is printed separately so the gap is visible. */
 
   return (
-    <div className="space-y-6">
+    // [overflow-wrap:anywhere]: a plan name is free text, and one long word must wrap, not widen a phone screen.
+    <div className="space-y-6 [overflow-wrap:anywhere]">
       <div>
         <h1 className="text-[1.75rem] font-semibold tracking-tight">Projections</h1>
         <p className="text-muted-foreground mt-0.5 text-sm">
@@ -124,9 +136,16 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             ? `No realistic line: nothing fell due in the last ${HISTORY_MONTHS} months to measure.`
             : `Realistic line: ${pct(ctx.onTime.bps)} of ${ctx.onTime.counted} amounts due since ${ctx.onTime.from.toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })} were paid on or before their due day. The rest is drawn ${ctx.lateDelayDays ?? 30} days later${ctx.lateDelayDays === null ? ' (a guess: no late payment has come in yet)' : ' (the usual delay)'}.`}
         </p>
-        {first.f.best.lateNow > 0 ? (
+        {tooLarge.length > 0 ? (
+          <p role="alert" className="text-sm">
+            {tooLarge.map((n) => `“${n}”`).join(', ')} grows too large to calculate (re-lending compounds every month).
+            {drawn.length === 0 ? ' Showing running loans only.' : ''} Shorten its months ahead, or turn re-lending off.
+          </p>
+        ) : null}
+        {/* lateInView: the overdue money that belongs to THIS view's money, not always the whole pot's. */}
+        {lateInView(first.f.best, view) > 0 ? (
           <p className="text-xs">
-            Not in either line: <Money amount={first.f.best.lateNow} variant="display" /> already overdue today.
+            Not in either line: <Money amount={lateInView(first.f.best, view)} variant="display" /> already overdue today.
           </p>
         ) : null}
         {first.f.best.refused ? <p role="alert" className="text-sm">{first.f.best.refused}</p> : null}
@@ -208,11 +227,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <h2 className="text-base font-semibold">Plans</h2>
         <ul className="flex flex-wrap gap-2 text-sm">
           {saved.map((p) => (
-            <li key={p.id} className="flex gap-1">
+            <li key={p.id} className="flex min-w-0 gap-1 [overflow-wrap:anywhere]">
               <Link href={href({ plan: p.id })}>{p.name}</Link>
-              {p.id !== currentId ? (
-                <Link className="text-muted-foreground" href={href({ compare: [...ids.filter((id) => id !== currentId && id !== p.id), p.id].slice(0, 2).join(',') })}>+ compare</Link>
-              ) : null}
+              {p.id === currentId ? null : ids.includes(p.id) ? (
+                <Link className="text-muted-foreground" href={href({ compare: ids.filter((id) => id !== currentId && id !== p.id).join(',') || null })}>− remove</Link>
+              ) : (
+                <Link className="text-muted-foreground" href={href({ compare: [...ids.filter((id) => id !== currentId && id !== p.id), p.id].slice(-2).join(',') })}>+ compare</Link>
+              )}
             </li>
           ))}
           {/* "new" matches no saved plan, so the form below opens empty, as a create form. */}
@@ -256,7 +277,8 @@ function toFormValues(plan: Plan | null, name: string, d: { borrowerRateBps: num
   return {
     name: plan ? name : '',
     newLoansPerMonth: plan?.newLoansPerMonth ?? 1,
-    loanAmount: plan ? String(plan.loanAmount / 100) : '',
+    // 0 is stored for a plan with no new loans: show it blank, which the form accepts there.
+    loanAmount: plan && plan.loanAmount > 0 ? String(plan.loanAmount / 100) : '',
     termWeeks: plan?.termWeeks ?? 4,
     borrowerRate: pctText(plan?.borrowerRateBps ?? d.borrowerRateBps),
     adminCut: pctText(plan?.adminCutBps ?? d.adminCutBps),

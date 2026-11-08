@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useEffect, useRef } from 'react'
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,6 +48,8 @@ export function PlanForm({ planId, values, defaultsNote }: { planId: string | nu
       </label>
       <p className="text-muted-foreground text-xs sm:col-span-2">{defaultsNote}</p>
       {state.error ? <p role="alert" className="text-status-critical text-sm sm:col-span-2">{state.error}</p> : null}
+      {/* A fresh success object (not NO_ERROR) means this form was just saved. */}
+      {state !== NO_ERROR && state.error === null ? <p role="status" className="text-sm sm:col-span-2">Saved.</p> : null}
       <button type="submit" className="bg-brand text-brand-foreground rounded-lg px-4 py-2 text-sm font-medium sm:col-span-2">
         {planId ? 'Save plan' : 'Create plan'}
       </button>
@@ -67,8 +69,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 /** One planned deposit or withdrawal. Pretend money: never recorded as a transaction. */
 export function AddMoveForm({ planId, lenders }: { planId: string; lenders: { id: string; name: string }[] }) {
   const [state, action] = useActionState(addMove, NO_ERROR)
+  const form = useRef<HTMLFormElement>(null)
+  // Added: clear the fields for the next one. Errors keep what was typed.
+  useEffect(() => {
+    if (state !== NO_ERROR && state.error === null) form.current?.reset()
+  }, [state])
   return (
-    <form action={action} className="grid gap-2 sm:grid-cols-3">
+    <form ref={form} action={action} className="grid gap-2 sm:grid-cols-3">
       <input type="hidden" name="planId" value={planId} />
       <SelectNative name="lenderId" aria-label="Lender">{lenders.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</SelectNative>
       <SelectNative name="type" aria-label="Adds or takes out">

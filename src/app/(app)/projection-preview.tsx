@@ -3,7 +3,7 @@ import { TrendingUp } from 'lucide-react'
 
 import { Money } from '@/components/money.tsx'
 import { centavos } from '@/lib/money/centavos.ts'
-import { DEFAULT_HORIZON_MONTHS, type Plan, forecast, forecastView } from '@/lib/money/forecast.ts'
+import { DEFAULT_HORIZON_MONTHS, type Plan, forecastSafely, forecastView } from '@/lib/money/forecast.ts'
 import { type ProjectionContext } from '@/server/projections/queries.ts'
 
 const PREVIEW_MONTHS = 12
@@ -21,10 +21,20 @@ export function ProjectionPreview({ ctx, plan, planName }: { ctx: ProjectionCont
     borrowerRateBps: ctx.defaults.borrowerRateBps, adminCutBps: ctx.defaults.adminCutBps,
     collection: 'AT_END', relend: false, moves: [],
   }
-  const f = forecast(
+  const r = forecastSafely(
     { today: ctx.today, plan: { ...p, horizonMonths: PREVIEW_MONTHS }, lenders: ctx.lenders, realRows: ctx.realRows, shares: ctx.shares, habits: ctx.habits },
     { onTimeBps: ctx.onTime.bps, lateDelayDays: ctx.lateDelayDays },
   )
+  // Too large to calculate: the dashboard must still load. Say so; the page explains.
+  if (!r.ok) {
+    return (
+      <Link href="/projections" className="bg-card block rounded-2xl p-4 ring-1 ring-border/70">
+        <p className="text-muted-foreground flex items-center gap-1 text-xs"><TrendingUp className="size-3.5" /> Estimated interest, next {PREVIEW_MONTHS} months</p>
+        <p className="text-sm">Plan “{planName}” grows too large to calculate. Open Projections to change it.</p>
+      </Link>
+    )
+  }
+  const f = r.value
   const best = forecastView(f.best, { kind: 'pot' }).at(-1)
   const realistic = f.realistic ? forecastView(f.realistic, { kind: 'pot' }).at(-1) : null
   return (

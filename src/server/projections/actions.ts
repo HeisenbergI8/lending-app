@@ -18,6 +18,13 @@ import { parseRate } from '../loans/terms.ts'
  */
 
 const MAX_TERM_WEEKS = 52
+
+/**
+ * A success, as a FRESH object every time: the form tells "just saved" from
+ * "never submitted" (NO_ERROR, one shared object) by identity, to say "Saved"
+ * or clear itself.
+ */
+const SAVED = (): FormState => ({ error: null })
 const MAX_INT_CENTAVOS = 2_147_483_647
 
 function refresh(): void {
@@ -56,7 +63,8 @@ function readPlan(form: FormData): Result<PlanFields, string> {
   if (name === '' || name.length > 60) return err('Give the plan a name, up to 60 characters.')
   const loans = whole(form, 'newLoansPerMonth', 'New loans a month', 0, MAX_LOANS_PER_MONTH)
   if (!loans.ok) return loans
-  const size = amount(form, 'loanAmount')
+  // No new loans: the amount is unused, so a blank one is allowed and stored as 0.
+  const size = loans.value === 0 && text(form, 'loanAmount') === '' ? ok(0) : amount(form, 'loanAmount')
   if (!size.ok) return size
   if (size.value > MAX_INT_CENTAVOS) return err('A loan that large cannot be recorded.')
   const weeks = whole(form, 'termWeeks', 'Length in weeks', 1, MAX_TERM_WEEKS)
@@ -109,7 +117,7 @@ export async function updatePlan(_prev: FormState, form: FormData): Promise<Form
   const { count } = await db.projectionPlan.updateMany({ where: { id, userId: user.id }, data: fields.value })
   if (count === 0) return failed('That plan no longer exists.')
   refresh()
-  return NO_ERROR
+  return SAVED()
 }
 
 /** Really deletes — a plan holds no money history. The form asks first. */
@@ -155,7 +163,7 @@ export async function addMove(_prev: FormState, form: FormData): Promise<FormSta
     },
   })
   refresh()
-  return NO_ERROR
+  return SAVED()
 }
 
 export async function removeMove(_prev: FormState, form: FormData): Promise<FormState> {

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { centavos } from '../../src/lib/money/centavos.ts'
-import { type ForecastInput, type Plan, forecastView, reachTarget, simulate } from '../../src/lib/money/forecast.ts'
+import { type ForecastInput, type Plan, forecastSafely, forecastView, lateInView, reachTarget, simulate } from '../../src/lib/money/forecast.ts'
 import { splitLoan } from '../../src/lib/money/split.ts'
 
 const day = (y: number, m: number, d: number) => new Date(y, m - 1, d, 12)
@@ -162,4 +162,21 @@ test('reachTarget on pot size: cash + capital out, never on the Admin-cut view',
   assert.equal(pot[0].potSize, 13_840_000)
   assert.equal(reachTarget(pot, centavos(13_840_000), 'pot')?.key, '2026-11')
   assert.equal(reachTarget(forecastView(sim, { kind: 'admin-cut' }), centavos(1), 'pot'), null)
+})
+
+test('overdue money is split by view: the funder\'s own part, the Admin cut, or the whole pot', () => {
+  const late = { ...real, dueOn: day(2026, 11, 1) }
+  const sim = simulate(input({ realRows: [late] }), { kind: 'best' })
+  assert.equal(lateInView(sim, { kind: 'pot' }), 3_840_000)
+  assert.equal(lateInView(sim, { kind: 'lender', lenderId: 'john' }), 3_600_000)
+  assert.equal(lateInView(sim, { kind: 'admin-cut' }), 240_000)
+  assert.equal(lateInView(sim, { kind: 'lender', lenderId: 'admin' }), 0)
+})
+
+test('a plan that compounds past safe arithmetic is reported as too large, not thrown', () => {
+  // 50 loans of ₱20M a month, re-lent every month for 60 months.
+  const huge = input({ realRows: [real], plan: plan({ newLoansPerMonth: 50, loanAmount: centavos(2_000_000_000), relend: true, horizonMonths: 60 }) })
+  const r = forecastSafely(huge, { onTimeBps: null, lateDelayDays: null })
+  assert.equal(r.ok, false)
+  assert.ok(forecastSafely(input({ realRows: [real] }), { onTimeBps: null, lateDelayDays: null }).ok)
 })

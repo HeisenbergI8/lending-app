@@ -62,3 +62,17 @@
 **Deviations from plan:** none. Card placed directly under the stat tiles (after `</StatRow>`), before the lenders section — not a second hero.
 **Gate:** `npm run verify` green (941 pass). Browser check as DEMO on the local database: card renders "Estimated interest, next 12 months" with realistic figure and plan name; Projections page has no horizontal scroll at 390px.
 **Notes:** the Phase 7 proving queries (label-truth) can only be run here against the LOCAL demo database. The real Supabase database is not reachable from this session, so the real-data checks remain owed.
+
+## Fixes after the tester's report — 2026-11-08
+
+Tester report: `verification.md`. Every finding was fixed:
+1. **High — a plan that compounds past safe arithmetic crashed `/projections` and the dashboard.** New `forecastSafely` in `forecast.ts` turns only the `checkedProduct` overflow into `err('too-large')` and rethrows anything else. The page leaves that plan off the chart, names it in an alert, and falls back to running loans only if nothing else can be drawn, so its Delete button stays reachable. The dashboard card says the plan is too large instead of crashing. Test added.
+2. **Low — the overdue line showed the whole pot's figure in every view.** The engine now keeps `lateByLender` (funder's own capital and earnings, plus the cut owed to the Admin pot), and `lateInView` picks the view's share. Checked against the local DB: the overdue demo loan is ₱12,000 + ₱2,400 own + ₱960 cut, so the pot shows ₱15,360 and the Admin cut ₱960. The tester's "₱3,360" expectation counted the funder's interest as cut. Test added.
+3. **Low — an unbroken 60-character plan name widened the page at 390px.** The page and the plan chips wrap anywhere (`[overflow-wrap:anywhere]`). Re-measured scrollWidth = 390.
+4. **Minor friction:**
+   - Saving now says "Saved." (actions return a fresh success object; the form compares it to the shared NO_ERROR).
+   - A compared plan shows "− remove".
+   - A plan with 0 new loans accepts a blank amount, stored as 0 and shown blank.
+   - The add-move form clears after a successful add.
+
+**Gate:** `npm run verify` green. Browser re-check as DEMO on the local DB: too-large plan shows the message and can be deleted, the dashboard loads, overdue per view is correct, "Saved." shows, the move form resets, compare/remove work, no page errors.
