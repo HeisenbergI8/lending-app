@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ChevronDown, Gauge, History, TrendingUp, Users } from 'lucide-react'
+import { ChevronDown, Gauge, History, Minus, Plus, TrendingUp, Users } from 'lucide-react'
 
 import { type ChipTint, IconChip } from '@/components/stat-tile.tsx'
 
@@ -73,6 +73,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
   const last = f.months.at(-1)
   const perMonth = centavos(Math.round(f.total / f.months.length))
+  const funder = !picked ? null : picked.isSelf ? 'the Admin' : picked.name
+  const borrowerCount = (n: number) => `${n} ${n === 1 ? 'borrower' : 'borrowers'}${funder ? ` ${picked?.isSelf ? 'the Admin funds' : `${funder} funds`}` : ''}`
   const who = !picked ? 'the whole pot' : picked.isSelf ? 'the Admin (own money + Admin cut)' : picked.name
   const potLabel = !picked ? 'Whole pot' : picked.isSelf ? 'Admin’s pot' : `${picked.name}’s pot`
   const href = (patch: Record<string, string | null>) => {
@@ -183,44 +185,53 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           ) : null}
         </dl>
         <p className="relative mt-3 text-xs text-white/80">
-          Held to {f.busiestBorrowers + f.extraBorrowers} borrowers{picked ? ` ${picked.isSelf ? 'the Admin funds' : `${picked.name} funds`}` : ''}, each earning about <Money amount={f.perBorrower} variant="display" /> a month
-          {f.heldFrom ? `, reached in ${monthName(f.heldFrom)}. After that, more money needs more borrowers.` : '.'}
+          {f.heldFrom ? `Levels off from ${monthName(f.heldFrom)}: ` : 'Room for '}
+          {borrowerCount(f.busiestBorrowers + f.extraBorrowers)} at about <Money amount={f.perBorrower} variant="display" /> each a month.
+          {f.heldFrom ? ' More borrowers raise it.' : ''}
         </p>
       </section>
 
-      {/* BORROWERS: a plain GET form, like money in and out. Nothing is saved. */}
-      <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
-        <div>
-          <h2 className="text-base font-semibold">More borrowers</h2>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            Busiest month so far: {f.busiestBorrowers} {f.busiestBorrowers === 1 ? 'borrower' : 'borrowers'}{picked ? ` funded by ${picked.isSelf ? 'the Admin' : picked.name}` : ''}. Add borrowers {picked ? `${picked.isSelf ? 'the Admin' : picked.name} would fund` : 'the lenders would fund'} to see what they would earn. Nothing is saved.
-          </p>
-        </div>
-        <form method="get" action="/projections" className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          {Object.entries(q).flatMap(([k, v]) => (k !== 'more' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
-          <div className="space-y-1.5">
-            <label htmlFor="more" className="text-sm font-medium">Extra borrowers</label>
-            <input id="more" name="more" type="number" min={0} max={999} step={1} inputMode="numeric" defaultValue={extraBorrowers || ''} placeholder="0" className="border-input bg-background h-11 w-full rounded-lg border px-3 text-base" />
+      {/* WHAT IF: borrowers step with links (no Update needed); money in and out is a plain
+          GET form that carries the borrowers along. Works without JavaScript; nothing is saved. */}
+      <section aria-labelledby="what-if-title" className="bg-card ring-border/70 rounded-2xl ring-1">
+        <div className="flex items-start justify-between gap-3 p-4 pb-0">
+          <div>
+            <h2 id="what-if-title" className="text-base font-semibold">Try a what-if</h2>
+            <p className="text-muted-foreground mt-0.5 text-sm">Nothing is saved.</p>
           </div>
-          <button type="submit" className="bg-brand text-brand-foreground min-h-11 rounded-lg px-4 text-sm font-medium">Update</button>
-        </form>
-      </section>
-
-      {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
-      <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
-        <div>
-          <h2 className="text-base font-semibold">Money in and out each month</h2>
-          <p className="text-muted-foreground mt-0.5 text-sm">Optional. Starts next month and changes the pot, and so the interest after it. Nothing is saved or recorded.</p>
+          {extraBorrowers || monthlyIn || monthlyOut ? (
+            <Link href={href({ more: null, add: null, out: null })} className="text-brand -mr-2 inline-flex min-h-11 items-center px-2 text-sm font-medium">Clear</Link>
+          ) : null}
         </div>
-        <form method="get" action="/projections" className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Extra borrowers</p>
+            <p className="text-muted-foreground text-xs">
+              Busiest month had {f.busiestBorrowers}. Each adds up to <Money amount={f.perBorrower} variant="display" /> a month.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Extra borrowers">
+            <StepLink href={href({ more: extraBorrowers > 1 ? String(extraBorrowers - 1) : null })} label="One fewer borrower" disabled={extraBorrowers === 0}>
+              <Minus className="size-4" aria-hidden />
+            </StepLink>
+            <output aria-live="polite" className="w-10 text-center text-lg font-semibold tabular-nums">{extraBorrowers}</output>
+            <StepLink href={href({ more: String(Math.min(999, extraBorrowers + 1)) })} label="One more borrower" disabled={extraBorrowers >= 999}>
+              <Plus className="size-4" aria-hidden />
+            </StepLink>
+          </div>
+        </div>
+
+        <form method="get" action="/projections" className="border-border/70 grid grid-cols-2 gap-3 border-t p-4">
           {Object.entries(q).flatMap(([k, v]) => (k !== 'add' && k !== 'out' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
-          <PesoField name="add" label="Add each month" value={one('add')} />
-          <PesoField name="out" label="Take out each month" value={one('out')} />
-          <button type="submit" className="bg-brand text-brand-foreground col-span-2 min-h-11 rounded-lg px-4 text-sm font-medium sm:col-span-1">Update</button>
+          <p className="col-span-2 text-sm font-medium">Money in and out each month <span className="text-muted-foreground font-normal">(from next month)</span></p>
+          <PesoField name="add" label="Add" value={one('add')} />
+          <PesoField name="out" label="Take out" value={one('out')} />
+          <button type="submit" className="bg-brand text-brand-foreground col-span-2 min-h-11 rounded-lg px-4 text-sm font-medium">Update</button>
+          {runsOut ? (
+            <p role="alert" className="col-span-2 text-sm">The pot runs out in {monthName(runsOut.month)}: taking out more than it holds.{picked?.isSelf ? ' The Admin cut still comes in after that, because it is earned on the other lenders’ money.' : ''}</p>
+          ) : null}
         </form>
-        {runsOut ? (
-          <p role="alert" className="text-sm">The pot runs out in {monthName(runsOut.month)}: taking out more than it holds.{picked?.isSelf ? ' The Admin cut still comes in after that, because it is earned on the other lenders’ money.' : ''}</p>
-        ) : null}
       </section>
 
       <section className="bg-card ring-border/70 space-y-4 rounded-2xl p-4 ring-1">
@@ -303,6 +314,18 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         </details>
       </section>
     </div>
+  )
+}
+
+/** A round minus or plus that is a link, so a tap updates the page with no Update button. */
+function StepLink({ href, label, disabled, children }: { href: string; label: string; disabled: boolean; children: React.ReactNode }) {
+  const look = 'inline-flex size-11 items-center justify-center rounded-full ring-1 ring-border'
+  if (disabled) return <span aria-disabled className={`${look} text-muted-foreground/50`} title={label}>{children}<span className="sr-only">{label}</span></span>
+  return (
+    <Link href={href} scroll={false} replace className={`${look} hover:bg-muted active:bg-muted`}>
+      {children}
+      <span className="sr-only">{label}</span>
+    </Link>
   )
 }
 
