@@ -27,7 +27,11 @@ export type ProjectionContext = {
 }
 
 /** The simple projection's input, built once from the context. */
-export function simpleInput(ctx: ProjectionContext, months: number): SimpleInput {
+export function simpleInput(
+  ctx: ProjectionContext,
+  months: number,
+  moves: { monthlyIn?: Centavos; monthlyOut?: Centavos } = {},
+): SimpleInput {
   const capitalNow = new Map(ctx.lenders.map((l) => [l.id, l.floatingNow as number]))
   for (const row of ctx.running) capitalNow.set(row.lenderId, (capitalNow.get(row.lenderId) ?? 0) + row.principal)
   return {
@@ -37,6 +41,7 @@ export function simpleInput(ctx: ProjectionContext, months: number): SimpleInput
     capitalNow: new Map([...capitalNow].map(([k, v]) => [k, centavos(v)])),
     running: ctx.running,
     history: ctx.newLending,
+    ...moves,
   }
 }
 

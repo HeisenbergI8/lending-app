@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { ChevronDown } from 'lucide-react'
 
 import { Money } from '@/components/money.tsx'
-import { centavos } from '@/lib/money/centavos.ts'
+import { type Centavos, centavos, parsePesos } from '@/lib/money/centavos.ts'
+import { rate as pct } from '@/lib/loan-export.ts'
 import { DEFAULT_RANGE, HISTORY_MONTHS, RANGES, type Whose, historyWindowStart, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { projectionContext, simpleInput } from '@/server/projections/queries.ts'
@@ -37,7 +38,17 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const lenderId = one('view') === 'admin' ? admin?.id : one('view') === 'lender' ? one('lender') : undefined
   const picked = lenderId ? ctx.lenders.find((l) => l.id === lenderId) : undefined
   const whose: Whose = picked ? { kind: 'lender', lenderId: picked.id } : { kind: 'pot' }
-  const f = simpleForecast(simpleInput(ctx, range), whose, ctx.newLoans)
+  // Money in / out each month: typed on the page, never saved. Blank or nonsense is none.
+  const pesos = (k: string): Centavos | undefined => {
+    const raw = one(k)
+    if (!raw) return undefined
+    const r = parsePesos(raw)
+    return r.ok ? r.value : undefined
+  }
+  const monthlyIn = pesos('add')
+  const monthlyOut = pesos('out')
+  const f = simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut }), whose, ctx.newLoans)
+  const runsOut = monthlyOut ? f.months.find((m, i) => i > 0 && m.takenOut < monthlyOut) : undefined
 
   const last = f.months.at(-1)
   const perMonth = centavos(Math.round(f.total / f.months.length))
@@ -60,7 +71,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       <header>
         <h1 className="text-[1.75rem] font-semibold tracking-tight">Projections</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Your expected interest if you keep lending the way you have for the last {HISTORY_MONTHS} months. Estimates, not promises.
+          Your expected interest if you keep lending the way you have for the last {HISTORY_MONTHS} months, with interest left in to earn more. Estimates, not promises.
         </p>
       </header>
 
@@ -101,13 +112,36 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             <dt className="text-white/85">Total interest, today to end of {last ? monthName(last.month) : ''}</dt>
             <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={f.total} variant="display" /></dd>
           </div>
+          {f.monthlyReturnBps !== null ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-white/85">Monthly return, from your last {HISTORY_MONTHS} months</dt>
+              <dd className="shrink-0 font-medium whitespace-nowrap">{pct(f.monthlyReturnBps)}</dd>
+            </div>
+          ) : null}
           {last ? (
             <div className="flex justify-between gap-3">
-              <dt className="text-white/85">{potLabel} by then (capital + earnings)</dt>
+              <dt className="text-white/85">{potLabel} by then (capital + earnings{monthlyIn || monthlyOut ? ', after money in and out' : ''})</dt>
               <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={last.pot} variant="display" /></dd>
             </div>
           ) : null}
         </dl>
+      </section>
+
+      {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
+      <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
+        <div>
+          <h2 className="text-base font-semibold">Money in and out each month</h2>
+          <p className="text-muted-foreground mt-0.5 text-sm">Optional. Starts next month and changes the pot, and so the interest after it. Nothing is saved or recorded.</p>
+        </div>
+        <form method="get" action="/projections" className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          {Object.entries(q).flatMap(([k, v]) => (k !== 'add' && k !== 'out' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
+          <PesoField name="add" label="Add each month" value={one('add')} />
+          <PesoField name="out" label="Take out each month" value={one('out')} />
+          <button type="submit" className="bg-brand text-brand-foreground col-span-2 min-h-11 rounded-lg px-4 text-sm font-medium sm:col-span-1">Update</button>
+        </form>
+        {runsOut ? (
+          <p role="alert" className="text-sm">The pot runs out in {monthName(runsOut.month)}: taking out more than it holds.</p>
+        ) : null}
       </section>
 
       <section className="bg-card ring-border/70 space-y-4 rounded-2xl p-4 ring-1">
@@ -135,7 +169,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
                   <td className="px-2 py-2.5 text-right">
                     <Money amount={m.interest} variant="column" />
                     {/* Which figure the month used: shown so a month can be understood at a glance. */}
-                    <span className="text-muted-foreground block text-xs">{m.basis === 'known' ? 'running loans' : 'usual pace'}</span>
+                    <span className="text-muted-foreground block text-xs">{m.basis === 'known' ? 'running loans' : 'monthly return'}</span>
                   </td>
                   <td className="px-4 py-2.5 text-right"><Money amount={m.pot} variant="column" /></td>
                 </tr>
@@ -157,14 +191,27 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <li>
             <span className="text-foreground">Your usual pace:</span> the {f.basedOnLoans} new loans since{' '}
             {historyWindowStart(ctx.today).toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })} earned{' '}
-            {who} about <Money amount={f.usual} variant="display" /> a month.
+            {who} about <Money amount={f.usual} variant="display" /> a month. On <Money amount={f.capitalNow} variant="display" /> of money today, that is a monthly return of {f.monthlyReturnBps === null ? '—' : pct(f.monthlyReturnBps)}.
           </li>
-          <li>Each month uses what your running loans will pay that month, or your usual pace, whichever is more; the table says which. A month where a big loan falls due can read a little high, because a loan’s whole interest counts on its due date. This month counts from today only, so the “a month” figure, an average over the months shown, reads slightly low.</li>
+          <li>From next month, each month earns that return on the pot as it stands. Interest you leave in earns interest too, so it compounds. This assumes all the money keeps being lent out, with enough borrowers for it.</li>
+          <li>A month never shows less than your running loans will pay in it; the table says which figure it used. A month where a big loan falls due can read a little high, because a loan’s whole interest counts on its due date. This month counts from today only, so the “a month” figure, an average over the months shown, reads slightly low.</li>
           <li>A lender’s figures are their own earnings only. The Admin’s include the Admin cut. The whole pot is everyone.</li>
-          <li>The pot is today’s capital (cash + money out on loan) plus the interest counted so far. It assumes no money is added or taken out.</li>
+          <li>The pot starts from today’s capital (cash + money out on loan). Each month adds its interest and any money in, and takes off any money out. It cannot go below zero.</li>
           {f.overdue > 0 ? <li>Not counted: <Money amount={f.overdue} variant="display" /> already overdue today.</li> : null}
         </ul>
       </details>
+    </div>
+  )
+}
+
+function PesoField({ name, label, value }: { name: string; label: string; value: string | undefined }) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={name} className="text-sm font-medium">{label}</label>
+      <div className="relative">
+        <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm" aria-hidden>₱</span>
+        <input id={name} name={name} inputMode="decimal" defaultValue={value ?? ''} placeholder="0" className="border-input bg-background h-11 w-full rounded-lg border pr-3 pl-7 text-base" />
+      </div>
     </div>
   )
 }

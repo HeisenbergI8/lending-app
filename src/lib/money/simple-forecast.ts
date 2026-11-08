@@ -20,9 +20,20 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * WHOSE MONEY: a lender sees their own earnings only; the Admin sees its own
  * earnings PLUS the Admin cut; the whole pot sees everything.
  *
- * THE POT at a month's end is today's capital (floating + out on loan) plus the
- * interest counted so far. No deposits or withdrawals are assumed, as asked.
- * Money already overdue today is in neither figure, and is reported apart.
+ * COMPOUNDING (owner, 2026-11-08): the usual pace is turned into a monthly
+ * RETURN — usual interest a month ÷ this view's money today — and from next
+ * month on, each month earns that return on the pot as it stands, so interest
+ * left in earns interest. A month still never earns less than what the running
+ * loans are known to pay in it. Money added or taken out each month (from next
+ * month) moves the pot, and so the interest after it.
+ *
+ * ASSUMES the money keeps being lent out at the same rate as lately: enough
+ * borrowers for all of it. A pot cannot go below zero; a month that would take
+ * more out than is there takes what there is.
+ *
+ * THE POT at a month's end is the pot before it plus that month's interest,
+ * plus what was added, minus what was taken out. Money already overdue today
+ * is in neither figure, and is reported apart.
  */
 
 /** How far back "the way you have been lending" looks. */
@@ -60,6 +71,10 @@ export type SimpleInput = {
   capitalNow: ReadonlyMap<string, Centavos>
   running: readonly RunningRow[]
   history: readonly HistoryRow[]
+  /** Added to this view's pot each month, from next month. */
+  monthlyIn?: Centavos
+  /** Taken out of this view's pot each month, from next month. */
+  monthlyOut?: Centavos
 }
 
 export type SimpleMonth = {
@@ -68,7 +83,9 @@ export type SimpleMonth = {
   interest: Centavos
   /** Which figure the month used — shown so the Admin can see why a month is what it is. */
   basis: 'known' | 'usual'
-  /** Today's capital plus interest counted from today through the end of this month. */
+  /** Taken out this month: less than asked only when the pot ran out. */
+  takenOut: Centavos
+  /** The pot at the month's end: before + interest + added − taken out. */
   pot: Centavos
 }
 
@@ -76,6 +93,10 @@ export type SimpleForecast = {
   months: SimpleMonth[]
   /** The usual interest a month from new lending, in this view. */
   usual: Centavos
+  /** usual ÷ this view's money today, in basis points a month. Null with no money today. */
+  monthlyReturnBps: number | null
+  /** The money this view had today: the pot the compounding starts from. */
+  capitalNow: Centavos
   total: Centavos
   /** Overdue today and not counted. */
   overdue: Centavos
@@ -119,14 +140,42 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
       ? [...input.capitalNow.values()].reduce((s, v) => s + v, 0)
       : (input.capitalNow.get(whose.lenderId) ?? 0)
 
-  let running = 0
+  const rate = capitalNow > 0 ? usual / capitalNow : 0
+  const monthlyIn = input.monthlyIn ?? 0
+  const monthlyOut = input.monthlyOut ?? 0
+
+  let total = 0
+  let pot = capitalNow
   const out: SimpleMonth[] = known.map((k, m) => {
-    const useUsual = m > 0 && usual > k
-    const interest = useUsual ? usual : k
-    running += interest
+    const earned = m === 0 ? 0 : Math.round(Math.max(0, pot) * rate)
+    const useUsual = m > 0 && earned > k
+    const interest = useUsual ? earned : k
+    total += interest
+    pot += interest
+    let takenOut = 0
+    if (m > 0) {
+      pot += monthlyIn
+      takenOut = Math.min(monthlyOut, Math.max(0, pot))
+      pot -= takenOut
+    }
     const month = firstOfMonth(start, m)
-    return { month, key: monthKey(month), interest: centavos(interest), basis: useUsual ? 'usual' : 'known', pot: centavos(capitalNow + running) }
+    return {
+      month,
+      key: monthKey(month),
+      interest: centavos(interest),
+      basis: useUsual ? 'usual' : 'known',
+      takenOut: centavos(takenOut),
+      pot: centavos(pot),
+    }
   })
 
-  return { months: out, usual: centavos(usual), total: centavos(running), overdue: centavos(overdue), basedOnLoans }
+  return {
+    months: out,
+    usual: centavos(usual),
+    monthlyReturnBps: capitalNow > 0 ? Math.floor((usual * 10_000) / capitalNow) : null,
+    capitalNow: centavos(capitalNow),
+    total: centavos(total),
+    overdue: centavos(overdue),
+    basedOnLoans,
+  }
 }
