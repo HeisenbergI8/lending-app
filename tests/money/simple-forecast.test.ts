@@ -101,15 +101,10 @@ test('a lender with almost no money left cannot compound a huge return: it is ca
   assert.equal(simpleForecast(input(), { kind: 'pot' }).capped, false)
 })
 
-test('borrowers are limited: a lender never earns more in a month than their busiest month, and the rest sits idle', () => {
+test('no busiest-month ceiling: interest left in keeps compounding, month after month', () => {
   const f = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'john' })
-  assert.ok(f.months.every((m, i) => i === 0 || m.interest <= 900_000))
-  assert.equal(f.months[23].interest, 900_000)
-  assert.ok(f.months[23].idle > 0)
-  assert.equal(f.months[1].idle, 0) // ₱6,400 on ₱96,000 is still under the busiest month
-  // the cut is held the same way
-  const admin = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'admin' })
-  assert.equal(admin.months[23].interest, 300_000)
+  for (let i = 2; i < 24; i += 1) assert.ok(f.months[i].interest > f.months[i - 1].interest)
+  assert.ok(f.months[23].interest > 900_000) // well past his busiest month, ₱9,000
 })
 
 test('slow and busy months scale the return by the slowest and busiest month of the whole pot', () => {
@@ -119,7 +114,7 @@ test('slow and busy months scale the return by the slowest and busiest month of 
   assert.equal(busy.paceFactor, 1.5)
   assert.equal(slow.months[0].interest, 600_000) // this month is still what running loans pay
   assert.equal(slow.months[1].interest, 320_000) // half of ₱6,400
-  assert.equal(busy.months[1].interest, 900_000) // ₱9,600 held to his busiest month, ₱9,000
+  assert.equal(busy.months[1].interest, 960_000) // one and a half times ₱6,400
   const usual = simpleForecast(input(), { kind: 'lender', lenderId: 'john' })
   assert.ok(slow.total < usual.total && usual.total < busy.total)
 })
@@ -131,15 +126,6 @@ test('at every pace the parts still add up to the whole pot', () => {
     const admin = simpleForecast(input({ months: 24, pace }), { kind: 'lender', lenderId: 'admin' })
     assert.equal(john.total + admin.total, pot.total)
   }
-})
-
-test('all lenders together never earn more in a month than the whole pot’s busiest month', () => {
-  // The Admin lent its own money in September only; John was busiest in October.
-  const both = [...history, { loanId: 'A9', lenderId: 'admin', startOn: day(2026, 9, 10), termDays: 14, earnings: centavos(500_000), adminCut: centavos(0) }]
-  const pot = simpleForecast(input({ months: 24, history: both, capitalNow: new Map([['john', centavos(9_000_000)], ['admin', centavos(5_000_000)]]) }), { kind: 'pot' })
-  // busiest whole-pot month: October, ₱9,000 + ₱3,000 (September is ₱3,000 + ₱1,000 + ₱5,000)
-  assert.ok(pot.months.every((m, i) => i === 0 || m.interest <= 1_200_000 + 1))
-  assert.ok(pot.months[23].interest >= 1_200_000 - 1)
 })
 
 test('months before lending began are not counted as slow months', () => {

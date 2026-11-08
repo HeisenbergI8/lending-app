@@ -34,8 +34,8 @@ const monthName = (d: Date) => d.toLocaleDateString('en-PH', { month: 'long', ye
  *
  * BORROWERS (owner, 2026-11-08): `pace` picks slow / usual / busy, from the
  * slowest and busiest of the last 6 full months; the hero shows all three a
- * month. Each lender's interest is held to their busiest month, and money past
- * it is shown as having no borrower (SimpleMonth.idle).
+ * month. No month is held to the busiest month so far: the page is for seeing
+ * the interest compound, and it says it assumes enough borrowers.
  */
 export default async function ProjectionsPage({ searchParams }: PageProps<'/projections'>) {
   const user = await requireUser()
@@ -177,14 +177,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
               <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={last.pot} variant="display" /></dd>
             </div>
           ) : null}
-          {last && pace === 'usual' && last.idle > 0 ? (
-            <div className="flex justify-between gap-3">
-              <dt className="text-white/85">Of that, money with no borrower by then (more than your busiest month has used)</dt>
-              <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={last.idle} variant="display" /></dd>
-            </div>
-          ) : null}
         </dl>
-        <p className="relative mt-3 text-xs text-white/80">Apart from what running loans already owe, interest never goes above your busiest month so far, because the number of borrowers may not grow with the pot.</p>
+        <p className="relative mt-3 text-xs text-white/80">This assumes every peso left in finds a borrower. If borrowers run short, the real interest will be lower.</p>
       </section>
 
       {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
@@ -254,8 +248,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <HowCard icon={TrendingUp} tint="mint" title="Interest earns interest">
             Interest you leave in gets lent out again from the next month.
           </HowCard>
-          <HowCard icon={Users} tint="amber" title="Limited by borrowers">
-            A month never goes above your busiest month so far. More money doesn’t bring more borrowers by itself.
+          <HowCard icon={Users} tint="amber" title="Enough borrowers">
+            It assumes all the money finds borrowers. More money doesn’t bring more borrowers by itself, so real months can be lower.
           </HowCard>
           <HowCard icon={Gauge} tint="violet" title="Slow or busy">
             {f.basedOnLoans > 0 && f.historyMonths > 0
@@ -274,7 +268,6 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             <li>Money you add starts earning the month after. On the whole pot it is shared across lenders by the size of their pots.</li>
             <li>A month never shows less than your running loans will pay in it. A month when a big loan falls due can read high, because its whole interest counts that day.</li>
             <li>The return uses the money there is today, so a big recent deposit or withdrawal can make it read low or high.</li>
-            {pace === 'usual' ? <li>Money past your busiest month is shown above as having no borrower.</li> : null}
             <li>The pot is today’s cash plus money out on loan, plus interest, plus or minus money in and out. It never goes below zero.</li>
             <li>This month counts from today only, so it reads a little low.</li>
             {f.capped ? <li>One lender has very little money left, so their return was held to about 30% a month.</li> : null}
