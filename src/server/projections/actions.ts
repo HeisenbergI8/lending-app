@@ -9,7 +9,7 @@ import { MIN_WEEKLY_WEEKS } from '../../lib/money/weekly.ts'
 import { calendarDate, firstOfMonth } from '../../lib/money/weeks.ts'
 import { requireUser } from '../auth/guard.ts'
 import { db } from '../db.ts'
-import { type FormState, NO_ERROR, amount, failed, text } from '../forms.ts'
+import { type FormState, NO_ERROR, amount, text } from '../forms.ts'
 import { parseRate } from '../loans/terms.ts'
 
 /**
@@ -18,6 +18,17 @@ import { parseRate } from '../loans/terms.ts'
  */
 
 const MAX_TERM_WEEKS = 52
+
+/**
+ * A refusal that hands back what was typed. React resets a form after its action
+ * runs; without these, one wrong field cleared the whole form and the empty
+ * required name then silently blocked the next submit (tester, 2026-11-08).
+ */
+export type KeptState = FormState & { fields?: Record<string, string> }
+
+function keep(form: FormData, message: string): KeptState {
+  return { error: message, fields: Object.fromEntries([...form.entries()].flatMap(([k, v]) => (typeof v === 'string' ? [[k, v]] : []))) }
+}
 
 /**
  * A success, as a FRESH object every time: the form tells "just saved" from
@@ -93,29 +104,29 @@ function readPlan(form: FormData): Result<PlanFields, string> {
   })
 }
 
-export async function createPlan(_prev: FormState, form: FormData): Promise<FormState> {
+export async function createPlan(_prev: KeptState, form: FormData): Promise<KeptState> {
   const user = await requireUser()
   const fields = readPlan(form)
-  if (!fields.ok) return failed(fields.error)
+  if (!fields.ok) return keep(form, fields.error)
   const clash = await db.projectionPlan.findFirst({ where: { userId: user.id, name: fields.value.name }, select: { id: true } })
-  if (clash) return failed('A plan with that name already exists.')
+  if (clash) return keep(form, 'A plan with that name already exists.')
   const plan = await db.projectionPlan.create({ data: { ...fields.value, userId: user.id }, select: { id: true } })
   refresh()
   redirect(`/projections?plan=${plan.id}`)
 }
 
-export async function updatePlan(_prev: FormState, form: FormData): Promise<FormState> {
+export async function updatePlan(_prev: KeptState, form: FormData): Promise<KeptState> {
   const user = await requireUser()
   const id = text(form, 'planId')
   const fields = readPlan(form)
-  if (!fields.ok) return failed(fields.error)
+  if (!fields.ok) return keep(form, fields.error)
   const clash = await db.projectionPlan.findFirst({
     where: { userId: user.id, name: fields.value.name, NOT: { id } },
     select: { id: true },
   })
-  if (clash) return failed('A plan with that name already exists.')
+  if (clash) return keep(form, 'A plan with that name already exists.')
   const { count } = await db.projectionPlan.updateMany({ where: { id, userId: user.id }, data: fields.value })
-  if (count === 0) return failed('That plan no longer exists.')
+  if (count === 0) return keep(form, 'That plan no longer exists.')
   refresh()
   return SAVED()
 }
@@ -128,7 +139,7 @@ export async function deletePlan(_prev: FormState, form: FormData): Promise<Form
   redirect('/projections')
 }
 
-export async function addMove(_prev: FormState, form: FormData): Promise<FormState> {
+export async function addMove(_prev: KeptState, form: FormData): Promise<KeptState> {
   const user = await requireUser()
   const planId = text(form, 'planId')
   const lenderId = text(form, 'lenderId')
@@ -136,18 +147,18 @@ export async function addMove(_prev: FormState, form: FormData): Promise<FormSta
     db.projectionPlan.findFirst({ where: { id: planId, userId: user.id }, select: { id: true } }),
     db.lender.findFirst({ where: { id: lenderId, userId: user.id, deletedAt: null }, select: { id: true } }),
   ])
-  if (!plan) return failed('That plan no longer exists.')
-  if (!lender) return failed('Pick a lender.')
+  if (!plan) return keep(form, 'That plan no longer exists.')
+  if (!lender) return keep(form, 'Pick a lender.')
   const size = amount(form, 'amount')
-  if (!size.ok) return failed(size.error)
+  if (!size.ok) return keep(form, size.error)
   const from = month(form, 'fromMonth')
-  if (!from.ok) return failed(from.error)
+  if (!from.ok) return keep(form, from.error)
   const everyMonth = text(form, 'everyMonth') === 'on'
   let until: Date | null = null
   if (everyMonth && text(form, 'untilMonth') !== '') {
     const parsed = month(form, 'untilMonth')
-    if (!parsed.ok) return failed(parsed.error)
-    if (parsed.value.getTime() < from.value.getTime()) return failed('The last month cannot be before the first.')
+    if (!parsed.ok) return keep(form, parsed.error)
+    if (parsed.value.getTime() < from.value.getTime()) return keep(form, 'The last month cannot be before the first.')
     until = parsed.value
   }
   await db.projectionMove.create({

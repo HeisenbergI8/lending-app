@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { SelectNative } from '@/components/ui/select-native.tsx'
 import { NO_ERROR } from '@/lib/form-state.ts'
 import { MAX_HORIZON_MONTHS, MAX_LOANS_PER_MONTH } from '@/lib/money/forecast.ts'
-import { addMove, createPlan, deletePlan, removeMove, updatePlan } from '@/server/projections/actions.ts'
+import { type KeptState, addMove, createPlan, deletePlan, removeMove, updatePlan } from '@/server/projections/actions.ts'
 
 export type PlanDefaults = {
   name: string
@@ -33,39 +33,41 @@ export type PlanDefaults = {
  * in without knowing how the estimate works.
  */
 export function PlanForm({ planId, values, defaultsNote }: { planId: string | null; values: PlanDefaults; defaultsNote: string }) {
-  const [state, action] = useActionState(planId ? updatePlan : createPlan, NO_ERROR)
+  const [state, action] = useActionState<KeptState, FormData>(planId ? updatePlan : createPlan, NO_ERROR)
+  // After a refusal, show what was typed rather than the saved values (KeptState).
+  const kept = (key: string, saved: string | number) => state.fields?.[key] ?? String(saved)
   return (
     <form action={action} className="space-y-5">
       {planId ? <input type="hidden" name="planId" value={planId} /> : null}
 
       <Field label="Plan name" hint="Anything that helps you tell plans apart, e.g. “2 loans a month”.">
-        <Input id="name" name="name" defaultValue={values.name} required maxLength={60} placeholder="e.g. Steady growth" />
+        <Input id="name" name="name" defaultValue={kept('name', values.name)} required maxLength={60} placeholder="e.g. Steady growth" />
       </Field>
 
       <Group title="New loans you expect to make" hint="Pretend loans, added from next month. Nothing is recorded.">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Loans each month">
-            <Input id="newLoansPerMonth" name="newLoansPerMonth" type="number" inputMode="numeric" min={0} max={MAX_LOANS_PER_MONTH} defaultValue={values.newLoansPerMonth} />
+            <Input id="newLoansPerMonth" name="newLoansPerMonth" type="number" inputMode="numeric" min={0} max={MAX_LOANS_PER_MONTH} defaultValue={kept('newLoansPerMonth', values.newLoansPerMonth)} />
           </Field>
           <Field label="Weeks each loan runs">
-            <Input id="termWeeks" name="termWeeks" type="number" inputMode="numeric" min={1} max={52} defaultValue={values.termWeeks} />
+            <Input id="termWeeks" name="termWeeks" type="number" inputMode="numeric" min={1} max={52} defaultValue={kept('termWeeks', values.termWeeks)} />
           </Field>
         </div>
-        <MoneyInput name="loanAmount" label="Amount of each loan" defaultValue={values.loanAmount} required={false} />
+        <MoneyInput name="loanAmount" label="Amount of each loan" defaultValue={kept('loanAmount', values.loanAmount)} required={false} />
         <p className="text-muted-foreground -mt-1 text-xs">Leave blank if you set 0 loans a month.</p>
       </Group>
 
       <Group title="What they charge" hint={defaultsNote}>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Rate per week (%)">
-            <Input id="borrowerRate" name="borrowerRate" inputMode="decimal" defaultValue={values.borrowerRate} />
+            <Input id="borrowerRate" name="borrowerRate" inputMode="decimal" defaultValue={kept('borrowerRate', values.borrowerRate)} />
           </Field>
           <Field label="Admin cut per week (%)">
-            <Input id="adminCut" name="adminCut" inputMode="decimal" defaultValue={values.adminCut} />
+            <Input id="adminCut" name="adminCut" inputMode="decimal" defaultValue={kept('adminCut', values.adminCut)} />
           </Field>
         </div>
         <Field label="Interest is collected">
-          <SelectNative id="interestCollection" name="interestCollection" defaultValue={values.interestCollection}>
+          <SelectNative id="interestCollection" name="interestCollection" defaultValue={kept('interestCollection', values.interestCollection)}>
             <option value="AT_END">At the end, with the loan</option>
             <option value="WEEKLY">Every week</option>
           </SelectNative>
@@ -74,10 +76,10 @@ export function PlanForm({ planId, values, defaultsNote }: { planId: string | nu
 
       <Group title="How far ahead">
         <Field label="Months to show" hint={`1 to ${MAX_HORIZON_MONTHS}.`}>
-          <Input id="horizonMonths" name="horizonMonths" type="number" inputMode="numeric" min={1} max={MAX_HORIZON_MONTHS} defaultValue={values.horizonMonths} />
+          <Input id="horizonMonths" name="horizonMonths" type="number" inputMode="numeric" min={1} max={MAX_HORIZON_MONTHS} defaultValue={kept('horizonMonths', values.horizonMonths)} />
         </Field>
         <label className="bg-muted/50 flex items-start gap-3 rounded-xl p-3 text-sm">
-          <input type="checkbox" name="relend" defaultChecked={values.relend} className="mt-0.5 size-4 shrink-0" />
+          <input type="checkbox" name="relend" defaultChecked={state.fields ? state.fields.relend === 'on' : values.relend} className="mt-0.5 size-4 shrink-0" />
           <span>
             <span className="font-medium">Lend returned money out again</span>
             <span className="text-muted-foreground block text-xs">
@@ -117,7 +119,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 /** One planned deposit or withdrawal. Pretend money: never recorded as a transaction. */
 export function AddMoveForm({ planId, lenders }: { planId: string; lenders: { id: string; name: string }[] }) {
-  const [state, action] = useActionState(addMove, NO_ERROR)
+  const [state, action] = useActionState<KeptState, FormData>(addMove, NO_ERROR)
+  const kept = (key: string) => state.fields?.[key] ?? ''
   const form = useRef<HTMLFormElement>(null)
   // Added: clear the fields for the next one. Errors keep what was typed.
   useEffect(() => {
@@ -128,26 +131,26 @@ export function AddMoveForm({ planId, lenders }: { planId: string; lenders: { id
       <input type="hidden" name="planId" value={planId} />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Lender">
-          <SelectNative id="move-lender" name="lenderId">{lenders.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</SelectNative>
+          <SelectNative id="move-lender" name="lenderId" defaultValue={kept('lenderId') || undefined}>{lenders.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</SelectNative>
         </Field>
         <Field label="Puts in or takes out">
-          <SelectNative id="move-type" name="type">
+          <SelectNative id="move-type" name="type" defaultValue={kept('type') || undefined}>
             <option value="DEPOSIT">Puts money in</option>
             <option value="WITHDRAWAL">Takes money out</option>
           </SelectNative>
         </Field>
       </div>
-      <MoneyInput name="amount" label="Amount" />
+      <MoneyInput name="amount" label="Amount" defaultValue={kept('amount')} />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Month">
-          <Input id="move-from" name="fromMonth" type="month" required />
+          <Input id="move-from" name="fromMonth" type="month" required defaultValue={kept('fromMonth')} />
         </Field>
         <Field label="Last month" hint="Only if it repeats. Blank: to the end.">
-          <Input id="move-until" name="untilMonth" type="month" />
+          <Input id="move-until" name="untilMonth" type="month" defaultValue={kept('untilMonth')} />
         </Field>
       </div>
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="everyMonth" className="size-4" /> Repeat every month
+        <input type="checkbox" name="everyMonth" defaultChecked={state.fields?.everyMonth === 'on'} className="size-4" /> Repeat every month
       </label>
       {state.error ? <p role="alert" className="text-status-critical text-sm">{state.error}</p> : null}
       <SubmitButton variant="secondary" className="w-full" pendingLabel="Adding…">Add money move</SubmitButton>
@@ -160,7 +163,7 @@ export function RemoveMoveButton({ moveId }: { moveId: string }) {
   return (
     <form action={action}>
       <input type="hidden" name="moveId" value={moveId} />
-      <button type="submit" className="text-muted-foreground hover:text-foreground -m-2 p-2 text-xs underline-offset-2 hover:underline">Remove</button>
+      <button type="submit" className="text-muted-foreground hover:bg-muted hover:text-foreground min-h-11 shrink-0 rounded-lg px-3 text-sm whitespace-nowrap">Remove</button>
     </form>
   )
 }
@@ -170,7 +173,7 @@ export function DeletePlanButton({ planId, name }: { planId: string; name: strin
   return (
     <form action={action} onSubmit={(e) => { if (!confirm(`Delete the plan “${name}”? This cannot be undone.`)) e.preventDefault() }}>
       <input type="hidden" name="planId" value={planId} />
-      <button type="submit" className="text-status-critical text-sm font-medium">Delete this plan</button>
+      <button type="submit" className="text-status-critical hover:bg-muted min-h-11 rounded-lg px-4 text-sm font-medium">Delete this plan</button>
     </form>
   )
 }

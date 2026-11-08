@@ -121,6 +121,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const late = lateInView(first.f.best, view)
   const plainMonth = plainRun ? monthOf(plainRun.best, best.key) : null
   const shortDate = (d: Date) => d.toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })
+  const small = 'inline-flex min-h-9 items-center rounded-full px-3 text-xs font-medium ring-1 ring-border hover:bg-muted'
   const chip = 'shrink-0 rounded-full px-3.5 py-2 text-sm font-medium ring-1 ring-border transition-colors hover:bg-muted aria-[current=page]:bg-brand aria-[current=page]:text-brand-foreground aria-[current=page]:ring-brand'
 
   return (
@@ -136,8 +137,10 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       {/* STEP 1 and 2: what is being projected. Choices first, so every figure
           below reads as the answer to them. One scrolling row each on a phone. */}
       <section className="bg-card ring-border/70 space-y-4 rounded-2xl p-4 ring-1">
+        <SectionHead title="Choose what to look at" purpose="Everything below updates to match what you pick here." />
         <div className="space-y-2">
           <StepTitle n={1}>Pick a plan</StepTitle>
+          <p className="text-muted-foreground -mt-1 text-xs">A plan is your guess about the loans you will make. “Running loans only” shows just today’s loans.</p>
           <ScrollRow label="Plans">
             {saved.map((p) => (
               <Link key={p.id} href={href({ plan: p.id, compare: null })} aria-current={p.id === currentId ? 'page' : undefined} className={chip}>
@@ -153,13 +156,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
               Showing only the loans running today. <a href="#plan-settings" className="text-brand font-medium">Create a plan</a> to add the new loans you expect to make.
             </p>
           ) : saved.length > 1 ? (
-            <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-              Compare on the chart:
+            <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+              Also draw on the chart:
               {saved.filter((p) => p.id !== currentId).map((p) =>
                 ids.includes(p.id) ? (
-                  <Link key={p.id} className="text-brand font-medium" href={href({ compare: ids.filter((id) => id !== currentId && id !== p.id).join(',') || null })}>✓ {p.name}</Link>
+                  <Link key={p.id} className={`${small} bg-brand/10 text-brand ring-brand/30`} href={href({ compare: ids.filter((id) => id !== currentId && id !== p.id).join(',') || null })}>✓ {p.name}</Link>
                 ) : (
-                  <Link key={p.id} className="underline-offset-2 hover:underline" href={href({ compare: [...ids.filter((id) => id !== currentId && id !== p.id), p.id].slice(-2).join(',') })}>+ {p.name}</Link>
+                  <Link key={p.id} className={small} href={href({ compare: [...ids.filter((id) => id !== currentId && id !== p.id), p.id].slice(-2).join(',') })}>+ {p.name}</Link>
                 ),
               )}
             </p>
@@ -167,6 +170,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         </div>
         <div className="space-y-2">
           <StepTitle n={2}>Whose money</StepTitle>
+          <p className="text-muted-foreground -mt-1 text-xs">Whole pot is everyone together. Pick a name to see only theirs.</p>
           <ScrollRow label="Whose money">
             <Link href={href({ view: 'pot', lender: null })} aria-current={view.kind === 'pot' ? 'page' : undefined} className={chip}>Whole pot</Link>
             <Link href={href({ view: 'admin', lender: null })} aria-current={view.kind === 'admin-cut' ? 'page' : undefined} className={chip}>Admin cut</Link>
@@ -195,6 +199,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <div className="bg-hero shadow-rest relative overflow-hidden rounded-2xl p-5 text-white">
           <span className="pointer-events-none absolute -top-16 -right-10 size-48 rounded-full bg-white/10 blur-2xl" aria-hidden />
           <StepBadge n={3} light>Pick a month</StepBadge>
+          <p className="relative mt-1 text-xs text-white/80">Use the arrows, or tap the chart below. The numbers show that month’s estimate.</p>
           <div className="relative mt-2 flex items-center justify-between gap-2 rounded-full bg-white/10 p-1">
             <MonthArrow href={prev ? href({ month: prev.key }) : null} label="Previous month"><ChevronLeft className="size-5" /></MonthArrow>
             <span className="text-base font-semibold">{monthName(best.month)}</span>
@@ -271,10 +276,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       </section>
 
       <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
+        <SectionHead
+          title="How it grows over time"
+          purpose="The line adds up estimated interest from today. The higher it climbs, the more you would have earned by that month. Tap the chart to jump to a month."
+        />
         <div>
-          <h2 className="text-base font-semibold">How it adds up</h2>
           <p className="text-muted-foreground text-xs">
-            Running total of estimated interest from today.{runs.some((r) => r.plan.relend) ? ' The key below says which lines include re-lending.' : ' No re-lending in these lines.'}
+            {runs.some((r) => r.plan.relend) ? 'The key under the chart says which lines include re-lending.' : 'No line here includes re-lending.'}
           </p>
         </div>
         {/* The chart's dotted target line is drawn only for an interest target: a pot-size
@@ -284,7 +292,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       </section>
 
       <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
-        <h2 className="text-base font-semibold">When will I reach a goal?</h2>
+        <SectionHead title="When will I reach a goal?" purpose="Type an amount and see the first month you would get there." />
         <form method="get" action="/projections" className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           {Object.entries(q).flatMap(([k, v]) => (k !== 'target' && k !== 'targetKind' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
           <div className="space-y-1.5">
@@ -322,8 +330,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       </section>
 
       <details className="group bg-card ring-border/70 rounded-2xl p-4 ring-1">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-          How these numbers are worked out
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-base font-semibold [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block">How these numbers are worked out</span>
+            <span className="text-muted-foreground block text-xs font-normal">Open this if a number surprises you.</span>
+          </span>
           <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" aria-hidden />
         </summary>
         <ul className="text-muted-foreground mt-3 list-disc space-y-2 pl-4 text-sm">
@@ -359,10 +370,10 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       </details>
 
       <details id="plan-settings" open={isNew} className="group bg-card ring-border/70 scroll-mt-4 rounded-2xl p-4 ring-1">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
           <span>
             <span className="block text-base font-semibold">{isNew ? 'Create a plan' : 'Plan settings'}</span>
-            <span className="text-muted-foreground block text-xs">{isNew ? 'Describe the loans you expect to make.' : `Change “${loaded[0].name}”.`}</span>
+            <span className="text-muted-foreground block text-xs">{isNew ? 'Describe the loans you expect to make. The estimate is built from these guesses.' : `The guesses “${loaded[0].name}” is built on. Change them here.`}</span>
           </span>
           <ChevronDown className="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
         </summary>
@@ -381,10 +392,10 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
       {loaded[0] ? (
         <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
-          <div>
-            <h2 className="text-base font-semibold">Money in and out</h2>
-            <p className="text-muted-foreground text-xs">Lenders adding or taking out money in this plan. Pretend only; nothing is recorded.</p>
-          </div>
+          <SectionHead
+            title="Money in and out"
+            purpose="Planning for a lender to add or take out money? Add it here and the estimate allows for it. Pretend only: nothing is recorded."
+          />
           {loaded[0].moves.length === 0 ? (
             <p className="text-muted-foreground text-sm">None yet.</p>
           ) : (
@@ -407,7 +418,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             </ul>
           )}
           <details className="group">
-            <summary className="text-brand cursor-pointer list-none text-sm font-medium [&::-webkit-details-marker]:hidden">+ Add money in or out</summary>
+            <summary className="text-brand flex min-h-11 cursor-pointer list-none items-center text-sm font-medium [&::-webkit-details-marker]:hidden">+ Add money in or out</summary>
             <div className="mt-3">
               <AddMoveForm planId={loaded[0].id} lenders={ctx.lenders.map((l) => ({ id: l.id, name: l.name }))} />
             </div>
@@ -420,6 +431,16 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <DeletePlanButton planId={loaded[0].id} name={loaded[0].name} />
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** A section's title and ONE line on what it is for, so each card explains itself. */
+function SectionHead({ title, purpose }: { title: string; purpose: string }) {
+  return (
+    <div>
+      <h2 className="text-base font-semibold">{title}</h2>
+      <p className="text-muted-foreground mt-0.5 text-sm">{purpose}</p>
     </div>
   )
 }
