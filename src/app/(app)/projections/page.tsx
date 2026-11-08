@@ -15,6 +15,7 @@ import {
   monthOf,
   reachTarget,
 } from '@/lib/money/forecast.ts'
+import { rate as pct } from '@/lib/loan-export.ts'
 import { monthKey, storedCalendarDate } from '@/lib/money/weeks.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { listPlans, plansById, projectionContext } from '@/server/projections/queries.ts'
@@ -26,7 +27,6 @@ export const metadata = { title: 'Projections' }
 
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)']
 const monthName = (d: Date) => d.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
-const pct = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%`
 
 export default async function ProjectionsPage({ searchParams }: PageProps<'/projections'>) {
   const user = await requireUser()
