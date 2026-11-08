@@ -17,7 +17,7 @@ const PREVIEW_MONTHS = 12
  * slow-to-busy range is the same at pace 'slow' and 'busy'.
  */
 export function ProjectionPreview({ ctx }: { ctx: ProjectionContext }) {
-  const at = (pace: 'slow' | 'usual' | 'busy') => simpleForecast(simpleInput(ctx, PREVIEW_MONTHS, { pace }), { kind: 'pot' }, ctx.newLoans)
+  const at = (pace: 'slow' | 'usual' | 'busy') => simpleForecast(simpleInput(ctx, PREVIEW_MONTHS, { pace }), { kind: 'pot' })
   const f = at('usual')
   const a = (x: typeof f) => centavos(Math.round(x.total / x.months.length))
   const last = f.months.at(-1)

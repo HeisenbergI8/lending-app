@@ -1,6 +1,6 @@
 import { type Centavos, centavos } from '../../lib/money/centavos.ts'
-import { type HistoryRow, type RunningRow, type SimpleInput, historyWindowStart } from '../../lib/money/simple-forecast.ts'
-import { calendarDate, firstOfMonth, storedCalendarDate } from '../../lib/money/weeks.ts'
+import { type HistoryRow, type RunningRow, type SimpleInput } from '../../lib/money/simple-forecast.ts'
+import { calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
 import { listLenders } from '../lenders/queries.ts'
 
@@ -12,10 +12,12 @@ import { listLenders } from '../lenders/queries.ts'
  *              the pot starts from the number on that screen.
  * running      every LoanFunding row on an ACTIVE, non-deleted loan; weeks count
  *              as paid only on a LIVE payment (an undone one is archived).
- * newLending   funding rows of loans STARTED since historyWindowStart, on
- *              non-deleted loans. Continuation loans (made by an "interest paid
- *              now" extension) are left out: they carry on the same money, and
- *              would count the same lending twice.
+ * history      funding rows of every non-deleted loan started on or before
+ *              today, whatever its status: the forecast spreads each one's
+ *              interest across the days it ran, as the lender page's "Interest
+ *              earned" does. Continuation loans (made by an "interest paid now"
+ *              extension) are IN: each earns over its own days, so spreading
+ *              counts no interest twice.
  * firstLoanOn  the earliest non-deleted loan: if it is inside the window, the
  *              average runs from its month, not over empty months before it.
  */
@@ -23,9 +25,7 @@ export type ProjectionContext = {
   today: Date
   lenders: { id: string; name: string; isSelf: boolean; floatingNow: Centavos }[]
   running: RunningRow[]
-  newLending: HistoryRow[]
-  /** New loans behind `newLending`, for the "based on N loans" line. */
-  newLoans: number
+  history: HistoryRow[]
   /** The first loan ever recorded: a book younger than the window averages from here. */
   firstLoanOn: Date | null
 }
@@ -44,7 +44,7 @@ export function simpleInput(
     adminId: ctx.lenders.find((l) => l.isSelf)?.id ?? null,
     capitalNow: new Map([...capitalNow].map(([k, v]) => [k, centavos(v)])),
     running: ctx.running,
-    history: ctx.newLending,
+    history: ctx.history,
     firstLoanOn: ctx.firstLoanOn,
     ...moves,
   }
@@ -56,7 +56,6 @@ export async function projectionContext(
   known?: Awaited<ReturnType<typeof listLenders>>,
 ): Promise<ProjectionContext> {
   const today = calendarDate(new Date())
-  const from = historyWindowStart(today)
 
   const [lenders, running, started, first] = await Promise.all([
     known ?? listLenders(userId),
@@ -79,9 +78,11 @@ export async function projectionContext(
       },
     }),
     db.loan.findMany({
-      where: { userId, deletedAt: null, startOn: { gte: from, lte: today }, continuedFrom: { none: {} } },
+      where: { userId, deletedAt: null, startOn: { lte: today } },
       select: {
+        id: true,
         startOn: true,
+        termDays: true,
         fundings: { select: { lenderId: true, earningsCentavos: true, adminCutCentavos: true } },
       },
     }),
@@ -107,19 +108,16 @@ export async function projectionContext(
       adminCut: centavos(row.adminCutCentavos),
       paidWeeks: new Set(row.loan.payments.flatMap((p) => (p.weekNumber === null ? [] : [p.weekNumber]))),
     })),
-    newLending: started.flatMap((loan) =>
+    history: started.flatMap((loan) =>
       loan.fundings.map((f) => ({
+        loanId: loan.id,
         lenderId: f.lenderId,
         startOn: storedCalendarDate(loan.startOn),
+        termDays: loan.termDays,
         earnings: centavos(f.earningsCentavos),
         adminCut: centavos(f.adminCutCentavos),
       })),
     ),
-    // The average uses full months (this month's loans are already running), so count those —
-    // unless the book began this month, when this month is all there is.
-    newLoans: started.some((l) => storedCalendarDate(l.startOn) < firstOfMonth(today))
-      ? started.filter((l) => storedCalendarDate(l.startOn) < firstOfMonth(today)).length
-      : started.length,
     firstLoanOn: first ? storedCalendarDate(first.startOn) : null,
   }
 }

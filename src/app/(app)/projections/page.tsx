@@ -58,7 +58,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const monthlyIn = pesos('add')
   const monthlyOut = pesos('out')
   const pace = PACES.find((p) => p === one('pace')) ?? 'usual'
-  const at = (p: Pace) => simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut, pace: p }), whose, ctx.newLoans)
+  const at = (p: Pace) => simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut, pace: p }), whose)
   const f = at(pace)
   const a = (x: { total: Centavos; months: unknown[] }) => centavos(Math.round(x.total / x.months.length))
   const slow = pace === 'slow' ? f : at('slow')

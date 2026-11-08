@@ -39,7 +39,7 @@ export async function LenderProjection({
   rangeHref: (months: number) => string
 }) {
   const ctx = await projectionContext(userId)
-  const at = (pace: 'slow' | 'usual' | 'busy') => simpleForecast(simpleInput(ctx, range, { pace }), { kind: 'lender', lenderId }, ctx.newLoans)
+  const at = (pace: 'slow' | 'usual' | 'busy') => simpleForecast(simpleInput(ctx, range, { pace }), { kind: 'lender', lenderId })
   const f = at('usual')
   const a = (x: typeof f) => centavos(Math.round(x.total / x.months.length))
   const best = f.months.at(-1)

@@ -1,6 +1,7 @@
 import { type Centavos, centavos } from './centavos.ts'
+import { accruedBetween } from './accrual.ts'
 import { type ScheduledRow, scheduleArrivals } from './projection.ts'
-import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
+import { addDays, daysBetween, firstOfMonth, monthKey } from './weeks.ts'
 
 /**
  * THE PROJECTION, KEPT SIMPLE (owner, 2026-11-08): "carry on the way you have
@@ -9,14 +10,21 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * For each month ahead, the interest is the LARGER of
  *   known    what the loans running today will pay in that month (their stored
  *            earnings and cut, on their due dates — scheduleArrivals), and
- *   usual    the interest a month that new lending has earned over the last
- *            HISTORY_MONTHS FULL months: loans started in them, their stored
- *            earnings and cut, divided by the months. (This month's loans
- *            are already in `known`.)
+ *   usual    the interest a month the lending has earned over the last
+ *            HISTORY_MONTHS FULL months, divided by the months. A month's
+ *            interest is each loan's stored earnings and cut SPREAD ACROSS THE
+ *            DAYS IT RAN (accruedBetween), the way the lender page's "Interest
+ *            earned" counts it (owner, 2026-11-08), so a loan running September
+ *            to October counts in both, and the two screens agree on a month.
  * A NEW BOOK (owner, 2026-11-08): when the first loan ever recorded is inside
  * the window, the months before it are not months of no lending, just months
  * before the app was used. The average then runs from the first loan's month
- * (historyFrom / historyMonths), and grows to the full window by itself.
+ * (historyFrom / historyMonths), and grows to the full window by itself. If
+ * the first loan came after the 1st, that month was part empty and would drag
+ * the average down, so the average starts the month after it — when there is
+ * a full month after it to start from.
+ * A book whose first loan is THIS month has no full month yet: its usual is
+ * the whole interest of this month's loans, by start date.
  * The larger, not the sum: the loans running today ARE part of the usual pace,
  * so adding both would count the same lending twice; taking only the known
  * figure would drop to nothing once today's loans end. The current month counts
@@ -36,14 +44,14 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * BORROWERS ARE LIMITED (owner, 2026-11-08). Two things keep the estimate
  * honest about how many borrowers there are, both read from the same history:
  *   PACE     slow / usual / busy. The whole pot's month-by-month interest from
- *            new lending over the last HISTORY_MONTHS FULL months (from the
+ *            lending over the last HISTORY_MONTHS FULL months (from the
  *            first loan's month, if lending began later); slow is the
  *            slowest of them ÷ their average, busy the busiest ÷ the average.
  *            Every lender's return is multiplied by that one factor, so the
  *            lenders still add up to the whole pot.
  *   CEILING  a lender's pot can grow, but borrowers may not grow with it: a
- *            lender's return part never goes above the most they earned from
- *            new loans in any one month of the window (own and cut apart), and
+ *            lender's return part never goes above the most they earned in
+ *            any one month of the window (own and cut apart), and
  *            all lenders together never above the whole pot's busiest full
  *            month (shared back by size). Money past that point has no borrower, earns nothing, and
  *            is reported as `idle`.
@@ -79,8 +87,8 @@ export type Whose = { kind: 'pot' } | { kind: 'lender'; lenderId: string }
 /** A funding row of a loan running today. Capital and earnings are the funder's; the cut is the Admin's. */
 export type RunningRow = ScheduledRow & { lenderId: string }
 
-/** A funding row of a loan STARTED in the history window. Continuation loans are left out by the caller. */
-export type HistoryRow = { lenderId: string; startOn: Date; earnings: Centavos; adminCut: Centavos }
+/** A funding row of a loan that started on or before today; its interest is spread over termDays from startOn. */
+export type HistoryRow = { loanId: string; lenderId: string; startOn: Date; termDays: number; earnings: Centavos; adminCut: Centavos }
 
 export type SimpleInput = {
   today: Date
@@ -119,7 +127,7 @@ export type SimpleMonth = {
 
 export type SimpleForecast = {
   months: SimpleMonth[]
-  /** The usual interest a month from new lending, in this view (the Admin's includes the cut). */
+  /** The usual interest a month from lending, in this view (the Admin's includes the cut). */
   usual: Centavos
   /** The Admin view only: the part of `usual` that is the Admin cut, earned on other lenders' money. */
   usualCut: Centavos
@@ -138,7 +146,7 @@ export type SimpleForecast = {
   total: Centavos
   /** Overdue today and not counted. */
   overdue: Centavos
-  /** New loans in the window, for the "based on" line. */
+  /** Loans that earned this view interest in the averaged months, for the "based on" line. */
   basedOnLoans: number
 }
 
@@ -162,12 +170,14 @@ type Stream = { own: number[]; cut: number[] }
  * the lenders' figures always add up to the whole pot. The pace factor and each
  * lender's busiest-month ceiling (see the top of this file) bound the return.
  */
-export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: number): SimpleForecast {
+export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast {
   const { today, adminId } = input
   const start = firstOfMonth(today)
   const months = Math.max(1, input.months)
   const index = (d: Date) => (d.getFullYear() - start.getFullYear()) * 12 + (d.getMonth() - start.getMonth())
   const ids = [...new Set([...input.capitalNow.keys(), ...input.running.map((r) => r.lenderId), ...(adminId ? [adminId] : [])])]
+  const mine = (id: string) => whose.kind === 'pot' || whose.lenderId === id
+  const getsCut = whose.kind === 'pot' || (adminId !== null && whose.kind === 'lender' && whose.lenderId === adminId)
   const blank = (): Stream => ({ own: Array.from({ length: months }, () => 0), cut: Array.from({ length: months }, () => 0) })
 
   // KNOWN: what running loans pay, by the lender whose capital it is.
@@ -187,40 +197,65 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
     }
   }
 
-  // USUAL: a month of new lending over the window, by the lender whose capital it is.
-  // Also each lender's busiest month (the CEILING) and the whole pot's full months (the PACE).
-  const from = historyWindowStart(today)
-  const usualOwn = new Map(ids.map((id) => [id, 0]))
-  const usualCut = new Map(ids.map((id) => [id, 0]))
-  const nowOwn = new Map(ids.map((id) => [id, 0])) // loans started this month, so far
-  const nowCut = new Map(ids.map((id) => [id, 0]))
-  const byMonth = new Map<string, { own: number; cut: number }>() // `${lenderId} ${monthIndex}`
-  const potMonths = Array.from({ length: HISTORY_MONTHS }, () => 0) // full months only, oldest first
-  let potThisMonth = 0 // the current month so far: in the ceiling, not in the pace
-  for (const r of input.history) {
-    if (daysBetween(from, r.startOn) < 0 || daysBetween(r.startOn, today) < 0) continue
-    const m = index(r.startOn)
-    const [o, c] = m < 0 ? [usualOwn, usualCut] : [nowOwn, nowCut]
-    o.set(r.lenderId, (o.get(r.lenderId) ?? 0) + r.earnings)
-    c.set(r.lenderId, (c.get(r.lenderId) ?? 0) + r.adminCut)
-    const key = `${r.lenderId} ${m}`
-    const b = byMonth.get(key) ?? { own: 0, cut: 0 }
-    byMonth.set(key, { own: b.own + r.earnings, cut: b.cut + r.adminCut })
-    if (m < 0) potMonths[m + HISTORY_MONTHS] += r.earnings + r.adminCut
-    else potThisMonth += r.earnings + r.adminCut
-  }
-  // The average starts at the window, or at the first loan's month if that is later.
+  // The average starts at the window, or at the first loan's month if that is later — or
+  // the month after it, when the first loan came after the 1st and a full month follows.
   const firstLoan =
     input.firstLoanOn ?? input.history.reduce<Date | null>((a, r) => (a === null || daysBetween(r.startOn, a) > 0 ? r.startOn : a), null)
-  const startIdx = firstLoan === null ? -HISTORY_MONTHS : Math.min(0, Math.max(-HISTORY_MONTHS, index(firstLoan)))
+  const firstIdx = firstLoan === null ? -HISTORY_MONTHS : Math.min(0, Math.max(-HISTORY_MONTHS, index(firstLoan)))
+  const partFirst = firstLoan !== null && index(firstLoan) === firstIdx && firstLoan.getDate() !== 1 && firstIdx + 1 < 0
+  const startIdx = partFirst ? firstIdx + 1 : firstIdx
   // FULL months only: this month is not over, and its loans are already in `known`.
   // A book whose first loan is this month has no full month yet, so it uses this one.
   const historyMonths = startIdx === 0 ? 0 : -startIdx
-  for (const id of ids) {
-    const [o, c] = historyMonths > 0 ? [usualOwn.get(id) as number, usualCut.get(id) as number] : [nowOwn.get(id) as number, nowCut.get(id) as number]
-    usualOwn.set(id, o / Math.max(1, historyMonths))
-    usualCut.set(id, c / Math.max(1, historyMonths))
+
+  // USUAL: what each lender's money earned in each month of the window, spread across
+  // the days each loan ran. Also each lender's busiest month (the CEILING), the whole
+  // pot's full months (the PACE), and the loans that earned this view something.
+  const usualOwn = new Map(ids.map((id) => [id, 0]))
+  const usualCut = new Map(ids.map((id) => [id, 0]))
+  const byMonth = new Map<string, { own: number; cut: number }>() // `${lenderId} ${monthIndex}`
+  const potMonths = Array.from({ length: HISTORY_MONTHS }, () => 0) // full months only, oldest first
+  let potThisMonth = 0 // the current month so far: in the ceiling, not in the pace
+  const loans = new Set<string>()
+  for (let m = -HISTORY_MONTHS; m <= 0; m += 1) {
+    const monthFrom = firstOfMonth(start, m)
+    const monthTo = m === 0 ? today : addDays(firstOfMonth(start, m + 1), -1)
+    for (const r of input.history) {
+      const own = accruedBetween(r.earnings, r.startOn, r.termDays, monthFrom, monthTo)
+      const cut = accruedBetween(r.adminCut, r.startOn, r.termDays, monthFrom, monthTo)
+      if (own + cut === 0) continue
+      const key = `${r.lenderId} ${m}`
+      const b = byMonth.get(key) ?? { own: 0, cut: 0 }
+      byMonth.set(key, { own: b.own + own, cut: b.cut + cut })
+      if (m === 0) {
+        potThisMonth += own + cut
+        continue
+      }
+      potMonths[m + HISTORY_MONTHS] += own + cut
+      if (m < startIdx) continue
+      usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + own)
+      usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + cut)
+      if ((mine(r.lenderId) && own > 0) || (getsCut && cut > 0)) loans.add(r.loanId)
+    }
   }
+  for (const id of ids) {
+    usualOwn.set(id, (usualOwn.get(id) as number) / Math.max(1, historyMonths))
+    usualCut.set(id, (usualCut.get(id) as number) / Math.max(1, historyMonths))
+  }
+  if (historyMonths === 0) {
+    // A new book: this month's loans, their whole interest, by start date. A few days
+    // of spread would understate the month, so the ceiling is measured the same way.
+    potThisMonth = 0
+    for (const r of input.history) {
+      if (index(r.startOn) !== 0 || daysBetween(r.startOn, today) < 0) continue
+      usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + r.earnings)
+      usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut)
+      potThisMonth += r.earnings + r.adminCut
+      if ((mine(r.lenderId) && r.earnings > 0) || (getsCut && r.adminCut > 0)) loans.add(r.loanId)
+    }
+    for (const id of ids) byMonth.set(`${id} 0`, { own: usualOwn.get(id) as number, cut: usualCut.get(id) as number })
+  }
+  const basedOnLoans = loans.size
   const ceilOwn = new Map(ids.map((id) => [id, 0]))
   const ceilCut = new Map(ids.map((id) => [id, 0]))
   for (const [key, b] of byMonth) {
@@ -249,8 +284,6 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   const ownRate = (id: string) => (ownRates.get(id) as number) * paceFactor
   const cutRate = (id: string) => (cutRates.get(id) as number) * paceFactor
 
-  const mine = (id: string) => whose.kind === 'pot' || whose.lenderId === id
-  const getsCut = whose.kind === 'pot' || (adminId !== null && whose.kind === 'lender' && whose.lenderId === adminId)
   const pots = new Map(capital0)
   const monthlyIn = input.monthlyIn ?? 0
   const monthlyOut = input.monthlyOut ?? 0
