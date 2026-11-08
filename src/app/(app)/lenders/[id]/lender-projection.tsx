@@ -24,12 +24,15 @@ export async function LenderProjection({
   userId,
   lenderId,
   lenderName,
+  isSelf,
   range,
   rangeHref,
 }: {
   userId: string
   lenderId: string
   lenderName: string
+  /** The Admin's own pot: its figure is the Admin's OWN-money interest, not the Admin cut. */
+  isSelf: boolean
   range: number
   rangeHref: (months: number) => string
 }) {
@@ -52,7 +55,7 @@ export async function LenderProjection({
         <IconChip icon={TrendingUp} tint="violet" />
         <div className="min-w-0">
           <h2 id="projection-title" className="text-base font-semibold">Projected interest</h2>
-          <p className="text-muted-foreground text-sm">If lending carries on like the last 6 months. An estimate.</p>
+          <p className="text-muted-foreground text-sm">If lending carries on like the last 6 months, without re-lending on top. An estimate.</p>
         </div>
       </div>
 
@@ -71,7 +74,9 @@ export async function LenderProjection({
       </nav>
 
       <div>
-        <p className="text-muted-foreground text-xs">{lenderName}’s estimated interest, from today to the end of {end}</p>
+        <p className="text-muted-foreground text-xs">
+          {isSelf ? 'Estimated interest on the Admin’s own money (not the Admin cut)' : `${lenderName}’s estimated interest`}, from today to the end of {end}
+        </p>
         <p className="text-2xl font-semibold tracking-tight"><Money amount={best.interestToDate} variant="display" /></p>
         {late ? (
           <p className="text-muted-foreground text-xs">

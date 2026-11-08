@@ -10,7 +10,6 @@ import { SelectNative } from '@/components/ui/select-native.tsx'
 import { type Centavos, centavos, formatPesos, parsePesos } from '@/lib/money/centavos.ts'
 import { HISTORY_MONTHS, historyWindowStart } from '@/lib/money/forecast-history.ts'
 import {
-  DEFAULT_HORIZON_MONTHS,
   DEFAULT_RANGE,
   type Plan,
   RANGES,
@@ -436,7 +435,8 @@ function toFormValues(plan: Plan, name: string) {
     adminCut: pctText(plan.adminCutBps),
     interestCollection: plan.collection,
     relend: plan.relend,
-    horizonMonths: DEFAULT_HORIZON_MONTHS,
+    // The page's time frame is what is drawn; this only keeps the stored column as it was.
+    horizonMonths: plan.horizonMonths,
   }
 }
 

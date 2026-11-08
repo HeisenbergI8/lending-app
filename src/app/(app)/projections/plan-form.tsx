@@ -74,7 +74,7 @@ export function PlanForm({ planId, values, defaultsNote }: { planId: string | nu
         </Field>
       </Group>
 
-      {/* The time frame is picked on the page, not stored per plan any more; the column keeps its value. */}
+      {/* The time frame is picked on the page. The stored column is posted back unchanged (a new plan stores the page's). */}
       <input type="hidden" name="horizonMonths" value={kept('horizonMonths', values.horizonMonths)} />
       <Group title="Re-lending">
         <label className="bg-muted/50 flex items-start gap-3 rounded-xl p-3 text-sm">

@@ -34,7 +34,7 @@ export function ProjectionPreview({ ctx }: { ctx: ProjectionContext }) {
       <p className="text-xl font-semibold"><Money amount={best.interestToDate} variant="display" /></p>
       <p className="text-muted-foreground text-xs">
         {late ? <>If some pay late: <Money amount={late.interestToDate} variant="display" /> · </> : null}
-        if you keep lending like the last 6 months
+        if you keep lending like the last 6 months, without re-lending on top
       </p>
       <p className="text-brand mt-2 flex items-center gap-1 text-xs font-medium">
         See projections <ChevronRight className="size-3.5" aria-hidden />

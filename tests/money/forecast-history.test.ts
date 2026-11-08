@@ -132,8 +132,20 @@ test('autoPlan: carries on the last 6 months of new lending, ignoring continuati
     [l(5, 10_000), l(6, 12_000), l(7, 9_000, 8), l(8, 11_000), l(9, 10_400), l(10, 10_000), l(10, 15_000, 4, true), l(3, 99_000)],
     today,
   )
-  // 6 new loans in the window: 1 a month, average ₱10,400 -> ₱10,000, mostly 4 weeks
-  assert.deepEqual(plan, { newLoansPerMonth: 1, loanAmount: 1_000_000, termWeeks: 4, basedOn: 6 })
+  // 6 new loans in the window: 1 a month; ₱62,400 lent over 6 months = ₱10,400 a month; mostly 4 weeks
+  assert.deepEqual(plan, { newLoansPerMonth: 1, loanAmount: 1_040_000, termWeeks: 4, basedOn: 6 })
   assert.equal(autoPlan([l(9, 5_000)], today).newLoansPerMonth, 1) // a light lender is not "none"
   assert.equal(autoPlan([], today).newLoansPerMonth, 0)
+})
+
+test('autoPlan keeps the money lent a month when the loan COUNT rounds', () => {
+  const ten = (m: number) => ({ startOn: day(2026, m, 5), capital: centavos(1_000_000), termDays: 28, continuation: false })
+  // 8 loans of ₱10,000 in 6 months = 1.33 a month, ₱13,333 a month: drawn as 1 loan of ₱13,300
+  const eight = autoPlan([5, 5, 6, 7, 8, 9, 10, 10].map(ten), today)
+  assert.equal(eight.newLoansPerMonth, 1)
+  assert.equal(eight.loanAmount, 1_330_000)
+  // 9 loans = 1.5 a month, ₱15,000 a month: drawn as 2 loans of ₱7,500
+  const nine = autoPlan([5, 5, 6, 7, 8, 9, 10, 10, 11].map(ten), today)
+  assert.equal(nine.newLoansPerMonth, 2)
+  assert.equal(nine.loanAmount * nine.newLoansPerMonth, 1_500_000)
 })

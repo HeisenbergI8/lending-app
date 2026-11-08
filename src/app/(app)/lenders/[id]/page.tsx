@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowDownLeft, ArrowLeft, ArrowUpRight, CalendarRange, ChevronDown, ChevronRight, HandCoins, History, Scissors, Wallet } from 'lucide-react'
@@ -534,10 +534,13 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
 
       {/* PROJECTED INTEREST: automatic, nothing to set up (owner, 2026-11-08).
           `proj` is the time frame in months; only 3, 6 and 12 are offered here. */}
+      {/* Streams in after the rest of the page: it reads every lender's ledger, which this page does not otherwise need. */}
+      <Suspense fallback={null}>
       <LenderProjection
         userId={user.id}
         lenderId={lender.id}
         lenderName={lender.isSelf ? 'Admin' : `${lender.firstName} ${lender.lastName}`}
+        isSelf={lender.isSelf}
         range={[3, 6, 12].includes(Number(one(query.proj))) ? Number(one(query.proj)) : DEFAULT_RANGE}
         rangeHref={(months) => {
           const next = new URLSearchParams()
@@ -549,6 +552,7 @@ export default async function LenderPage({ params, searchParams }: PageProps<'/l
           return `/lenders/${lender.id}?${next.toString()}#projection`
         }}
       />
+      </Suspense>
 
       {/* WHERE THE CUT COMES FROM. Cut coming above, and Earned, carry money that belongs
           to none of the loans listed further down this page, because the cut is
