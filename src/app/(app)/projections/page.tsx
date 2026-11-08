@@ -149,7 +149,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <button type="submit" className="bg-brand text-brand-foreground col-span-2 min-h-11 rounded-lg px-4 text-sm font-medium sm:col-span-1">Update</button>
         </form>
         {runsOut ? (
-          <p role="alert" className="text-sm">The pot runs out in {monthName(runsOut.month)}: taking out more than it holds.</p>
+          <p role="alert" className="text-sm">The pot runs out in {monthName(runsOut.month)}: taking out more than it holds.{picked?.isSelf ? ' The Admin cut still comes in after that, because it is earned on the other lenders’ money.' : ''}</p>
         ) : null}
       </section>
 
