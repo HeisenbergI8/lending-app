@@ -114,8 +114,16 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           </div>
           {f.monthlyReturnBps !== null ? (
             <div className="flex justify-between gap-3">
-              <dt className="text-white/85">Monthly return, from your last {HISTORY_MONTHS} months</dt>
+              <dt className="text-white/85">
+                Monthly return{picked ? ` on ${picked.isSelf ? 'the Admin’s own money' : `${picked.name}’s money`}` : ''}, from the last {HISTORY_MONTHS} months
+              </dt>
               <dd className="shrink-0 font-medium whitespace-nowrap">{pct(f.monthlyReturnBps)}</dd>
+            </div>
+          ) : null}
+          {picked?.isSelf && f.usualCut > 0 ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-white/85">Plus the Admin cut on other lenders’ money (grows with their pots)</dt>
+              <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={f.usualCut} variant="display" /> a month</dd>
             </div>
           ) : null}
           {last ? (
@@ -125,6 +133,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             </div>
           ) : null}
         </dl>
+        <p className="relative mt-3 text-xs text-white/80">Assumes all the money stays lent out at the usual pace, with enough borrowers for it.</p>
       </section>
 
       {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
@@ -193,7 +202,9 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             {historyWindowStart(ctx.today).toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })} earned{' '}
             {who} about <Money amount={f.usual} variant="display" /> a month. On <Money amount={f.capitalNow} variant="display" /> of money today, that is a monthly return of {f.monthlyReturnBps === null ? '—' : pct(f.monthlyReturnBps)}.
           </li>
-          <li>From next month, each month earns that return on the pot as it stands. Interest you leave in earns interest too, so it compounds. This assumes all the money keeps being lent out, with enough borrowers for it.</li>
+          <li>From next month, each lender’s pot earns their own return as it stands. Interest left in earns interest too, so it compounds. This assumes all the money keeps being lent out, with enough borrowers for it.</li>
+          <li>The Admin cut is earned on the other lenders’ money, so it grows with their pots, not with the Admin’s. That is why every lender’s figures add up to the whole pot.</li>
+          <li>Money in and out goes to the pot you are looking at. On the whole pot it is shared across lenders by the size of their pots.</li>
           <li>A month never shows less than your running loans will pay in it; the table says which figure it used. A month where a big loan falls due can read a little high, because a loan’s whole interest counts on its due date. This month counts from today only, so the “a month” figure, an average over the months shown, reads slightly low.</li>
           <li>A lender’s figures are their own earnings only. The Admin’s include the Admin cut. The whole pot is everyone.</li>
           <li>The pot starts from today’s capital (cash + money out on loan). Each month adds its interest and any money in, and takes off any money out. It cannot go below zero.</li>

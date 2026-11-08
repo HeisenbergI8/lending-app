@@ -25,47 +25,56 @@ const input = (extra: Partial<SimpleInput> = {}): SimpleInput => ({
   ...extra,
 })
 
-test('this month is what running loans pay; then the usual return compounds on the growing pot', () => {
+test('this month is what running loans pay; then each lender compounds at their own return', () => {
   const f = simpleForecast(input(), { kind: 'pot' }, 6)
-  assert.equal(f.monthlyReturnBps, 800)
-  assert.deepEqual(f.months.map((m) => [m.key, m.interest, m.pot]), [
-    ['2026-11', 840_000, 10_840_000],
-    ['2026-12', 867_200, 11_707_200], // 8% of ₱108,400
-    ['2027-01', 936_576, 12_643_776], // 8% of ₱117,072: interest on interest
-    ['2027-02', 1_011_502, 13_655_278],
-  ])
-  assert.equal(f.total, 840_000 + 867_200 + 936_576 + 1_011_502)
+  // John: ₱6,000 own + ₱2,000 cut a month on ₱90,000. Admin: no history of its own.
+  assert.equal(f.months[0].interest, 840_000)
+  assert.equal(f.months[0].pot, 10_840_000)
+  // Dec: on John's ₱96,000 → ₱6,400 own + ₱2,133.33 cut (rounded); the Admin's own money earns nothing new
+  assert.equal(f.months[1].interest, 640_000 + 213_333)
+  assert.equal(f.months[1].pot, 10_840_000 + 853_333)
+  // interest on interest: January earns more than December
+  assert.ok(f.months[2].interest > f.months[1].interest)
 })
 
-test('a lender earns their own return on their own money; the Admin’s includes the cut', () => {
-  const john = simpleForecast(input(), { kind: 'lender', lenderId: 'john' }, 6)
+test('the parts always add up to the whole pot', () => {
+  const pot = simpleForecast(input({ months: 24 }), { kind: 'pot' }, 6)
+  const john = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'john' }, 6)
+  const admin = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'admin' }, 6)
+  assert.equal(john.total + admin.total, pot.total)
+  assert.equal(john.months[23].pot + admin.months[23].pot, pot.months[23].pot)
+})
+
+test('the Admin cut grows with the lender capital that earns it, never with the Admin’s own pot', () => {
   const admin = simpleForecast(input(), { kind: 'lender', lenderId: 'admin' }, 6)
-  assert.equal(john.months[0].interest, 600_000)
-  assert.equal(john.months[1].interest, 640_000) // ₱6,000 on ₱90,000, applied to ₱96,000
-  assert.equal(admin.months[0].interest, 240_000)
-  assert.equal(admin.months[1].interest, 248_000) // ₱2,000 on ₱10,000, applied to ₱12,400
+  assert.equal(admin.months[0].interest, 240_000) // the running loan's cut
+  assert.equal(admin.months[1].interest, 213_333) // 2.22% of John's ₱96,000 — not 20% of the Admin's ₱12,400
+  assert.equal(admin.monthlyReturnBps, 0) // its own money has no history
+  assert.equal(admin.usualCut, 200_000)
+  // money added to the Admin's own pot does not change the cut it receives
+  const more = simpleForecast(input({ monthlyIn: centavos(5_000_000) }), { kind: 'lender', lenderId: 'admin' }, 6)
+  assert.equal(more.months[2].interest, admin.months[2].interest)
 })
 
 test('money added each month grows the pot and the interest after it', () => {
-  const f = simpleForecast(input({ monthlyIn: centavos(1_000_000) }), { kind: 'pot' }, 6)
-  assert.equal(f.months[0].pot, 10_840_000) // nothing added this month
-  assert.equal(f.months[1].pot, 10_840_000 + 867_200 + 1_000_000)
-  assert.equal(f.months[2].interest, Math.round(12_707_200 * 0.08))
+  const base = simpleForecast(input(), { kind: 'lender', lenderId: 'john' }, 6)
+  const f = simpleForecast(input({ monthlyIn: centavos(1_000_000) }), { kind: 'lender', lenderId: 'john' }, 6)
+  assert.equal(f.months[0].pot, base.months[0].pot) // nothing added this month
+  assert.equal(f.months[1].pot, base.months[1].pot + 1_000_000)
+  assert.ok(f.months[2].interest > base.months[2].interest)
 })
 
-test('taking out the interest every month keeps the pot flat; taking out more empties it, never below zero', () => {
-  const flat = simpleForecast(input({ monthlyOut: centavos(867_200) }), { kind: 'pot' }, 6)
-  assert.equal(flat.months[1].pot, 10_840_000)
-  const drain = simpleForecast(input({ monthlyOut: centavos(20_000_000) }), { kind: 'pot' }, 6)
+test('taking out more than the pot empties it, never below zero, and it then earns nothing', () => {
+  const drain = simpleForecast(input({ monthlyOut: centavos(50_000_000) }), { kind: 'lender', lenderId: 'john' }, 6)
   assert.equal(drain.months[1].pot, 0)
-  assert.equal(drain.months[1].takenOut, 10_840_000 + 867_200)
+  assert.equal(drain.months[1].takenOut, 9_600_000 + 640_000)
   assert.equal(drain.months[2].interest, 0)
 })
 
 test('a month where running loans pay more than the return keeps the larger, known figure', () => {
   const big = { ...running, dueOn: day(2026, 12, 20), earnings: centavos(2_000_000) }
   const f = simpleForecast(input({ running: [big] }), { kind: 'pot' }, 6)
-  assert.equal(f.months[1].interest, 2_240_000)
+  assert.equal(f.months[1].interest, 2_000_000 + 240_000)
   assert.equal(f.months[1].basis, 'known')
 })
 
