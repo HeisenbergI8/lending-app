@@ -46,10 +46,18 @@ import { addDays, daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * month, if lending began later); slow is the slowest of them ÷ their average,
  * busy the busiest ÷ the average. Every lender's return is multiplied by that
  * one factor, so the lenders still add up to the whole pot.
- * NO BORROWER CEILING (owner, 2026-11-08): the projection exists to show the
- * interest compounding, so a month is NOT held to the busiest month so far.
- * It assumes every peso left in finds a borrower; the page says so. Only
- * MAX_MONTHLY_RETURN still bounds a return, as a crash guard.
+ * BORROWER CEILING, PER LENDER (owner, 2026-11-08): money only earns when a
+ * borrower takes it, and a new borrower earns a lender nothing unless that
+ * lender funds the loan. So each lender's return part is held to
+ *   (their busiest month's borrowers + extra) × what one of their borrowers
+ *   earns them a month,
+ * own and cut apart. A lender's borrowers in a month are the borrowers whose
+ * loans that lender funded and that earned in that month. The busiest month
+ * counts this month so far too, so the ceiling rises by itself as soon as a
+ * month has more borrowers than before. `extraBorrowers` is the page's what-if:
+ * borrowers the viewed lender would fund on top (the whole pot shares them out
+ * by the size of the pots). MAX_MONTHLY_RETURN still bounds a return, as a
+ * crash guard.
  * A pot cannot go below zero; a month that would take more out than is there
  * takes what there is.
  *
@@ -83,7 +91,7 @@ export type Whose = { kind: 'pot' } | { kind: 'lender'; lenderId: string }
 export type RunningRow = ScheduledRow & { lenderId: string }
 
 /** A funding row of a loan that started on or before today; its interest is spread over termDays from startOn. */
-export type HistoryRow = { loanId: string; lenderId: string; startOn: Date; termDays: number; earnings: Centavos; adminCut: Centavos }
+export type HistoryRow = { loanId: string; borrowerId: string; lenderId: string; startOn: Date; termDays: number; earnings: Centavos; adminCut: Centavos }
 
 export type SimpleInput = {
   today: Date
@@ -101,6 +109,8 @@ export type SimpleInput = {
   firstLoanOn?: Date | null
   /** How strong lending is assumed to be. Defaults to 'usual'. */
   pace?: Pace
+  /** What-if: borrowers this view's lender would fund on top of their busiest month. */
+  extraBorrowers?: number
 }
 
 export type Pace = 'slow' | 'usual' | 'busy'
@@ -141,6 +151,13 @@ export type SimpleForecast = {
   overdue: Centavos
   /** Loans that earned this view interest in the averaged months, for the "based on" line. */
   basedOnLoans: number
+  /** This view's busiest month by borrowers (this month so far included), and the extra borrowers asked for. */
+  busiestBorrowers: number
+  extraBorrowers: number
+  /** What one of this view's borrowers earns it a month (the Admin's includes the cut). */
+  perBorrower: Centavos
+  /** The first month held down by the borrower ceiling, if any. */
+  heldFrom: Date | null
 }
 
 /**
@@ -160,7 +177,8 @@ type Stream = { own: number[]; cut: number[] }
  * Admin cut grows with the capital that generates it: each lender's usual cut ÷
  * that lender's money, applied to that lender's pot and paid to the Admin. So
  * the cut is never compounded as if it came from the Admin's own money, and
- * the lenders' figures always add up to the whole pot. The pace factor scales the return.
+ * the lenders' figures always add up to the whole pot. The pace factor scales the
+ * return, and each lender's borrower ceiling (see the top of this file) bounds it.
  */
 export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast {
   const { today, adminId } = input
@@ -207,19 +225,36 @@ export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast
   const usualCut = new Map(ids.map((id) => [id, 0]))
   const potMonths = Array.from({ length: HISTORY_MONTHS }, () => 0) // full months only, oldest first
   const loans = new Set<string>()
-  for (let m = -HISTORY_MONTHS; m < 0; m += 1) {
+  // Each lender's borrowers, month by month: `${lenderId} ${monthIndex}` → borrower ids.
+  const borrowersIn = new Map<string, Set<string>>()
+  // The borrowers who earned THIS view something, month by month (this month last), for the page.
+  const viewBorrowers = Array.from({ length: HISTORY_MONTHS + 1 }, () => new Set<string>())
+  for (let m = -HISTORY_MONTHS; m <= 0; m += 1) {
     const monthFrom = firstOfMonth(start, m)
-    const monthTo = addDays(firstOfMonth(start, m + 1), -1)
+    const monthTo = m === 0 ? today : addDays(firstOfMonth(start, m + 1), -1)
     for (const r of input.history) {
       const own = accruedBetween(r.earnings, r.startOn, r.termDays, monthFrom, monthTo)
       const cut = accruedBetween(r.adminCut, r.startOn, r.termDays, monthFrom, monthTo)
       if (own + cut === 0) continue
+      const key = `${r.lenderId} ${m}`
+      borrowersIn.set(key, (borrowersIn.get(key) ?? new Set<string>()).add(r.borrowerId))
+      if ((mine(r.lenderId) && own > 0) || (getsCut && cut > 0)) viewBorrowers[m + HISTORY_MONTHS].add(r.borrowerId)
+      if (m === 0) continue
       potMonths[m + HISTORY_MONTHS] += own + cut
       if (m < startIdx) continue
       usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + own)
       usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + cut)
       if ((mine(r.lenderId) && own > 0) || (getsCut && cut > 0)) loans.add(r.loanId)
     }
+  }
+  // Borrower-months behind the average, per lender: what one borrower earns them a month.
+  const borrowerMonths = new Map(ids.map((id) => [id, 0]))
+  const busiest = new Map(ids.map((id) => [id, 0]))
+  for (const [key, set] of borrowersIn) {
+    const id = key.slice(0, key.lastIndexOf(' '))
+    const m = Number(key.slice(key.lastIndexOf(' ') + 1))
+    busiest.set(id, Math.max(busiest.get(id) ?? 0, set.size))
+    if (m >= startIdx && m < 0) borrowerMonths.set(id, (borrowerMonths.get(id) ?? 0) + set.size)
   }
   for (const id of ids) {
     usualOwn.set(id, (usualOwn.get(id) as number) / Math.max(1, historyMonths))
@@ -234,8 +269,23 @@ export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast
       usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut)
       if ((mine(r.lenderId) && r.earnings > 0) || (getsCut && r.adminCut > 0)) loans.add(r.loanId)
     }
+    for (const [key, set] of borrowersIn) {
+      if (!key.endsWith(' 0')) continue
+      const id = key.slice(0, key.lastIndexOf(' '))
+      borrowerMonths.set(id, set.size)
+    }
   }
   const basedOnLoans = loans.size
+  // Per borrower, in a month of the average (a borrower-month): own and cut apart.
+  const perOwn = (id: string) => ((borrowerMonths.get(id) as number) > 0 ? ((usualOwn.get(id) as number) * Math.max(1, historyMonths)) / (borrowerMonths.get(id) as number) : 0)
+  const perCut = (id: string) => ((borrowerMonths.get(id) as number) > 0 ? ((usualCut.get(id) as number) * Math.max(1, historyMonths)) / (borrowerMonths.get(id) as number) : 0)
+  // The what-if borrowers go to the viewed lender; on the whole pot, shared by the size of the pots.
+  const extraBorrowers = Math.max(0, Math.floor(input.extraBorrowers ?? 0))
+  const capitalSum = ids.reduce((s, id) => s + Math.max(0, input.capitalNow.get(id) ?? 0), 0)
+  const extraFor = (id: string) =>
+    whose.kind === 'lender' ? (id === whose.lenderId ? extraBorrowers : 0) : capitalSum > 0 ? (extraBorrowers * Math.max(0, input.capitalNow.get(id) ?? 0)) / capitalSum : 0
+  const ceilOwn = new Map(ids.map((id) => [id, ((busiest.get(id) as number) + extraFor(id)) * perOwn(id)]))
+  const ceilCut = new Map(ids.map((id) => [id, ((busiest.get(id) as number) + extraFor(id)) * perCut(id)]))
   const pace = input.pace ?? 'usual'
   // Months before the first loan are not slow months, just before lending began.
   const lent = potMonths.slice(startIdx + HISTORY_MONTHS)
@@ -261,6 +311,7 @@ export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast
   const monthlyOut = input.monthlyOut ?? 0
 
   let total = 0
+  let heldFrom: Date | null = null
   const out: SimpleMonth[] = []
   for (let m = 0; m < months; m += 1) {
     // Interest on the pots as they stood at the start of the month.
@@ -271,8 +322,14 @@ export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast
     for (const id of ids) {
       const k = known.get(id) as Stream
       const pot = Math.max(0, pots.get(id) as number)
-      const own = Math.max(k.own[m], m === 0 ? 0 : Math.round(pot * ownRate(id)))
-      const cut = Math.max(k.cut[m], m === 0 ? 0 : Math.round(pot * cutRate(id)))
+      const wantOwn = pot * ownRate(id)
+      const wantCut = pot * cutRate(id)
+      const retOwn = Math.min(wantOwn, ceilOwn.get(id) as number)
+      const retCut = Math.min(wantCut, ceilCut.get(id) as number)
+      const held = (mine(id) && retOwn < wantOwn - 0.5) || (getsCut && retCut < wantCut - 0.5)
+      if (m > 0 && heldFrom === null && held) heldFrom = firstOfMonth(start, m)
+      const own = Math.max(k.own[m], m === 0 ? 0 : Math.round(retOwn))
+      const cut = Math.max(k.cut[m], m === 0 ? 0 : Math.round(retCut))
       credit.set(id, (credit.get(id) as number) + own)
       if (adminId) credit.set(adminId, (credit.get(adminId) as number) + cut)
       const counted = (mine(id) ? own : 0) + (getsCut ? cut : 0)
@@ -316,6 +373,10 @@ export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast
   const usual = Math.round(viewOwn + viewCut)
   // The return shown is on the view's OWN money: the Admin's cut is earned on others' capital, so it is reported apart.
   const ownForReturn = whose.kind === 'pot' ? usual : Math.round(viewOwn)
+  // For the page: the borrowers who earned this view something, and what one earns it a month.
+  const averaged = historyMonths > 0 ? viewBorrowers.slice(startIdx + HISTORY_MONTHS, HISTORY_MONTHS) : [viewBorrowers[HISTORY_MONTHS]]
+  const viewBorrowerMonths = averaged.reduce((s, set) => s + set.size, 0)
+  const perBorrowerView = viewBorrowerMonths > 0 ? (usual * Math.max(1, historyMonths)) / viewBorrowerMonths : 0
   return {
     months: out,
     usual: centavos(usual),
@@ -330,6 +391,10 @@ export function simpleForecast(input: SimpleInput, whose: Whose): SimpleForecast
     total: centavos(total),
     overdue: centavos(overdue),
     basedOnLoans,
+    busiestBorrowers: Math.max(...viewBorrowers.map((set) => set.size)),
+    extraBorrowers,
+    perBorrower: centavos(Math.round(perBorrowerView)),
+    heldFrom,
   }
 }
 

@@ -34,7 +34,7 @@ export type ProjectionContext = {
 export function simpleInput(
   ctx: ProjectionContext,
   months: number,
-  moves: Pick<SimpleInput, 'monthlyIn' | 'monthlyOut' | 'pace'> = {},
+  moves: Pick<SimpleInput, 'monthlyIn' | 'monthlyOut' | 'pace' | 'extraBorrowers'> = {},
 ): SimpleInput {
   const capitalNow = new Map(ctx.lenders.map((l) => [l.id, l.floatingNow as number]))
   for (const row of ctx.running) capitalNow.set(row.lenderId, (capitalNow.get(row.lenderId) ?? 0) + row.principal)
@@ -81,6 +81,7 @@ export async function projectionContext(
       where: { userId, deletedAt: null, startOn: { lte: today } },
       select: {
         id: true,
+        borrowerId: true,
         startOn: true,
         termDays: true,
         fundings: { select: { lenderId: true, earningsCentavos: true, adminCutCentavos: true } },
@@ -111,6 +112,7 @@ export async function projectionContext(
     history: started.flatMap((loan) =>
       loan.fundings.map((f) => ({
         loanId: loan.id,
+        borrowerId: loan.borrowerId,
         lenderId: f.lenderId,
         startOn: storedCalendarDate(loan.startOn),
         termDays: loan.termDays,

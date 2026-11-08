@@ -16,8 +16,15 @@ const running = {
 const share = [1, 1, 1, 1, 0.5, 1.5]
 // Each loan runs 28 days inside its month, so spreading it over its days keeps it in that month.
 const history = [5, 6, 7, 8, 9, 10].map((m, i) => ({
-  loanId: `L${m}`, lenderId: 'john', startOn: day(2026, m, 3), termDays: 28, earnings: centavos(600_000 * share[i]), adminCut: centavos(200_000 * share[i]),
+  loanId: `L${m}`, borrowerId: `B${m}`, lenderId: 'john', startOn: day(2026, m, 3), termDays: 28, earnings: centavos(600_000 * share[i]), adminCut: centavos(200_000 * share[i]),
 }))
+// October's ₱9,000 came from three borrowers, so the busiest month has three:
+// 8 borrower-months earned ₱36,000 own + ₱12,000 cut → ₱4,500 + ₱1,500 a borrower,
+// and John is held to 3 × that, ₱13,500 own + ₱4,500 cut a month.
+const oneEach = history
+const spread3 = (r: (typeof history)[number]) =>
+  [1, 2, 3].map((n) => ({ ...r, loanId: `${r.loanId}-${n}`, borrowerId: `${r.borrowerId}-${n}`, earnings: centavos(r.earnings / 3), adminCut: centavos(r.adminCut / 3) }))
+const roomy = [...history.slice(0, 5), ...spread3(history[5])]
 
 // ₱100,000 in the pot today (John ₱90,000, Admin ₱10,000): ₱8,000 a month on it is an 8% monthly return.
 const input = (extra: Partial<SimpleInput> = {}): SimpleInput => ({
@@ -26,7 +33,7 @@ const input = (extra: Partial<SimpleInput> = {}): SimpleInput => ({
   adminId: 'admin',
   capitalNow: new Map([['john', centavos(9_000_000)], ['admin', centavos(1_000_000)]]),
   running: [running],
-  history,
+  history: roomy,
   firstLoanOn: day(2026, 5, 1), // a book lending since the window began
   ...extra,
 })
@@ -101,12 +108,6 @@ test('a lender with almost no money left cannot compound a huge return: it is ca
   assert.equal(simpleForecast(input(), { kind: 'pot' }).capped, false)
 })
 
-test('no busiest-month ceiling: interest left in keeps compounding, month after month', () => {
-  const f = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'john' })
-  for (let i = 2; i < 24; i += 1) assert.ok(f.months[i].interest > f.months[i - 1].interest)
-  assert.ok(f.months[23].interest > 900_000) // well past his busiest month, ₱9,000
-})
-
 test('slow and busy months scale the return by the slowest and busiest month of the whole pot', () => {
   const slow = simpleForecast(input({ pace: 'slow' }), { kind: 'lender', lenderId: 'john' })
   const busy = simpleForecast(input({ pace: 'busy' }), { kind: 'lender', lenderId: 'john' })
@@ -148,7 +149,7 @@ test('a book started inside the window averages from its first loan, not over th
 })
 
 test('this month’s new loans are not in the average (they are already running); a book that began this month uses them', () => {
-  const now = { loanId: 'N', lenderId: 'john', startOn: day(2026, 11, 2), termDays: 28, earnings: centavos(9_000_000), adminCut: centavos(0) }
+  const now = { loanId: 'N', borrowerId: 'BN', lenderId: 'john', startOn: day(2026, 11, 2), termDays: 28, earnings: centavos(9_000_000), adminCut: centavos(0) }
   const f = simpleForecast(input({ history: [...history, now] }), { kind: 'lender', lenderId: 'john' })
   assert.equal(f.usual, 600_000)
   const fresh = simpleForecast(input({ history: [now], firstLoanOn: now.startOn }), { kind: 'lender', lenderId: 'john' })
@@ -170,16 +171,56 @@ test('a first month that began after the 1st is part empty, so the average start
 
 test('a loan running across two months counts in both, by the days it ran in each', () => {
   // 1 Sep to 30 Oct, 60 days, ₱6,000: ₱3,000 in September, ₱3,000 in October.
-  const across = [{ loanId: 'X', lenderId: 'john', startOn: day(2026, 9, 1), termDays: 60, earnings: centavos(600_000), adminCut: centavos(0) }]
+  const across = [{ loanId: 'X', borrowerId: 'BX', lenderId: 'john', startOn: day(2026, 9, 1), termDays: 60, earnings: centavos(600_000), adminCut: centavos(0) }]
   const f = simpleForecast(input({ history: across, firstLoanOn: day(2026, 9, 1) }), { kind: 'lender', lenderId: 'john' })
   assert.equal(f.historyMonths, 2)
   assert.equal(f.usual, 300_000)
 })
 
 test('"based on N loans" counts only the loans that earned this view something', () => {
-  const both = [...history, { loanId: 'A9', lenderId: 'admin', startOn: day(2026, 9, 10), termDays: 14, earnings: centavos(500_000), adminCut: centavos(0) }]
+  const both = [...history, { loanId: 'A9', borrowerId: 'BA', lenderId: 'admin', startOn: day(2026, 9, 10), termDays: 14, earnings: centavos(500_000), adminCut: centavos(0) }]
   const at = (whose: Parameters<typeof simpleForecast>[1]) => simpleForecast(input({ history: both }), whose).basedOnLoans
   assert.equal(at({ kind: 'pot' }), 7)
   assert.equal(at({ kind: 'lender', lenderId: 'john' }), 6)
   assert.equal(at({ kind: 'lender', lenderId: 'admin' }), 7) // its own loan, plus the cut on John's six
+})
+
+// The ceiling: one borrower a month earned John ₱6,000 on average, and his busiest month had one.
+const tight = (extra: Partial<SimpleInput> = {}) => input({ months: 12, history: oneEach, ...extra })
+
+test('a lender is held to their busiest month’s borrowers times what one of them earns', () => {
+  const f = simpleForecast(tight(), { kind: 'lender', lenderId: 'john' })
+  assert.equal(f.busiestBorrowers, 1)
+  assert.equal(f.perBorrower, 600_000)
+  assert.equal(f.months[1].interest, 600_000) // ₱6,400 wanted, one borrower brings ₱6,000
+  assert.equal(f.months[11].interest, 600_000)
+  assert.equal(f.heldFrom?.getMonth(), 11)
+})
+
+test('extra borrowers the lender funds raise the ceiling', () => {
+  const f = simpleForecast(tight({ extraBorrowers: 1 }), { kind: 'lender', lenderId: 'john' })
+  assert.equal(f.months[1].interest, 640_000) // under two borrowers’ ₱12,000
+  assert.ok(f.months.every((m, i) => i === 0 || m.interest <= 1_200_000))
+  assert.equal(f.months[11].interest, 1_200_000)
+})
+
+test('borrowers another lender funds do not raise John’s ceiling', () => {
+  const others = ['c1', 'c2', 'c3'].map((b) => ({ loanId: b, borrowerId: b, lenderId: 'admin', startOn: day(2026, 10, 3), termDays: 14, earnings: centavos(100_000), adminCut: centavos(0) }))
+  const f = simpleForecast(tight({ history: [...oneEach, ...others] }), { kind: 'lender', lenderId: 'john' })
+  assert.equal(f.busiestBorrowers, 1)
+  assert.equal(f.months[11].interest, 600_000)
+})
+
+test('a month with more borrowers than before raises the ceiling by itself, this month included', () => {
+  const now = ['n1', 'n2', 'n3'].map((b) => ({ loanId: b, borrowerId: b, lenderId: 'john', startOn: day(2026, 11, 2), termDays: 28, earnings: centavos(100_000), adminCut: centavos(0) }))
+  const f = simpleForecast(tight({ history: [...oneEach, ...now] }), { kind: 'lender', lenderId: 'john' })
+  assert.equal(f.busiestBorrowers, 3)
+  assert.equal(f.months[1].interest, 640_000) // under three borrowers’ ₱18,000
+})
+
+test('with the ceiling on, the parts still add up to the whole pot', () => {
+  const pot = simpleForecast(tight({ months: 24 }), { kind: 'pot' })
+  const john = simpleForecast(tight({ months: 24 }), { kind: 'lender', lenderId: 'john' })
+  const admin = simpleForecast(tight({ months: 24 }), { kind: 'lender', lenderId: 'admin' })
+  assert.equal(john.total + admin.total, pot.total)
 })

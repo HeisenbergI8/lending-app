@@ -34,8 +34,9 @@ const monthName = (d: Date) => d.toLocaleDateString('en-PH', { month: 'long', ye
  *
  * BORROWERS (owner, 2026-11-08): `pace` picks slow / usual / busy, from the
  * slowest and busiest of the last 6 full months; the hero shows all three a
- * month. No month is held to the busiest month so far: the page is for seeing
- * the interest compound, and it says it assumes enough borrowers.
+ * month. Each lender's interest is held to their busiest month's borrowers
+ * times what one of their borrowers earns them; `more` (typed on the page,
+ * never saved) adds borrowers the viewed lender would fund. See simple-forecast.
  */
 export default async function ProjectionsPage({ searchParams }: PageProps<'/projections'>) {
   const user = await requireUser()
@@ -58,7 +59,10 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const monthlyIn = pesos('add')
   const monthlyOut = pesos('out')
   const pace = PACES.find((p) => p === one('pace')) ?? 'usual'
-  const at = (p: Pace) => simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut, pace: p }), whose)
+  // Extra borrowers: a whole number typed on the page; blank or nonsense is none.
+  const moreRaw = Number(one('more'))
+  const extraBorrowers = Number.isInteger(moreRaw) && moreRaw > 0 ? Math.min(moreRaw, 999) : 0
+  const at = (p: Pace) => simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut, pace: p, extraBorrowers }), whose)
   const f = at(pace)
   const a = (x: { total: Centavos; months: unknown[] }) => centavos(Math.round(x.total / x.months.length))
   const slow = pace === 'slow' ? f : at('slow')
@@ -178,7 +182,28 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             </div>
           ) : null}
         </dl>
-        <p className="relative mt-3 text-xs text-white/80">This assumes every peso left in finds a borrower. If borrowers run short, the real interest will be lower.</p>
+        <p className="relative mt-3 text-xs text-white/80">
+          Held to {f.busiestBorrowers + f.extraBorrowers} borrowers{picked ? ` ${picked.isSelf ? 'the Admin funds' : `${picked.name} funds`}` : ''}, each earning about <Money amount={f.perBorrower} variant="display" /> a month
+          {f.heldFrom ? `, reached in ${monthName(f.heldFrom)}. After that, more money needs more borrowers.` : '.'}
+        </p>
+      </section>
+
+      {/* BORROWERS: a plain GET form, like money in and out. Nothing is saved. */}
+      <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
+        <div>
+          <h2 className="text-base font-semibold">More borrowers</h2>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            Busiest month so far: {f.busiestBorrowers} {f.busiestBorrowers === 1 ? 'borrower' : 'borrowers'}{picked ? ` funded by ${picked.isSelf ? 'the Admin' : picked.name}` : ''}. Add borrowers {picked ? `${picked.isSelf ? 'the Admin' : picked.name} would fund` : 'the lenders would fund'} to see what they would earn. Nothing is saved.
+          </p>
+        </div>
+        <form method="get" action="/projections" className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          {Object.entries(q).flatMap(([k, v]) => (k !== 'more' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
+          <div className="space-y-1.5">
+            <label htmlFor="more" className="text-sm font-medium">Extra borrowers</label>
+            <input id="more" name="more" type="number" min={0} max={999} step={1} inputMode="numeric" defaultValue={extraBorrowers || ''} placeholder="0" className="border-input bg-background h-11 w-full rounded-lg border px-3 text-base" />
+          </div>
+          <button type="submit" className="bg-brand text-brand-foreground min-h-11 rounded-lg px-4 text-sm font-medium">Update</button>
+        </form>
       </section>
 
       {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
@@ -248,8 +273,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <HowCard icon={TrendingUp} tint="mint" title="Interest earns interest">
             Interest you leave in gets lent out again from the next month.
           </HowCard>
-          <HowCard icon={Users} tint="amber" title="Enough borrowers">
-            It assumes all the money finds borrowers. More money doesn’t bring more borrowers by itself, so real months can be lower.
+          <HowCard icon={Users} tint="amber" title="Limited by borrowers">
+            A month earns no more than your busiest month’s borrowers bring in. A borrower only counts for the lender who funds the loan.
           </HowCard>
           <HowCard icon={Gauge} tint="violet" title="Slow or busy">
             {f.basedOnLoans > 0 && f.historyMonths > 0
@@ -268,6 +293,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             <li>Money you add starts earning the month after. On the whole pot it is shared across lenders by the size of their pots.</li>
             <li>A month never shows less than your running loans will pay in it. A month when a big loan falls due can read high, because its whole interest counts that day.</li>
             <li>The return uses the money there is today, so a big recent deposit or withdrawal can make it read low or high.</li>
+            <li>The busiest month counts this month so far, so it goes up by itself when a month has more borrowers than before.</li>
+            <li>Extra borrowers are funded by the lender you are viewing. On the whole pot they are shared out by the size of each lender’s money.</li>
             <li>The pot is today’s cash plus money out on loan, plus interest, plus or minus money in and out. It never goes below zero.</li>
             <li>This month counts from today only, so it reads a little low.</li>
             {f.capped ? <li>One lender has very little money left, so their return was held to about 30% a month.</li> : null}
