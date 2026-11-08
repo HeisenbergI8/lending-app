@@ -53,7 +53,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const view: View =
     // The Admin chip is the Admin's own earnings PLUS the cut (forecastView, kind
     // 'lender' on the Admin pot). ?view=admin from older links lands there too.
-    one('view') === 'admin' ? { kind: 'lender', lenderId: admin?.id ?? '' }
+    one('view') === 'admin' && admin ? { kind: 'lender', lenderId: admin.id }
     : one('view') === 'lender' ? { kind: 'lender', lenderId: one('lender') ?? admin?.id ?? '' }
     : { kind: 'pot' }
 
@@ -112,6 +112,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
     view.kind === 'pot' ? 'the whole pot'
     : view.lenderId === admin?.id ? 'the Admin (own money plus the Admin cut)'
     : name(view.lenderId)
+  const potHeader =
+    view.kind === 'pot' ? 'Whole pot'
+    : view.kind === 'lender' && view.lenderId === admin?.id ? 'Admin’s pot'
+    : view.kind === 'lender' ? `${name(view.lenderId)}’s pot`
+    : 'Pot'
   const warnMonths = first.best.filter((m) => m.warnings.length > 0)
   const late = lateInView(first.f.best, view)
   const shortDate = (d: Date) => d.toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -120,7 +125,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const planSentence =
     p.newLoansPerMonth === 0
       ? 'No new loans: just the loans running today.'
-      : `About ${p.newLoansPerMonth} new loan${p.newLoansPerMonth === 1 ? '' : 's'} a month of ${formatPesos(p.loanAmount)}, for ${p.termWeeks} week${p.termWeeks === 1 ? '' : 's'}, borrower pays ${pct(p.borrowerRateBps)} a week (lender ${pct(p.borrowerRateBps - p.adminCutBps)} + Admin cut ${pct(p.adminCutBps)})${p.relend ? ', re-lending returned money' : ''}.`
+      : `About ${p.newLoansPerMonth} new loan${p.newLoansPerMonth === 1 ? '' : 's'} a month of ${formatPesos(p.loanAmount)}, for ${p.termWeeks} week${p.termWeeks === 1 ? '' : 's'}, borrower pays ${pct(p.borrowerRateBps)} a week (lender ${pct(p.borrowerRateBps - p.adminCutBps)} + Admin cut ${pct(p.adminCutBps)}; the Admin’s own money earns the full ${pct(p.borrowerRateBps)})${p.relend ? ', re-lending returned money' : ''}.`
 
   return (
     // [overflow-wrap:anywhere]: a plan name is free text, and one long word must wrap, not widen a phone screen.
@@ -224,6 +229,73 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           </div>
         </div>
 
+        {/* CUSTOMIZE: closed until asked for. Opens filled in with what is being
+            projected now, so only the one thing to change needs touching. */}
+        {one('customize') === '1' ? (
+        <section id="customize" aria-label="Customize" className="bg-card ring-border/70 scroll-mt-4 rounded-2xl p-4 ring-1">
+          <div className="flex items-start justify-between gap-2">
+            <SectionHead title="Customize" purpose="Change what the estimate assumes, and save it as your own plan." />
+            <Link href={href({ customize: null })} scroll={false} className="text-muted-foreground hover:bg-muted inline-flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm">Close</Link>
+          </div>
+          <div className="mt-4 space-y-5">
+            {saved.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Your saved plans</p>
+                <ScrollRow label="Saved plans">
+                  <Link href={href({ plan: null, month: null })} aria-current={custom ? undefined : 'page'} className={chip}>Automatic</Link>
+                  {saved.map((s) => (
+                    <Link key={s.id} href={href({ plan: s.id, month: null })} aria-current={s.id === custom?.id ? 'page' : undefined} className={chip}>{s.name}</Link>
+                  ))}
+                </ScrollRow>
+              </div>
+            ) : null}
+            <PlanForm
+              key={custom?.id ?? 'auto'}
+              planId={custom?.id ?? null}
+              values={toFormValues(custom ? custom.plan : auto, custom?.name ?? '')}
+              defaultsNote={custom ? 'Change anything, then save.' : 'Filled in from your usual lending. Change what you like, give it a name, and save.'}
+            />
+            {custom ? (
+              <div className="border-border/70 space-y-3 border-t pt-4">
+                <SectionHead
+                  title="Money in and out"
+                  purpose="Planning for a lender to add or take out money? Add it here and the estimate allows for it. Pretend only: nothing is recorded."
+                />
+                {custom.moves.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">None yet.</p>
+                ) : (
+                  <ul className="divide-border/70 divide-y text-sm">
+                    {custom.moves.map((m) => (
+                      <li key={m.id} className="flex items-center justify-between gap-3 py-2.5">
+                        <span className="min-w-0">
+                          <span className="block font-medium">
+                            {name(m.lenderId)} {m.type === 'DEPOSIT' ? 'puts in' : 'takes out'} <Money amount={centavos(m.amountCentavos)} variant="display" />
+                          </span>
+                          <span className="text-muted-foreground block text-xs">
+                            {m.everyMonth
+                              ? `Every month from ${monthName(storedCalendarDate(m.fromMonth))}${m.untilMonth ? ` to ${monthName(storedCalendarDate(m.untilMonth))}` : ''}`
+                              : `Once, in ${monthName(storedCalendarDate(m.fromMonth))}`}
+                          </span>
+                        </span>
+                        <RemoveMoveButton moveId={m.id} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <details className="group/add">
+                  <summary className="text-brand flex min-h-11 cursor-pointer list-none items-center text-sm font-medium [&::-webkit-details-marker]:hidden">+ Add money in or out</summary>
+                  <div className="mt-3">
+                    <AddMoveForm planId={custom.id} lenders={ctx.lenders.map((l) => ({ id: l.id, name: l.name }))} />
+                  </div>
+                </details>
+                <div className="flex justify-center">
+                  <DeletePlanButton planId={custom.id} name={custom.name} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+        ) : null}
         {warnMonths.length > 0 ? (
           <div className="bg-card ring-border/70 flex gap-3 rounded-2xl p-4 ring-1">
             <IconChip icon={AlertTriangle} tint="amber" />
@@ -271,7 +343,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
               <tr className="text-muted-foreground border-border/70 border-b text-left text-xs">
                 <th scope="col" className="px-4 py-2 font-medium">Month</th>
                 <th scope="col" className="px-2 py-2 text-right font-medium">Interest that month</th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">Whole pot at month end<span className="block font-normal">capital + earnings</span></th>
+                <th scope="col" className="px-4 py-2 text-right font-medium">{potHeader} at month end<span className="block font-normal">capital + earnings</span></th>
               </tr>
             </thead>
             <tbody className="divide-border/70 divide-y">
@@ -290,6 +362,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             </tbody>
           </table>
         </div>
+        <p className="text-muted-foreground text-xs">The pot is cash plus money out on loan. Interest not yet collected is not counted in it until it comes in.</p>
       </section>
 
       <details className="group bg-card ring-border/70 rounded-2xl p-4 ring-1">
@@ -338,73 +411,6 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         </ul>
       </details>
 
-      {/* CUSTOMIZE: closed until asked for. Opens filled in with what is being
-          projected now, so only the one thing to change needs touching. */}
-      {one('customize') === '1' ? (
-      <section id="customize" aria-label="Customize" className="bg-card ring-border/70 scroll-mt-4 rounded-2xl p-4 ring-1">
-        <div className="flex items-start justify-between gap-2">
-          <SectionHead title="Customize" purpose="Change what the estimate assumes, and save it as your own plan." />
-          <Link href={href({ customize: null })} scroll={false} className="text-muted-foreground hover:bg-muted inline-flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm">Close</Link>
-        </div>
-        <div className="mt-4 space-y-5">
-          {saved.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-sm font-semibold">Your saved plans</p>
-              <ScrollRow label="Saved plans">
-                <Link href={href({ plan: null, month: null })} aria-current={custom ? undefined : 'page'} className={chip}>Automatic</Link>
-                {saved.map((s) => (
-                  <Link key={s.id} href={href({ plan: s.id, month: null })} aria-current={s.id === custom?.id ? 'page' : undefined} className={chip}>{s.name}</Link>
-                ))}
-              </ScrollRow>
-            </div>
-          ) : null}
-          <PlanForm
-            key={custom?.id ?? 'auto'}
-            planId={custom?.id ?? null}
-            values={toFormValues(custom ? custom.plan : auto, custom?.name ?? '')}
-            defaultsNote={custom ? 'Change anything, then save.' : 'Filled in from your usual lending. Change what you like, give it a name, and save.'}
-          />
-          {custom ? (
-            <div className="border-border/70 space-y-3 border-t pt-4">
-              <SectionHead
-                title="Money in and out"
-                purpose="Planning for a lender to add or take out money? Add it here and the estimate allows for it. Pretend only: nothing is recorded."
-              />
-              {custom.moves.length === 0 ? (
-                <p className="text-muted-foreground text-sm">None yet.</p>
-              ) : (
-                <ul className="divide-border/70 divide-y text-sm">
-                  {custom.moves.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between gap-3 py-2.5">
-                      <span className="min-w-0">
-                        <span className="block font-medium">
-                          {name(m.lenderId)} {m.type === 'DEPOSIT' ? 'puts in' : 'takes out'} <Money amount={centavos(m.amountCentavos)} variant="display" />
-                        </span>
-                        <span className="text-muted-foreground block text-xs">
-                          {m.everyMonth
-                            ? `Every month from ${monthName(storedCalendarDate(m.fromMonth))}${m.untilMonth ? ` to ${monthName(storedCalendarDate(m.untilMonth))}` : ''}`
-                            : `Once, in ${monthName(storedCalendarDate(m.fromMonth))}`}
-                        </span>
-                      </span>
-                      <RemoveMoveButton moveId={m.id} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <details className="group/add">
-                <summary className="text-brand flex min-h-11 cursor-pointer list-none items-center text-sm font-medium [&::-webkit-details-marker]:hidden">+ Add money in or out</summary>
-                <div className="mt-3">
-                  <AddMoveForm planId={custom.id} lenders={ctx.lenders.map((l) => ({ id: l.id, name: l.name }))} />
-                </div>
-              </details>
-              <div className="flex justify-center">
-                <DeletePlanButton planId={custom.id} name={custom.name} />
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-      ) : null}
     </div>
   )
 }
