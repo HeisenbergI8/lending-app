@@ -121,8 +121,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const late = lateInView(first.f.best, view)
   const plainMonth = plainRun ? monthOf(plainRun.best, best.key) : null
   const shortDate = (d: Date) => d.toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })
-  const small = 'inline-flex min-h-9 items-center rounded-full px-3 text-xs font-medium ring-1 ring-border hover:bg-muted'
-  const chip = 'shrink-0 rounded-full px-3.5 py-2 text-sm font-medium ring-1 ring-border transition-colors hover:bg-muted aria-[current=page]:bg-brand aria-[current=page]:text-brand-foreground aria-[current=page]:ring-brand'
+  const small = 'inline-flex min-h-11 items-center rounded-full px-3 text-xs font-medium ring-1 ring-border hover:bg-muted'
+  const chip = 'inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-muted aria-[current=page]:bg-brand aria-[current=page]:text-brand-foreground aria-[current=page]:ring-brand'
 
   return (
     // [overflow-wrap:anywhere]: a plan name is free text, and one long word must wrap, not widen a phone screen.
@@ -137,7 +137,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       {/* STEP 1 and 2: what is being projected. Choices first, so every figure
           below reads as the answer to them. One scrolling row each on a phone. */}
       <section className="bg-card ring-border/70 space-y-4 rounded-2xl p-4 ring-1">
-        <SectionHead title="Choose what to look at" purpose="Everything below updates to match what you pick here." />
+        <SectionHead title="Choose what to look at" purpose="The figures and the chart below change to match what you pick here." />
         <div className="space-y-2">
           <StepTitle n={1}>Pick a plan</StepTitle>
           <p className="text-muted-foreground -mt-1 text-xs">A plan is your guess about the loans you will make. “Running loans only” shows just today’s loans.</p>
@@ -469,7 +469,7 @@ function ScrollRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 function MonthArrow({ href, label, children }: { href: string | null; label: string; children: React.ReactNode }) {
-  const cls = 'flex size-9 items-center justify-center rounded-full bg-white/15'
+  const cls = 'flex size-11 items-center justify-center rounded-full bg-white/15'
   if (!href) return <span className={`${cls} opacity-40`} aria-hidden>{children}</span>
   return <Link href={href} scroll={false} aria-label={label} className={`${cls} hover:bg-white/25`}>{children}</Link>
 }

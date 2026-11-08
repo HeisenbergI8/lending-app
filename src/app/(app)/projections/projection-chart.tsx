@@ -153,7 +153,8 @@ export function ProjectionChart({
               }}
               aria-hidden
             >
-              {compactPesos(picked.interestToDate)}
+              {/* Says estimate, and whose line it is when plans are compared. */}
+              Est. {compactPesos(picked.interestToDate)}{lines.length > 2 ? ` · ${first.label.split(':')[0]}` : ''}
             </span>
           ) : null}
 

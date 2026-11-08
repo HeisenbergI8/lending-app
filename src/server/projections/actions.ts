@@ -27,7 +27,8 @@ const MAX_TERM_WEEKS = 52
 export type KeptState = FormState & { fields?: Record<string, string> }
 
 function keep(form: FormData, message: string): KeptState {
-  return { error: message, fields: Object.fromEntries([...form.entries()].flatMap(([k, v]) => (typeof v === 'string' ? [[k, v]] : []))) }
+  // Only the form's own fields: not Next's internal $ACTION_* entries.
+  return { error: message, fields: Object.fromEntries([...form.entries()].flatMap(([k, v]) => (typeof v === 'string' && !k.startsWith('$') ? [[k, v]] : []))) }
 }
 
 /**
