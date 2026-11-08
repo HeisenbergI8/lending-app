@@ -12,7 +12,11 @@ const running = {
   termDays: 28, principal: centavos(3_000_000), earnings: centavos(600_000), adminCut: centavos(240_000), paidWeeks: new Set<number>(),
 }
 // Six months of history: John earned ₱36,000 and the Admin cut ₱12,000 on new loans → ₱6,000 + ₱2,000 a month.
-const history = [5, 6, 7, 8, 9, 10].map((m) => ({ lenderId: 'john', startOn: day(2026, m, 3), earnings: centavos(600_000), adminCut: centavos(200_000) }))
+// September was slow (half) and October busy (one and a half): his busiest month is ₱9,000 own + ₱3,000 cut.
+const share = [1, 1, 1, 1, 0.5, 1.5]
+const history = [5, 6, 7, 8, 9, 10].map((m, i) => ({
+  lenderId: 'john', startOn: day(2026, m, 3), earnings: centavos(600_000 * share[i]), adminCut: centavos(200_000 * share[i]),
+}))
 
 // ₱100,000 in the pot today (John ₱90,000, Admin ₱10,000): ₱8,000 a month on it is an 8% monthly return.
 const input = (extra: Partial<SimpleInput> = {}): SimpleInput => ({
@@ -94,4 +98,45 @@ test('a lender with almost no money left cannot compound a huge return: it is ca
   assert.equal(f.capped, true)
   assert.ok(Number.isSafeInteger(f.total))
   assert.equal(simpleForecast(input(), { kind: 'pot' }, 6).capped, false)
+})
+
+test('borrowers are limited: a lender never earns more in a month than their busiest month, and the rest sits idle', () => {
+  const f = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'john' }, 6)
+  assert.ok(f.months.every((m, i) => i === 0 || m.interest <= 900_000))
+  assert.equal(f.months[23].interest, 900_000)
+  assert.ok(f.months[23].idle > 0)
+  assert.equal(f.months[1].idle, 0) // ₱6,400 on ₱96,000 is still under the busiest month
+  // the cut is held the same way
+  const admin = simpleForecast(input({ months: 24 }), { kind: 'lender', lenderId: 'admin' }, 6)
+  assert.equal(admin.months[23].interest, 300_000)
+})
+
+test('slow and busy months scale the return by the slowest and busiest month of the whole pot', () => {
+  const slow = simpleForecast(input({ pace: 'slow' }), { kind: 'lender', lenderId: 'john' }, 6)
+  const busy = simpleForecast(input({ pace: 'busy' }), { kind: 'lender', lenderId: 'john' }, 6)
+  assert.equal(slow.paceFactor, 0.5)
+  assert.equal(busy.paceFactor, 1.5)
+  assert.equal(slow.months[0].interest, 600_000) // this month is still what running loans pay
+  assert.equal(slow.months[1].interest, 320_000) // half of ₱6,400
+  assert.equal(busy.months[1].interest, 900_000) // ₱9,600 held to his busiest month, ₱9,000
+  const usual = simpleForecast(input(), { kind: 'lender', lenderId: 'john' }, 6)
+  assert.ok(slow.total < usual.total && usual.total < busy.total)
+})
+
+test('at every pace the parts still add up to the whole pot', () => {
+  for (const pace of ['slow', 'busy'] as const) {
+    const pot = simpleForecast(input({ months: 24, pace }), { kind: 'pot' }, 6)
+    const john = simpleForecast(input({ months: 24, pace }), { kind: 'lender', lenderId: 'john' }, 6)
+    const admin = simpleForecast(input({ months: 24, pace }), { kind: 'lender', lenderId: 'admin' }, 6)
+    assert.equal(john.total + admin.total, pot.total)
+  }
+})
+
+test('all lenders together never earn more in a month than the whole pot’s busiest month', () => {
+  // The Admin lent its own money in September only; John was busiest in October.
+  const both = [...history, { lenderId: 'admin', startOn: day(2026, 9, 10), earnings: centavos(500_000), adminCut: centavos(0) }]
+  const pot = simpleForecast(input({ months: 24, history: both, capitalNow: new Map([['john', centavos(9_000_000)], ['admin', centavos(5_000_000)]]) }), { kind: 'pot' }, 6)
+  // busiest whole-pot month: October, ₱9,000 + ₱3,000 (September is ₱3,000 + ₱1,000 + ₱5,000)
+  assert.ok(pot.months.every((m, i) => i === 0 || m.interest <= 1_200_000 + 1))
+  assert.ok(pot.months[23].interest >= 1_200_000 - 1)
 })

@@ -4,13 +4,15 @@ import { ChevronDown } from 'lucide-react'
 import { Money } from '@/components/money.tsx'
 import { type Centavos, centavos, parsePesos } from '@/lib/money/centavos.ts'
 import { rate as pct } from '@/lib/loan-export.ts'
-import { DEFAULT_RANGE, HISTORY_MONTHS, RANGES, type Whose, historyWindowStart, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
+import { DEFAULT_RANGE, HISTORY_MONTHS, PACES, type Pace, RANGES, type Whose, historyWindowStart, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { projectionContext, simpleInput } from '@/server/projections/queries.ts'
 
 import { MonthlyBars } from './monthly-bars.tsx'
 
 export const metadata = { title: 'Projections' }
+
+const PACE_LABEL: Record<Pace, string> = { slow: 'Slow', usual: 'Usual', busy: 'Busy' }
 
 const monthName = (d: Date) => d.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
 
@@ -26,6 +28,11 @@ const monthName = (d: Date) => d.toLocaleDateString('en-PH', { month: 'long', ye
  *
  * A lender's view is their own earnings only; the Admin's is its own earnings
  * plus the Admin cut; the whole pot is everything.
+ *
+ * BORROWERS (owner, 2026-11-08): `pace` picks slow / usual / busy, from the
+ * slowest and busiest of the last 6 full months; the hero shows all three a
+ * month. Each lender's interest is held to their busiest month, and money past
+ * it is shown as having no borrower (SimpleMonth.idle).
  */
 export default async function ProjectionsPage({ searchParams }: PageProps<'/projections'>) {
   const user = await requireUser()
@@ -47,7 +54,14 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   }
   const monthlyIn = pesos('add')
   const monthlyOut = pesos('out')
-  const f = simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut }), whose, ctx.newLoans)
+  const pace = PACES.find((p) => p === one('pace')) ?? 'usual'
+  const at = (p: Pace) => simpleForecast(simpleInput(ctx, range, { monthlyIn, monthlyOut, pace: p }), whose, ctx.newLoans)
+  const f = at(pace)
+  const a = (x: { total: Centavos; months: unknown[] }) => centavos(Math.round(x.total / x.months.length))
+  const slow = pace === 'slow' ? f : at('slow')
+  const busy = pace === 'busy' ? f : at('busy')
+  const slowPerMonth = a(slow)
+  const busyPerMonth = a(busy)
   const runsOut = monthlyOut ? f.months.find((m, i) => i > 0 && m.takenOut < monthlyOut) : undefined
 
   const last = f.months.at(-1)
@@ -97,17 +111,38 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             ))}
           </ScrollRow>
         </div>
+        <div className="space-y-2">
+          <div>
+            <h2 className="text-sm font-semibold">How busy with borrowers</h2>
+            <p className="text-muted-foreground text-xs">Like your slowest month, an average month, or your busiest month of the last {HISTORY_MONTHS}.</p>
+          </div>
+          <ScrollRow label="How busy with borrowers">
+            {PACES.map((p) => (
+              <Link key={p} href={href({ pace: p === 'usual' ? null : p })} aria-current={p === pace ? 'page' : undefined} className={chip}>
+                {PACE_LABEL[p]}
+              </Link>
+            ))}
+          </ScrollRow>
+        </div>
       </section>
 
       {/* THE ANSWER: interest a month (the range's total over its months), the total, and the pot at the end. */}
       <section aria-label="The estimate" className="bg-hero shadow-rest relative overflow-hidden rounded-2xl p-5 text-white">
         <span className="pointer-events-none absolute -top-16 -right-10 size-48 rounded-full bg-white/10 blur-2xl" aria-hidden />
         <p className="relative text-xs font-medium"><span className="rounded-full bg-white/15 px-2 py-0.5">Estimate</span></p>
-        <p className="relative mt-3 text-sm text-white/90">Over the next {range === 12 ? 'year' : rangeLabel(range)}, {who} would earn about</p>
+        <p className="relative mt-3 text-sm text-white/90">
+          Over the next {range === 12 ? 'year' : rangeLabel(range)}{pace === 'usual' ? '' : `, in ${pace} months`}, {who} would earn about
+        </p>
         <p className="relative mt-1 text-4xl font-semibold tracking-tight">
           <Money amount={perMonth} variant="display" /><span className="text-xl font-medium"> a month</span>
         </p>
         <dl className="relative mt-4 grid gap-1.5 border-t border-white/20 pt-3 text-sm">
+          <div className="flex justify-between gap-3">
+            <dt className="text-white/85">Range a month, slow to busy months</dt>
+            <dd className="shrink-0 font-medium whitespace-nowrap">
+              <Money amount={slowPerMonth} variant="display" /> – <Money amount={busyPerMonth} variant="display" />
+            </dd>
+          </div>
           <div className="flex justify-between gap-3">
             <dt className="text-white/85">Total interest, today to end of {last ? monthName(last.month) : ''}</dt>
             <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={f.total} variant="display" /></dd>
@@ -132,8 +167,14 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
               <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={last.pot} variant="display" /></dd>
             </div>
           ) : null}
+          {last && pace === 'usual' && last.idle > 0 ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-white/85">Of that, money with no borrower by then (more than your busiest month has used)</dt>
+              <dd className="shrink-0 font-medium whitespace-nowrap"><Money amount={last.idle} variant="display" /></dd>
+            </div>
+          ) : null}
         </dl>
-        <p className="relative mt-3 text-xs text-white/80">Assumes all the money stays lent out at the usual pace, with enough borrowers for it.</p>
+        <p className="relative mt-3 text-xs text-white/80">Interest never goes above your busiest month so far, because the number of borrowers may not grow with the pot.</p>
       </section>
 
       {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
@@ -202,7 +243,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             {historyWindowStart(ctx.today).toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })} earned{' '}
             {who} about <Money amount={f.usual} variant="display" /> a month. On <Money amount={f.capitalNow} variant="display" /> of money today, that is a monthly return of {f.monthlyReturnBps === null ? '—' : pct(f.monthlyReturnBps)}.
           </li>
-          <li>From next month, each lender’s pot earns their own return as it stands. Interest left in earns interest too, so it compounds. This assumes all the money keeps being lent out, with enough borrowers for it.</li>
+          <li>From next month, each lender’s pot earns their own return as it stands. Interest left in earns interest too, so it compounds.</li>
+          <li>
+            <span className="text-foreground">Borrowers:</span> a lender never earns more in a month than in their busiest month of the last {HISTORY_MONTHS}, because more money does not bring more borrowers by itself. Money past that is shown as having no borrower.
+          </li>
+          <li>
+            <span className="text-foreground">Slow and busy:</span> your slowest of the last {HISTORY_MONTHS} full months earned {Math.round(slow.paceFactor * 100)}% of an average month, your busiest {Math.round(busy.paceFactor * 100)}%. Slow and busy use those against the usual return. Running loans still pay what they will either way.
+          </li>
           <li>The Admin cut is earned on the other lenders’ money, so it grows with their pots, not with the Admin’s. That is why every lender’s figures add up to the whole pot.</li>
           <li>Money added in a month starts earning the month after.</li>
           <li>The return uses the money there is today. If a lot was added or taken out recently, it can read high or low.{f.capped ? ' One lender’s return was held to the most a loan can earn, about 30% a month, because they have very little money left.' : ''}</li>

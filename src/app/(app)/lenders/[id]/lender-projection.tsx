@@ -20,6 +20,7 @@ const LENDER_RANGES = RANGES.filter((r) => r <= 12)
  * today to the end of the chosen time frame. A lender's OWN earnings only; on
  * the Admin's own page, the Admin's earnings plus the Admin cut. The pot is
  * their capital today plus that interest. An estimate, and the card says so.
+ * The slow-to-busy line is the same at pace 'slow' and 'busy'.
  */
 export async function LenderProjection({
   userId,
@@ -38,7 +39,9 @@ export async function LenderProjection({
   rangeHref: (months: number) => string
 }) {
   const ctx = await projectionContext(userId)
-  const f = simpleForecast(simpleInput(ctx, range), { kind: 'lender', lenderId }, ctx.newLoans)
+  const at = (pace: 'slow' | 'usual' | 'busy') => simpleForecast(simpleInput(ctx, range, { pace }), { kind: 'lender', lenderId }, ctx.newLoans)
+  const f = at('usual')
+  const a = (x: typeof f) => centavos(Math.round(x.total / x.months.length))
   const best = f.months.at(-1)
   if (!best) return null
   const perMonth = Math.round(f.total / f.months.length)
@@ -75,6 +78,9 @@ export async function LenderProjection({
         <p className="text-2xl font-semibold tracking-tight"><Money amount={f.total} variant="display" /></p>
         <p className="text-muted-foreground text-xs">
           About <Money amount={centavos(perMonth)} variant="display" /> a month · pot by then <Money amount={best.pot} variant="display" /> (capital + earnings)
+        </p>
+        <p className="text-muted-foreground text-xs">
+          Slow to busy months: <Money amount={a(at('slow'))} variant="display" /> – <Money amount={a(at('busy'))} variant="display" /> a month
         </p>
       </div>
 

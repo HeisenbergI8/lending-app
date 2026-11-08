@@ -30,7 +30,7 @@ export type ProjectionContext = {
 export function simpleInput(
   ctx: ProjectionContext,
   months: number,
-  moves: { monthlyIn?: Centavos; monthlyOut?: Centavos } = {},
+  moves: Pick<SimpleInput, 'monthlyIn' | 'monthlyOut' | 'pace'> = {},
 ): SimpleInput {
   const capitalNow = new Map(ctx.lenders.map((l) => [l.id, l.floatingNow as number]))
   for (const row of ctx.running) capitalNow.set(row.lenderId, (capitalNow.get(row.lenderId) ?? 0) + row.principal)

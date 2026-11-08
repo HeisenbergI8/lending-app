@@ -28,9 +28,21 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * loans are known to pay in it. Money added or taken out each month (from next
  * month) moves the pot, and so the interest after it.
  *
- * ASSUMES the money keeps being lent out at the same rate as lately: enough
- * borrowers for all of it. A pot cannot go below zero; a month that would take
- * more out than is there takes what there is.
+ * BORROWERS ARE LIMITED (owner, 2026-11-08). Two things keep the estimate
+ * honest about how many borrowers there are, both read from the same history:
+ *   PACE     slow / usual / busy. The whole pot's month-by-month interest from
+ *            new lending over the last HISTORY_MONTHS FULL months; slow is the
+ *            slowest of them ÷ their average, busy the busiest ÷ the average.
+ *            Every lender's return is multiplied by that one factor, so the
+ *            lenders still add up to the whole pot.
+ *   CEILING  a lender's pot can grow, but borrowers may not grow with it: a
+ *            lender's return part never goes above the most they earned from
+ *            new loans in any one month of the window (own and cut apart), and
+ *            all lenders together never above the whole pot's busiest full
+ *            month (shared back by size). Money past that point has no borrower, earns nothing, and
+ *            is reported as `idle`.
+ * A pot cannot go below zero; a month that would take more out than is there
+ * takes what there is.
  *
  * THE POT at a month's end is the pot before it plus that month's interest,
  * plus what was added, minus what was taken out. Money already overdue today
@@ -76,7 +88,12 @@ export type SimpleInput = {
   monthlyIn?: Centavos
   /** Taken out of this view's pot each month, from next month. */
   monthlyOut?: Centavos
+  /** How strong lending is assumed to be. Defaults to 'usual'. */
+  pace?: Pace
 }
+
+export type Pace = 'slow' | 'usual' | 'busy'
+export const PACES: readonly Pace[] = ['slow', 'usual', 'busy']
 
 export type SimpleMonth = {
   month: Date
@@ -88,6 +105,8 @@ export type SimpleMonth = {
   takenOut: Centavos
   /** The pot at the month's end: before + interest + added − taken out. */
   pot: Centavos
+  /** This view's own money with no borrower this month: past the busiest month it has ever had. */
+  idle: Centavos
 }
 
 export type SimpleForecast = {
@@ -100,6 +119,9 @@ export type SimpleForecast = {
   monthlyReturnBps: number | null
   /** True when some lender's return was held to MAX_MONTHLY_RETURN. */
   capped: boolean
+  /** The pace used, and its factor on the usual return (1 for usual). */
+  pace: Pace
+  paceFactor: number
   /** The money this view had today: the pot the compounding starts from. */
   capitalNow: Centavos
   total: Centavos
@@ -126,7 +148,8 @@ type Stream = { own: number[]; cut: number[] }
  * Admin cut grows with the capital that generates it: each lender's usual cut ÷
  * that lender's money, applied to that lender's pot and paid to the Admin. So
  * the cut is never compounded as if it came from the Admin's own money, and
- * the lenders' figures always add up to the whole pot.
+ * the lenders' figures always add up to the whole pot. The pace factor and each
+ * lender's busiest-month ceiling (see the top of this file) bound the return.
  */
 export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: number): SimpleForecast {
   const { today, adminId } = input
@@ -154,14 +177,36 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   }
 
   // USUAL: a month of new lending over the window, by the lender whose capital it is.
+  // Also each lender's busiest month (the CEILING) and the whole pot's full months (the PACE).
   const from = historyWindowStart(today)
   const usualOwn = new Map(ids.map((id) => [id, 0]))
   const usualCut = new Map(ids.map((id) => [id, 0]))
+  const byMonth = new Map<string, { own: number; cut: number }>() // `${lenderId} ${monthIndex}`
+  const potMonths = Array.from({ length: HISTORY_MONTHS }, () => 0) // full months only, oldest first
+  let potThisMonth = 0 // the current month so far: in the ceiling, not in the pace
   for (const r of input.history) {
     if (daysBetween(from, r.startOn) < 0 || daysBetween(r.startOn, today) < 0) continue
     usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + r.earnings / HISTORY_MONTHS)
     usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut / HISTORY_MONTHS)
+    const m = index(r.startOn)
+    const key = `${r.lenderId} ${m}`
+    const b = byMonth.get(key) ?? { own: 0, cut: 0 }
+    byMonth.set(key, { own: b.own + r.earnings, cut: b.cut + r.adminCut })
+    if (m < 0) potMonths[m + HISTORY_MONTHS] += r.earnings + r.adminCut
+    else potThisMonth += r.earnings + r.adminCut
   }
+  const ceilOwn = new Map(ids.map((id) => [id, 0]))
+  const ceilCut = new Map(ids.map((id) => [id, 0]))
+  for (const [key, b] of byMonth) {
+    const id = key.slice(0, key.lastIndexOf(' '))
+    ceilOwn.set(id, Math.max(ceilOwn.get(id) ?? 0, b.own))
+    ceilCut.set(id, Math.max(ceilCut.get(id) ?? 0, b.cut))
+  }
+  const potCeil = Math.max(...potMonths, potThisMonth)
+  const pace = input.pace ?? 'usual'
+  const potAverage = potMonths.reduce((a, b) => a + b, 0) / HISTORY_MONTHS
+  const paceFactor =
+    pace === 'usual' || potAverage <= 0 ? 1 : (pace === 'slow' ? Math.min(...potMonths) : Math.max(...potMonths)) / potAverage
   const capital0 = new Map(ids.map((id) => [id, input.capitalNow.get(id) ?? 0]))
   const raw = (usual: Map<string, number>, id: string) =>
     (capital0.get(id) as number) > 0 ? (usual.get(id) as number) / (capital0.get(id) as number) : 0
@@ -173,8 +218,8 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   }
   const ownRates = new Map(ids.map((id) => [id, cap(raw(usualOwn, id))]))
   const cutRates = new Map(ids.map((id) => [id, cap(raw(usualCut, id))]))
-  const ownRate = (id: string) => ownRates.get(id) as number
-  const cutRate = (id: string) => cutRates.get(id) as number
+  const ownRate = (id: string) => (ownRates.get(id) as number) * paceFactor
+  const cutRate = (id: string) => (cutRates.get(id) as number) * paceFactor
 
   const mine = (id: string) => whose.kind === 'pot' || whose.lenderId === id
   const getsCut = whose.kind === 'pot' || (adminId !== null && whose.kind === 'lender' && whose.lenderId === adminId)
@@ -189,12 +234,27 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
     let interest = 0
     let fromKnown = 0
     let fromReturn = 0
+    let idle = 0
     const credit = new Map(ids.map((id) => [id, 0]))
+    // The return part is held to each lender's busiest month, and all of it together
+    // to the whole pot's busiest month (shared back by size): past that, there are
+    // no borrowers for the money. Same for every view, so the parts add up.
+    const ret = new Map(ids.map((id) => {
+      const pot = Math.max(0, pots.get(id) as number)
+      return [id, {
+        own: m === 0 ? 0 : Math.min(pot * ownRate(id), ceilOwn.get(id) as number),
+        cut: m === 0 ? 0 : Math.min(pot * cutRate(id), ceilCut.get(id) as number),
+      }]
+    }))
+    const retSum = [...ret.values()].reduce((s, r) => s + r.own + r.cut, 0)
+    const scale = retSum > potCeil ? potCeil / retSum : 1
     for (const id of ids) {
       const k = known.get(id) as Stream
       const pot = Math.max(0, pots.get(id) as number)
-      const own = m === 0 ? k.own[m] : Math.max(k.own[m], Math.round(pot * ownRate(id)))
-      const cut = m === 0 ? k.cut[m] : Math.max(k.cut[m], Math.round(pot * cutRate(id)))
+      const r = ret.get(id) as { own: number; cut: number }
+      const own = Math.max(k.own[m], Math.round(r.own * scale))
+      const cut = Math.max(k.cut[m], Math.round(r.cut * scale))
+      if (m > 0 && mine(id) && ownRate(id) > 0) idle += Math.max(0, pot - (r.own * scale) / ownRate(id))
       credit.set(id, (credit.get(id) as number) + own)
       if (adminId) credit.set(adminId, (credit.get(adminId) as number) + cut)
       const counted = (mine(id) ? own : 0) + (getsCut ? cut : 0)
@@ -229,6 +289,7 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
       basis: m === 0 || fromKnown >= fromReturn ? 'known' : 'usual',
       takenOut: centavos(Math.round(takenOut)),
       pot: centavos(Math.round(viewPot)),
+      idle: centavos(Math.round(idle)),
     })
   }
 
@@ -245,6 +306,8 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
     monthlyReturnBps: viewCapital > 0 ? Math.floor((ownForReturn * 10_000) / viewCapital) : null,
     capitalNow: centavos(viewCapital),
     capped,
+    pace,
+    paceFactor,
     total: centavos(total),
     overdue: centavos(overdue),
     basedOnLoans,
