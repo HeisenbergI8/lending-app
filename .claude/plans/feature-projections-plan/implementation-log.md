@@ -7,3 +7,11 @@
 **Deviations from plan:** none
 **Gate:** `npm run verify` — 916 pass, 0 fail; lint 0 errors
 **Notes:** existing projection tests unchanged and passing after the `scheduleArrivals` extraction.
+
+## Phase 2: Historical inputs (pure) — 2026-11-08
+
+**Steps completed:** 2.1, 2.2
+**Files changed:** `src/lib/money/forecast-history.ts` (new), `tests/money/forecast-history.test.ts` (new)
+**Deviations from plan:** none — code taken verbatim from the plan.
+**Gate:** `node --test tests/money/forecast-history.test.ts` 11 pass; `npm run typecheck` green; eslint clean.
+**Notes:** no figure checked against real data — no database credentials in this session.
