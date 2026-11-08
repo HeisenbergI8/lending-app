@@ -70,6 +70,9 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const runs = drawn.length > 0 ? drawn : run({ id: 'real', name: 'Running loans only', plan: realOnly })
 
   const first = runs[0]
+  // The first plan again with re-lending off, for the tiles: re-lending can be
+  // most of the estimate (data-truth, 2026-11-08), so the plain figure is shown beside it.
+  const plainRun = first.plan.relend ? run({ id: `${first.id}-plain`, name: first.name, plan: { ...first.plan, relend: false } })[0] ?? null : null
   const selectedKey = one('month') ?? monthKey(ctx.today)
   const best = monthOf(first.best, selectedKey) ?? first.best[0]
   const realistic = first.realistic ? monthOf(first.realistic, best.key) : null
@@ -79,7 +82,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
   const lines: ChartLine[] = runs.flatMap((r, i) => [
     { key: `${r.id}-best`, label: `${r.name} — all pay on time`, color: SERIES[i], dashed: false, points: r.best },
-    ...(r.realistic ? [{ key: `${r.id}-real`, label: `${r.name} — realistic`, color: SERIES[i], dashed: true, points: r.realistic }] : []),
+    ...(r.realistic ? [{ key: `${r.id}-real`, label: `${r.name} — realistic (payments later, as in your history${r.plan.relend ? '; re-lending at the "up to" rates below' : ''})`, color: SERIES[i], dashed: true, points: r.realistic }] : []),
   ])
   const flagged = new Set(first.best.filter((m) => m.warnings.length > 0).map((m) => m.key))
   const href = (patch: Record<string, string | null>) => {
@@ -184,6 +187,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <p className="text-muted-foreground text-xs">Estimated total from today to the end of {monthName(best.month)}</p>
           <p className="text-xl font-semibold"><Money amount={best.interestToDate} variant="display" /></p>
           {realistic ? <p className="text-muted-foreground text-xs">Realistic: <Money amount={realistic.interestToDate} variant="display" /></p> : null}
+          {plainRun ? (
+            <p className="text-muted-foreground text-xs">
+              Without re-lending: <Money amount={monthOf(plainRun.best, best.key)?.interestToDate ?? centavos(0)} variant="display" />
+            </p>
+          ) : null}
         </div>
       </section>
 

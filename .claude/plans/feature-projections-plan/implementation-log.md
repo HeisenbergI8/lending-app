@@ -86,3 +86,12 @@ The Phase 6 entry above was WRONG on three points. The shell command that made t
 
 Auditor item 4 (proving-query record in `.claude/reconciliation/projections.md`): the data-truth agent is writing it now, against the LOCAL demo database only.
 **Gate:** `npm run verify` green (943 pass); /projections loads with no page errors.
+
+## Fixes after the data-truth report — 2026-11-08
+
+Record: `.claude/reconciliation/projections.md` (LOCAL DEMO data only; gitignored by the repo's rules). 12 of 14 figures TRUE. 2 MISLABELLED, one cause:
+- **Dashboard card:** "Estimated interest, next 12 months ₱1,636,023.20" never said that about 95% of it came from assuming returned money is re-lent. Without re-lending it is ₱83,160.00. The card now reads "Estimated interest from today to the end of {month}, with re-lending" and shows "Without re-lending: ₱83,160.00" beside it. The window now names its last month: it runs from today to the end of the 12th calendar month, which "next 12 months" did not describe exactly.
+- **Page realistic line:** the legend now says what "realistic" changes: "payments later, as in your history; re-lending at the "up to" rates below". The total tile shows "Without re-lending" for the same month when the plan re-lends.
+
+Checked in the browser as DEMO: card and page both show ₱83,160.00 without re-lending for October 2027, which equals data-truth's figure.
+**Gate:** `npm run verify` green (943 pass).
