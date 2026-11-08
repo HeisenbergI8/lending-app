@@ -147,3 +147,15 @@ test('months before lending began are not counted as slow months', () => {
   // (8,000 + 4,000 + 12,000) ÷ 3 = 8,000 a month; the slowest is 4,000
   assert.equal(f.paceFactor, 0.5)
 })
+
+test('a book started inside the window averages from its first loan, not over the empty months before it', () => {
+  // First loan ever: August. Aug + Sep + Oct earned ₱6,000 + ₱3,000 + ₱9,000 own → ₱6,000 a month, not ₱3,000.
+  const late = history.slice(3)
+  const f = simpleForecast(input({ history: late, firstLoanOn: day(2026, 8, 3) }), { kind: 'lender', lenderId: 'john' }, 3)
+  assert.equal(f.historyMonths, 3)
+  assert.equal(f.usual, 600_000 + 0) // a lender's view: own earnings only
+  // a first loan long ago keeps the full window, gaps counted as months of no lending
+  const old = simpleForecast(input({ history: late, firstLoanOn: day(2025, 1, 1) }), { kind: 'lender', lenderId: 'john' }, 3)
+  assert.equal(old.historyMonths, 6)
+  assert.equal(old.usual, 300_000)
+})

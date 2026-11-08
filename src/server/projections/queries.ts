@@ -16,6 +16,8 @@ import { listLenders } from '../lenders/queries.ts'
  *              non-deleted loans. Continuation loans (made by an "interest paid
  *              now" extension) are left out: they carry on the same money, and
  *              would count the same lending twice.
+ * firstLoanOn  the earliest non-deleted loan: if it is inside the window, the
+ *              average runs from its month, not over empty months before it.
  */
 export type ProjectionContext = {
   today: Date
@@ -24,6 +26,8 @@ export type ProjectionContext = {
   newLending: HistoryRow[]
   /** New loans behind `newLending`, for the "based on N loans" line. */
   newLoans: number
+  /** The first loan ever recorded: a book younger than the window averages from here. */
+  firstLoanOn: Date | null
 }
 
 /** The simple projection's input, built once from the context. */
@@ -41,6 +45,7 @@ export function simpleInput(
     capitalNow: new Map([...capitalNow].map(([k, v]) => [k, centavos(v)])),
     running: ctx.running,
     history: ctx.newLending,
+    firstLoanOn: ctx.firstLoanOn,
     ...moves,
   }
 }
@@ -53,7 +58,7 @@ export async function projectionContext(
   const today = calendarDate(new Date())
   const from = historyWindowStart(today)
 
-  const [lenders, running, started] = await Promise.all([
+  const [lenders, running, started, first] = await Promise.all([
     known ?? listLenders(userId),
     db.loanFunding.findMany({
       where: { userId, loan: { deletedAt: null, status: 'ACTIVE' } },
@@ -80,6 +85,7 @@ export async function projectionContext(
         fundings: { select: { lenderId: true, earningsCentavos: true, adminCutCentavos: true } },
       },
     }),
+    db.loan.findFirst({ where: { userId, deletedAt: null }, orderBy: { startOn: 'asc' }, select: { startOn: true } }),
   ])
 
   return {
@@ -110,5 +116,6 @@ export async function projectionContext(
       })),
     ),
     newLoans: started.length,
+    firstLoanOn: first ? storedCalendarDate(first.startOn) : null,
   }
 }

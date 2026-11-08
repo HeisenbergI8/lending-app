@@ -30,7 +30,7 @@ export function ProjectionPreview({ ctx }: { ctx: ProjectionContext }) {
       </p>
       <p className="text-xl font-semibold"><Money amount={centavos(Math.round(f.total / f.months.length))} variant="display" /></p>
       <p className="text-muted-foreground text-xs">
-        <Money amount={f.total} variant="display" /> from today to the end of {end}, if you keep lending like the last 6 months, with interest left in.
+        <Money amount={f.total} variant="display" /> from today to the end of {end}, if you keep lending like you have, with interest left in.
         Slow to busy months: <Money amount={a(at('slow'))} variant="display" /> – <Money amount={a(at('busy'))} variant="display" /> a month
       </p>
       <p className="text-brand mt-2 flex items-center gap-1 text-xs font-medium">

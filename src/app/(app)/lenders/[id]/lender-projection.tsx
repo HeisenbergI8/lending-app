@@ -53,7 +53,7 @@ export async function LenderProjection({
         <IconChip icon={TrendingUp} tint="violet" />
         <div className="min-w-0">
           <h2 id="projection-title" className="text-base font-semibold">Projected interest</h2>
-          <p className="text-muted-foreground text-sm">If lending carries on like the last 6 months, with interest left in to earn more. An estimate.</p>
+          <p className="text-muted-foreground text-sm">If lending carries on like it has, with interest left in to earn more. An estimate.</p>
         </div>
       </div>
 

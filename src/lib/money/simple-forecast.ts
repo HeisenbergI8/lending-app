@@ -12,6 +12,10 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  *   usual    the interest a month that new lending has earned over the last
  *            HISTORY_MONTHS months: loans started in the window, their stored
  *            earnings and cut, divided by the months.
+ * A NEW BOOK (owner, 2026-11-08): when the first loan ever recorded is inside
+ * the window, the months before it are not months of no lending, just months
+ * before the app was used. The average then runs from the first loan's month
+ * (historyFrom / historyMonths), and grows to the full window by itself.
  * The larger, not the sum: the loans running today ARE part of the usual pace,
  * so adding both would count the same lending twice; taking only the known
  * figure would drop to nothing once today's loans end. The current month counts
@@ -32,7 +36,7 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * honest about how many borrowers there are, both read from the same history:
  *   PACE     slow / usual / busy. The whole pot's month-by-month interest from
  *            new lending over the last HISTORY_MONTHS FULL months (from the
- *            first month with a loan, if lending began later); slow is the
+ *            first loan's month, if lending began later); slow is the
  *            slowest of them ÷ their average, busy the busiest ÷ the average.
  *            Every lender's return is multiplied by that one factor, so the
  *            lenders still add up to the whole pot.
@@ -89,6 +93,8 @@ export type SimpleInput = {
   monthlyIn?: Centavos
   /** Taken out of this view's pot each month, from next month. */
   monthlyOut?: Centavos
+  /** The first loan ever recorded (any date). Omitted: the earliest history row. */
+  firstLoanOn?: Date | null
   /** How strong lending is assumed to be. Defaults to 'usual'. */
   pace?: Pace
 }
@@ -120,6 +126,9 @@ export type SimpleForecast = {
   monthlyReturnBps: number | null
   /** True when some lender's return was held to MAX_MONTHLY_RETURN. */
   capped: boolean
+  /** Where the average starts (the window's start, or the first loan's month if later) and how many months it divides by. */
+  historyFrom: Date
+  historyMonths: number
   /** The pace used, and its factor on the usual return (1 for usual). */
   pace: Pace
   paceFactor: number
@@ -187,14 +196,23 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   let potThisMonth = 0 // the current month so far: in the ceiling, not in the pace
   for (const r of input.history) {
     if (daysBetween(from, r.startOn) < 0 || daysBetween(r.startOn, today) < 0) continue
-    usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + r.earnings / HISTORY_MONTHS)
-    usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut / HISTORY_MONTHS)
+    usualOwn.set(r.lenderId, (usualOwn.get(r.lenderId) ?? 0) + r.earnings)
+    usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut)
     const m = index(r.startOn)
     const key = `${r.lenderId} ${m}`
     const b = byMonth.get(key) ?? { own: 0, cut: 0 }
     byMonth.set(key, { own: b.own + r.earnings, cut: b.cut + r.adminCut })
     if (m < 0) potMonths[m + HISTORY_MONTHS] += r.earnings + r.adminCut
     else potThisMonth += r.earnings + r.adminCut
+  }
+  // The average starts at the window, or at the first loan's month if that is later.
+  const firstLoan =
+    input.firstLoanOn ?? input.history.reduce<Date | null>((a, r) => (a === null || daysBetween(r.startOn, a) > 0 ? r.startOn : a), null)
+  const startIdx = firstLoan === null ? -HISTORY_MONTHS : Math.min(0, Math.max(-HISTORY_MONTHS, index(firstLoan)))
+  const historyMonths = Math.max(1, -startIdx)
+  for (const id of ids) {
+    usualOwn.set(id, (usualOwn.get(id) as number) / historyMonths)
+    usualCut.set(id, (usualCut.get(id) as number) / historyMonths)
   }
   const ceilOwn = new Map(ids.map((id) => [id, 0]))
   const ceilCut = new Map(ids.map((id) => [id, 0]))
@@ -205,9 +223,9 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   }
   const potCeil = Math.max(...potMonths, potThisMonth)
   const pace = input.pace ?? 'usual'
-  // Months before the first loan in the window are not slow months, just before lending began.
-  const lent = potMonths.slice(Math.max(0, potMonths.findIndex((v) => v > 0)))
-  const potAverage = potMonths.some((v) => v > 0) ? lent.reduce((a, b) => a + b, 0) / lent.length : 0
+  // Months before the first loan are not slow months, just before lending began.
+  const lent = potMonths.slice(startIdx + HISTORY_MONTHS)
+  const potAverage = lent.length > 0 ? lent.reduce((a, b) => a + b, 0) / lent.length : 0
   const paceFactor =
     pace === 'usual' || potAverage <= 0 ? 1 : (pace === 'slow' ? Math.min(...lent) : Math.max(...lent)) / potAverage
   const capital0 = new Map(ids.map((id) => [id, input.capitalNow.get(id) ?? 0]))
@@ -309,6 +327,8 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
     monthlyReturnBps: viewCapital > 0 ? Math.floor((ownForReturn * 10_000) / viewCapital) : null,
     capitalNow: centavos(viewCapital),
     capped,
+    historyFrom: firstOfMonth(start, startIdx),
+    historyMonths,
     pace,
     paceFactor,
     total: centavos(total),

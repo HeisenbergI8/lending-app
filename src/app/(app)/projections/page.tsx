@@ -1,10 +1,12 @@
 import Link from 'next/link'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Gauge, History, TrendingUp, Users } from 'lucide-react'
+
+import { type ChipTint, IconChip } from '@/components/stat-tile.tsx'
 
 import { Money } from '@/components/money.tsx'
 import { type Centavos, centavos, parsePesos } from '@/lib/money/centavos.ts'
 import { rate as pct } from '@/lib/loan-export.ts'
-import { DEFAULT_RANGE, HISTORY_MONTHS, PACES, type Pace, RANGES, type Whose, historyWindowStart, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
+import { DEFAULT_RANGE, HISTORY_MONTHS, PACES, type Pace, RANGES, type Whose, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { projectionContext, simpleInput } from '@/server/projections/queries.ts'
 
@@ -85,8 +87,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       <header>
         <h1 className="text-[1.75rem] font-semibold tracking-tight">Projections</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Your expected interest if you keep lending the way you have for the last {HISTORY_MONTHS} months, with interest left in to earn more. Estimates, not promises.
+          What you could earn if you keep lending like you have been. An estimate, not a promise.
         </p>
+        {f.historyMonths < HISTORY_MONTHS ? (
+          <p className="bg-chip-amber/10 text-foreground mt-3 rounded-xl px-3 py-2 text-sm">
+            Based on only {f.historyMonths} {f.historyMonths === 1 ? 'month' : 'months'} of loans so far. It gets more accurate each month, up to {HISTORY_MONTHS}.
+          </p>
+        ) : null}
       </header>
 
       <section className="bg-card ring-border/70 space-y-4 rounded-2xl p-4 ring-1">
@@ -114,7 +121,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <div className="space-y-2">
           <div>
             <h2 className="text-sm font-semibold">How busy with borrowers</h2>
-            <p className="text-muted-foreground text-xs">Like your slowest month, an average month, or your busiest month of the last {HISTORY_MONTHS}.</p>
+            <p className="text-muted-foreground text-xs">Like your slowest, an average, or your busiest month so far.</p>
           </div>
           <ScrollRow label="How busy with borrowers">
             {PACES.map((p) => (
@@ -150,7 +157,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           {f.monthlyReturnBps !== null ? (
             <div className="flex justify-between gap-3">
               <dt className="text-white/85">
-                Monthly return{picked ? ` on ${picked.isSelf ? 'the Admin’s own money' : `${picked.name}’s money`}` : ''}, from the last {HISTORY_MONTHS} months
+                Monthly return{picked ? ` on ${picked.isSelf ? 'the Admin’s own money' : `${picked.name}’s money`}` : ''}, from your past lending
               </dt>
               <dd className="shrink-0 font-medium whitespace-nowrap">{pct(f.monthlyReturnBps)}</dd>
             </div>
@@ -229,37 +236,40 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         </div>
       </section>
 
-      <details className="group bg-card ring-border/70 rounded-2xl p-4 ring-1">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-base font-semibold [&::-webkit-details-marker]:hidden">
-          <span>
-            <span className="block">How it’s worked out</span>
-            <span className="text-muted-foreground block text-xs font-normal">Open this if a number surprises you.</span>
-          </span>
-          <ChevronDown className="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
-        </summary>
-        <ul className="text-muted-foreground mt-3 list-disc space-y-2 pl-4 text-sm">
-          <li>
-            <span className="text-foreground">Your usual pace:</span> the {f.basedOnLoans} new loans since{' '}
-            {historyWindowStart(ctx.today).toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })} earned{' '}
-            {who} about <Money amount={f.usual} variant="display" /> a month. On <Money amount={f.capitalNow} variant="display" /> of money today, that is a monthly return of {f.monthlyReturnBps === null ? '—' : pct(f.monthlyReturnBps)}.
-          </li>
-          <li>From next month, each lender’s pot earns their own return as it stands. Interest left in earns interest too, so it compounds.</li>
-          <li>
-            <span className="text-foreground">Borrowers:</span> a lender never earns more in a month than in their busiest month of the last {HISTORY_MONTHS}, because more money does not bring more borrowers by itself. Money past that is shown as having no borrower (the lenders’ own money only; the Admin cut is not money sitting anywhere).
-          </li>
-          {f.basedOnLoans > 0 ? <li>
-            <span className="text-foreground">Slow and busy:</span> your slowest of the last {HISTORY_MONTHS} full months earned {Math.round(slow.paceFactor * 100)}% of an average month, your busiest {Math.round(busy.paceFactor * 100)}%. Slow and busy use those against the usual return. Running loans still pay what they will either way.
-          </li> : null}
-          <li>The Admin cut is earned on the other lenders’ money, so it grows with their pots, not with the Admin’s. That is why every lender’s figures add up to the whole pot.</li>
-          <li>Money added in a month starts earning the month after.</li>
-          <li>The return uses the money there is today. If a lot was added or taken out recently, it can read high or low.{f.capped ? ' One lender’s return was held to the most a loan can earn, about 30% a month, because they have very little money left.' : ''}</li>
-          <li>Money in and out goes to the pot you are looking at. On the whole pot it is shared across lenders by the size of their pots.</li>
-          <li>A month never shows less than your running loans will pay in it; the table says which figure it used. A month where a big loan falls due can read a little high, because a loan’s whole interest counts on its due date. This month counts from today only, so the “a month” figure, an average over the months shown, reads slightly low.</li>
-          <li>A lender’s figures are their own earnings only. The Admin’s include the Admin cut. The whole pot is everyone.</li>
-          <li>The pot starts from today’s capital (cash + money out on loan). Each month adds its interest and any money in, and takes off any money out. It cannot go below zero.</li>
-          {f.overdue > 0 ? <li>Not counted: <Money amount={f.overdue} variant="display" /> already overdue today.</li> : null}
-        </ul>
-      </details>
+      {/* HOW WE GOT THIS: four plain cards a glance can read, then the small print folded away. */}
+      <section aria-labelledby="how-title" className="space-y-3">
+        <h2 id="how-title" className="text-base font-semibold">How we got this</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <HowCard icon={History} tint="indigo" title="Your past lending">
+            {f.basedOnLoans} loans since {f.historyFrom.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })} earned {who} about <Money amount={f.usual} variant="display" /> a month.
+          </HowCard>
+          <HowCard icon={TrendingUp} tint="mint" title="Interest earns interest">
+            Interest you leave in gets lent out again from the next month.
+          </HowCard>
+          <HowCard icon={Users} tint="amber" title="Limited by borrowers">
+            A month never goes above your busiest month so far. More money doesn’t bring more borrowers by itself.
+          </HowCard>
+          <HowCard icon={Gauge} tint="violet" title="Slow or busy">
+            {f.basedOnLoans > 0
+              ? `Slow is like your slowest month (${Math.round(slow.paceFactor * 100)}% of usual). Busy is like your busiest (${Math.round(busy.paceFactor * 100)}%).`
+              : 'Shows once you have some loans recorded.'}
+          </HowCard>
+        </div>
+        <details className="group bg-card ring-border/70 rounded-2xl px-4 py-1 ring-1">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+            Small print
+            <ChevronDown className="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
+          </summary>
+          <ul className="text-muted-foreground list-disc space-y-1.5 pb-3 pl-4 text-sm">
+            <li>A lender sees only their own earnings. The Admin also gets the cut, which grows with the other lenders’ money.</li>
+            <li>“Running loans” in the table means that month comes from loans already out.</li>
+            <li>Money you add starts earning the month after.</li>
+            <li>This month counts from today only, so it reads a little low.</li>
+            {f.capped ? <li>One lender has very little money left, so their return was held to about 30% a month.</li> : null}
+            {f.overdue > 0 ? <li>Not counted: <Money amount={f.overdue} variant="display" /> already overdue.</li> : null}
+          </ul>
+        </details>
+      </section>
     </div>
   )
 }
@@ -282,5 +292,17 @@ function ScrollRow({ label, children }: { label: string; children: React.ReactNo
     <nav aria-label={label} className="-mx-4 -my-1 overflow-x-auto px-4 [scrollbar-width:none]">
       <div className="flex w-max gap-2 py-1">{children}</div>
     </nav>
+  )
+}
+
+function HowCard({ icon, tint, title, children }: { icon: React.ComponentType<{ className?: string }>; tint: ChipTint; title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-card ring-border/70 flex gap-3 rounded-2xl p-4 ring-1">
+      <IconChip icon={icon} tint={tint} />
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <p className="text-muted-foreground mt-0.5 text-sm">{children}</p>
+      </div>
+    </div>
   )
 }
