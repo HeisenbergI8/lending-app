@@ -274,7 +274,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <div>
           <h2 className="text-base font-semibold">How it adds up</h2>
           <p className="text-muted-foreground text-xs">
-            Running total of estimated interest from today. The key below says which lines include re-lending.
+            Running total of estimated interest from today.{runs.some((r) => r.plan.relend) ? ' The key below says which lines include re-lending.' : ' No re-lending in these lines.'}
           </p>
         </div>
         {/* The chart's dotted target line is drawn only for an interest target: a pot-size
