@@ -382,7 +382,10 @@ export type ViewMonth = {
  *   admin-cut   the Admin cut alone (LenderMonth.adminCut on the Admin's pot).
  *               NOT the Admin's earnings as a lender — pick the Admin under
  *               "per lender" for those. Two different figures, two views.
- *   lender      that pot's own earnings; its cash.
+ *   lender      that pot's own earnings, plus the Admin cut that comes back to
+ *               it — which is non-zero on the Admin's pot ONLY. So a lender's
+ *               view is their earnings alone, and the Admin's view is the
+ *               Admin's own earnings AND the cut (owner, 2026-11-08). Its cash.
  *   pot         every pot's earnings plus the Admin cut; all cash summed.
  *
  * Warnings: the lender view shows its own lender's; the other two show all,
@@ -398,7 +401,7 @@ export function forecastView(sim: Simulation, view: View): ViewMonth[] {
       view.kind === 'admin-cut'
         ? pick.reduce((s, [, r]) => s + r.adminCut, 0)
         : view.kind === 'lender'
-          ? pick.reduce((s, [, r]) => s + r.interest, 0)
+          ? pick.reduce((s, [, r]) => s + r.interest + r.adminCut, 0)
           : pick.reduce((s, [, r]) => s + r.interest + r.adminCut, 0)
     running += interest
     const cash = pick.reduce((s, [, r]) => s + r.cash, 0)
@@ -470,7 +473,11 @@ export function forecastSafely(
 /** Overdue money that would come back to the money in this view. Not in either line. */
 export function lateInView(sim: Simulation, view: View): Centavos {
   if (view.kind === 'pot') return sim.lateNow
-  if (view.kind === 'lender') return sim.lateByLender.get(view.lenderId)?.own ?? centavos(0)
+  if (view.kind === 'lender') {
+    // The lender's own overdue money, plus (on the Admin pot only) the overdue cut.
+    const l = sim.lateByLender.get(view.lenderId)
+    return centavos((l?.own ?? 0) + (l?.adminCut ?? 0))
+  }
   return centavos([...sim.lateByLender.values()].reduce((s, l) => s + l.adminCut, 0))
 }
 

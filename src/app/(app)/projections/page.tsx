@@ -3,11 +3,7 @@ import { AlertTriangle, ChevronDown, SlidersHorizontal } from 'lucide-react'
 
 import { Money } from '@/components/money.tsx'
 import { IconChip } from '@/components/stat-tile.tsx'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { SelectNative } from '@/components/ui/select-native.tsx'
-import { type Centavos, centavos, formatPesos, parsePesos } from '@/lib/money/centavos.ts'
+import { centavos, formatPesos } from '@/lib/money/centavos.ts'
 import { HISTORY_MONTHS, historyWindowStart } from '@/lib/money/forecast-history.ts'
 import {
   DEFAULT_RANGE,
@@ -18,10 +14,8 @@ import {
   type View,
   forecastSafely,
   lateInView,
-  type TargetKind,
   forecastView,
   monthOf,
-  reachTarget,
 } from '@/lib/money/forecast.ts'
 import { rate as pct } from '@/lib/loan-export.ts'
 import { monthKey, storedCalendarDate } from '@/lib/money/weeks.ts'
@@ -57,7 +51,9 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
   const admin = ctx.lenders.find((l) => l.isSelf)
   const view: View =
-    one('view') === 'admin' ? { kind: 'admin-cut' }
+    // The Admin chip is the Admin's own earnings PLUS the cut (forecastView, kind
+    // 'lender' on the Admin pot). ?view=admin from older links lands there too.
+    one('view') === 'admin' ? { kind: 'lender', lenderId: admin?.id ?? '' }
     : one('view') === 'lender' ? { kind: 'lender', lenderId: one('lender') ?? admin?.id ?? '' }
     : { kind: 'pot' }
 
@@ -84,9 +80,6 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const atEnd = best.key === lastKey
   const realistic = first.realistic ? monthOf(first.realistic, best.key) : null
   const plainMonth = plain ? monthOf(plain.best, best.key) : null
-  const targetParsed = one('target') ? parsePesos(one('target') as string) : null
-  const target: Centavos | null = targetParsed?.ok ? targetParsed.value : null
-  const targetKind: TargetKind = one('targetKind') === 'pot' && view.kind !== 'admin-cut' ? 'pot' : 'interest'
 
   const withRelend = drawnPlan.relend ? ', with re-lending' : ''
   const lines: ChartLine[] = [
@@ -115,7 +108,10 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
      The hero is interestToDate: from TODAY to the end of the month, not since
      lending began. Money already late today is in NEITHER line. */
 
-  const viewName = view.kind === 'pot' ? 'the whole pot' : view.kind === 'admin-cut' ? 'the Admin cut' : name(view.lenderId)
+  const viewName =
+    view.kind === 'pot' ? 'the whole pot'
+    : view.lenderId === admin?.id ? 'the Admin (own money plus the Admin cut)'
+    : name(view.lenderId)
   const warnMonths = first.best.filter((m) => m.warnings.length > 0)
   const late = lateInView(first.f.best, view)
   const shortDate = (d: Date) => d.toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -124,7 +120,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const planSentence =
     p.newLoansPerMonth === 0
       ? 'No new loans: just the loans running today.'
-      : `About ${p.newLoansPerMonth} new loan${p.newLoansPerMonth === 1 ? '' : 's'} a month of ${formatPesos(p.loanAmount)}, for ${p.termWeeks} week${p.termWeeks === 1 ? '' : 's'}, at ${pct(p.borrowerRateBps)} a week${p.relend ? ', re-lending returned money' : ''}.`
+      : `About ${p.newLoansPerMonth} new loan${p.newLoansPerMonth === 1 ? '' : 's'} a month of ${formatPesos(p.loanAmount)}, for ${p.termWeeks} week${p.termWeeks === 1 ? '' : 's'}, borrower pays ${pct(p.borrowerRateBps)} a week (lender ${pct(p.borrowerRateBps - p.adminCutBps)} + Admin cut ${pct(p.adminCutBps)})${p.relend ? ', re-lending returned money' : ''}.`
 
   return (
     // [overflow-wrap:anywhere]: a plan name is free text, and one long word must wrap, not widen a phone screen.
@@ -142,7 +138,6 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           <h2 className="text-sm font-semibold">Whose money</h2>
           <ScrollRow label="Whose money">
             <Link href={href({ view: 'pot', lender: null, month: null })} aria-current={view.kind === 'pot' ? 'page' : undefined} className={chip}>Whole pot</Link>
-            <Link href={href({ view: 'admin', lender: null, month: null })} aria-current={view.kind === 'admin-cut' ? 'page' : undefined} className={chip}>Admin cut</Link>
             {ctx.lenders.map((l) => (
               <Link key={l.id} href={href({ view: 'lender', lender: l.id, month: null })} aria-current={view.kind === 'lender' && view.lenderId === l.id ? 'page' : undefined} className={chip}>
                 {l.name}
@@ -254,54 +249,47 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           title="Month by month"
           purpose="The line adds up estimated interest from today. Tap the chart to see any month."
         />
-        {/* The chart's dotted target line is drawn only for an interest target: a pot-size
-            target is on a different scale from the running interest the chart plots. */}
-        <ProjectionChart lines={lines} selected={best.key} hrefFor={(key) => href({ month: key })} target={targetKind === 'interest' ? target : null} flagged={flagged} />
+        <ProjectionChart lines={lines} selected={best.key} hrefFor={(key) => href({ month: key })} target={null} flagged={flagged} />
         <ChartLegend lines={lines} />
-        {best.potSize !== null ? (
-          <p className="text-muted-foreground border-border/70 border-t pt-3 text-sm">
-            Estimated pot size at the end of {monthName(best.month)}{withRelend}: <span className="text-foreground font-semibold"><Money amount={best.potSize} variant="display" /></span>
-            <span className="block text-xs">Cash plus money out on loan.</span>
-          </p>
-        ) : null}
       </section>
 
+      {/* THE MONTHLY FIGURES, as a table (owner, 2026-11-08). Both columns come
+          from forecastView in the chosen view, best case (everyone pays on time):
+            interest   ViewMonth.interest — collected DURING that month; the
+                       current month counts from today only
+            whole pot  ViewMonth.potSize — cash + capital out on loan at month end:
+                       the capital plus what has been earned and collected so far.
+                       Interest not yet collected is NOT in it. */}
       <section className="bg-card ring-border/70 space-y-3 rounded-2xl p-4 ring-1">
-        <SectionHead title="When will I reach a goal?" purpose="Type an amount and see the first month you would get there." />
-        <form method="get" action="/projections" className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          {Object.entries(q).flatMap(([k, v]) => (k !== 'target' && k !== 'targetKind' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
-          <div className="space-y-1.5">
-            <Label htmlFor="target">Goal amount</Label>
-            <div className="relative">
-              <span className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm" aria-hidden>₱</span>
-              <Input id="target" name="target" inputMode="decimal" defaultValue={one('target') ?? ''} placeholder="e.g. 100,000" className="pl-7" />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="targetKind">Counting</Label>
-            <SelectNative id="targetKind" name="targetKind" defaultValue={targetKind}>
-              <option value="interest">Interest earned from today</option>
-              {view.kind !== 'admin-cut' ? <option value="pot">Pot size (cash + money out)</option> : null}
-            </SelectNative>
-          </div>
-          <Button type="submit" variant="secondary" size="lg">Find the month</Button>
-        </form>
-        {target !== null ? (
-          (() => {
-            const b = reachTarget(first.best, target, targetKind)
-            const r = first.realistic ? reachTarget(first.realistic, target, targetKind) : null
-            const say = (m: typeof b) => (m ? monthName(m.month) : `Not within ${rangeLabel(range)}`)
-            return (
-              <div className="bg-muted/50 space-y-1.5 rounded-xl p-3 text-sm">
-                <p className="text-muted-foreground text-xs">Estimated month{withRelend}</p>
-                <dl className="grid gap-1.5">
-                  <div className="flex justify-between gap-3"><dt className="text-muted-foreground">If everyone pays on time</dt><dd className="font-semibold">{say(b)}</dd></div>
-                  {first.realistic ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">If some pay late</dt><dd className="font-semibold">{say(r)}</dd></div> : null}
-                </dl>
-              </div>
-            )
-          })()
-        ) : null}
+        <SectionHead
+          title="Each month"
+          purpose={`Estimated interest earned in each month, and the whole pot at the end of it${withRelend}. If everyone pays on time.`}
+        />
+        <div className="-mx-4 overflow-x-auto">
+          <table className="w-full min-w-[20rem] text-sm">
+            <thead>
+              <tr className="text-muted-foreground border-border/70 border-b text-left text-xs">
+                <th scope="col" className="px-4 py-2 font-medium">Month</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">Interest that month</th>
+                <th scope="col" className="px-4 py-2 text-right font-medium">Whole pot at month end<span className="block font-normal">capital + earnings</span></th>
+              </tr>
+            </thead>
+            <tbody className="divide-border/70 divide-y">
+              {first.best.map((m, i) => (
+                <tr key={m.key} className={m.key === best.key ? 'bg-muted/60' : undefined}>
+                  <th scope="row" className="px-4 py-2.5 text-left font-medium whitespace-nowrap">
+                    <Link href={href({ month: m.key })} scroll={false} className="underline-offset-2 hover:underline">
+                      {m.month.toLocaleDateString('en-PH', { month: 'short', year: 'numeric' })}
+                    </Link>
+                    {i === 0 ? <span className="text-muted-foreground block text-xs font-normal">from today</span> : null}
+                  </th>
+                  <td className="px-2 py-2.5 text-right"><Money amount={m.interest} variant="column" /></td>
+                  <td className="px-4 py-2.5 text-right">{m.potSize !== null ? <Money amount={m.potSize} variant="column" /> : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <details className="group bg-card ring-border/70 rounded-2xl p-4 ring-1">
@@ -352,14 +340,12 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
       {/* CUSTOMIZE: closed until asked for. Opens filled in with what is being
           projected now, so only the one thing to change needs touching. */}
-      <details id="customize" open={one('customize') === '1'} className="group bg-card ring-border/70 scroll-mt-4 rounded-2xl p-4 ring-1">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-          <span>
-            <span className="block text-base font-semibold">Customize</span>
-            <span className="text-muted-foreground block text-xs">Change what the estimate assumes, and save it as your own plan.</span>
-          </span>
-          <ChevronDown className="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
-        </summary>
+      {one('customize') === '1' ? (
+      <section id="customize" aria-label="Customize" className="bg-card ring-border/70 scroll-mt-4 rounded-2xl p-4 ring-1">
+        <div className="flex items-start justify-between gap-2">
+          <SectionHead title="Customize" purpose="Change what the estimate assumes, and save it as your own plan." />
+          <Link href={href({ customize: null })} scroll={false} className="text-muted-foreground hover:bg-muted inline-flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm">Close</Link>
+        </div>
         <div className="mt-4 space-y-5">
           {saved.length > 0 ? (
             <div className="space-y-2">
@@ -417,7 +403,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             </div>
           ) : null}
         </div>
-      </details>
+      </section>
+      ) : null}
     </div>
   )
 }

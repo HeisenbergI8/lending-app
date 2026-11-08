@@ -16,8 +16,8 @@ const LENDER_RANGES = RANGES.filter((r) => r <= 12)
  * WHAT THE FIGURE IS (label-truth): forecastView(..., { kind: 'lender' }) of the
  * AUTOMATIC plan — the running loans plus new loans at the usual pace, split by
  * each lender's last-6-months share — interestToDate at the end of the chosen
- * time frame. This lender's OWN earnings only, not the Admin cut on their
- * capital. An estimate, and the card says so. Re-lending is off (see
+ * time frame. A lender's OWN earnings only; on the Admin's own page, the
+ * Admin's earnings plus the Admin cut (owner, 2026-11-08). An estimate, and the card says so. Re-lending is off (see
  * automaticPlan), so nothing here compounds.
  */
 export async function LenderProjection({
@@ -31,7 +31,7 @@ export async function LenderProjection({
   userId: string
   lenderId: string
   lenderName: string
-  /** The Admin's own pot: its figure is the Admin's OWN-money interest, not the Admin cut. */
+  /** The Admin's own pot: its figure is the Admin's own-money interest PLUS the Admin cut (forecastView). */
   isSelf: boolean
   range: number
   rangeHref: (months: number) => string
@@ -75,7 +75,7 @@ export async function LenderProjection({
 
       <div>
         <p className="text-muted-foreground text-xs">
-          {isSelf ? 'Estimated interest on the Admin’s own money (not the Admin cut)' : `${lenderName}’s estimated interest`}, from today to the end of {end}
+          {isSelf ? 'The Admin’s estimated interest, own money plus the Admin cut' : `${lenderName}’s estimated interest (their own earnings)`}, from today to the end of {end}
         </p>
         <p className="text-2xl font-semibold tracking-tight"><Money amount={best.interestToDate} variant="display" /></p>
         {late ? (

@@ -170,7 +170,8 @@ test('overdue money is split by view: the funder\'s own part, the Admin cut, or 
   assert.equal(lateInView(sim, { kind: 'pot' }), 3_840_000)
   assert.equal(lateInView(sim, { kind: 'lender', lenderId: 'john' }), 3_600_000)
   assert.equal(lateInView(sim, { kind: 'admin-cut' }), 240_000)
-  assert.equal(lateInView(sim, { kind: 'lender', lenderId: 'admin' }), 0)
+  // The Admin's view carries the overdue cut; John's carries none of it.
+  assert.equal(lateInView(sim, { kind: 'lender', lenderId: 'admin' }), 240_000)
 })
 
 test('a plan that compounds past safe arithmetic is reported as too large, not thrown', () => {
@@ -179,4 +180,10 @@ test('a plan that compounds past safe arithmetic is reported as too large, not t
   const r = forecastSafely(huge, { onTimeBps: null, lateDelayDays: null })
   assert.equal(r.ok, false)
   assert.ok(forecastSafely(input({ realRows: [real] }), { onTimeBps: null, lateDelayDays: null }).ok)
+})
+
+test('the Admin view is its own earnings plus the cut; a lender view excludes the cut', () => {
+  const sim = simulate(input({ realRows: [real] }), { kind: 'best' })
+  assert.equal(forecastView(sim, { kind: 'lender', lenderId: 'admin' })[0].interest, 240_000)
+  assert.equal(forecastView(sim, { kind: 'lender', lenderId: 'john' })[0].interest, 600_000)
 })
