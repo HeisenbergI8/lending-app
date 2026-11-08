@@ -98,6 +98,8 @@ export type SimpleForecast = {
   usualCut: Centavos
   /** This view's own earnings ÷ its money today, in basis points a month (the Admin cut is not in it). Null with no money. */
   monthlyReturnBps: number | null
+  /** True when some lender's return was held to MAX_MONTHLY_RETURN. */
+  capped: boolean
   /** The money this view had today: the pot the compounding starts from. */
   capitalNow: Centavos
   total: Centavos
@@ -106,6 +108,14 @@ export type SimpleForecast = {
   /** New loans in the window, for the "based on" line. */
   basedOnLoans: number
 }
+
+/**
+ * The most a month can return: money lent at the top weekly rate (7%) all
+ * month, 7% × 52 weeks ÷ 12. A lender who has taken most of their money out
+ * would otherwise show their old earnings over almost nothing — a return so
+ * large that compounding it would leave safe arithmetic and crash the page.
+ */
+export const MAX_MONTHLY_RETURN = (0.07 * 52) / 12
 
 /** Grows per lender. `own` is the lender's earnings; `cut` is the Admin cut their capital generates. */
 type Stream = { own: number[]; cut: number[] }
@@ -153,8 +163,18 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
     usualCut.set(r.lenderId, (usualCut.get(r.lenderId) ?? 0) + r.adminCut / HISTORY_MONTHS)
   }
   const capital0 = new Map(ids.map((id) => [id, input.capitalNow.get(id) ?? 0]))
-  const ownRate = (id: string) => ((capital0.get(id) as number) > 0 ? (usualOwn.get(id) as number) / (capital0.get(id) as number) : 0)
-  const cutRate = (id: string) => ((capital0.get(id) as number) > 0 ? (usualCut.get(id) as number) / (capital0.get(id) as number) : 0)
+  const raw = (usual: Map<string, number>, id: string) =>
+    (capital0.get(id) as number) > 0 ? (usual.get(id) as number) / (capital0.get(id) as number) : 0
+  let capped = false
+  const cap = (r: number) => {
+    if (r <= MAX_MONTHLY_RETURN) return r
+    capped = true
+    return MAX_MONTHLY_RETURN
+  }
+  const ownRates = new Map(ids.map((id) => [id, cap(raw(usualOwn, id))]))
+  const cutRates = new Map(ids.map((id) => [id, cap(raw(usualCut, id))]))
+  const ownRate = (id: string) => ownRates.get(id) as number
+  const cutRate = (id: string) => cutRates.get(id) as number
 
   const mine = (id: string) => whose.kind === 'pot' || whose.lenderId === id
   const getsCut = whose.kind === 'pot' || (adminId !== null && whose.kind === 'lender' && whose.lenderId === adminId)
@@ -224,6 +244,7 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
     usualCut: centavos(Math.round(whose.kind === 'pot' ? 0 : viewCut)),
     monthlyReturnBps: viewCapital > 0 ? Math.floor((ownForReturn * 10_000) / viewCapital) : null,
     capitalNow: centavos(viewCapital),
+    capped,
     total: centavos(total),
     overdue: centavos(overdue),
     basedOnLoans,

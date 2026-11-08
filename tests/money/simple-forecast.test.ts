@@ -84,3 +84,14 @@ test('overdue money is counted in neither figure, and reported apart', () => {
   assert.equal(f.months[0].interest, 0)
   assert.equal(f.overdue, 3_000_000 + 600_000 + 240_000)
 })
+
+test('a lender with almost no money left cannot compound a huge return: it is capped, and nothing throws', () => {
+  const f = simpleForecast(
+    input({ months: 24, capitalNow: new Map([['john', centavos(10_000)], ['admin', centavos(1_000_000)]]) }),
+    { kind: 'lender', lenderId: 'john' },
+    6,
+  )
+  assert.equal(f.capped, true)
+  assert.ok(Number.isSafeInteger(f.total))
+  assert.equal(simpleForecast(input(), { kind: 'pot' }, 6).capped, false)
+})

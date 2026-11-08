@@ -204,6 +204,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           </li>
           <li>From next month, each lender’s pot earns their own return as it stands. Interest left in earns interest too, so it compounds. This assumes all the money keeps being lent out, with enough borrowers for it.</li>
           <li>The Admin cut is earned on the other lenders’ money, so it grows with their pots, not with the Admin’s. That is why every lender’s figures add up to the whole pot.</li>
+          <li>Money added in a month starts earning the month after.</li>
+          <li>The return uses the money there is today. If a lot was added or taken out recently, it can read high or low.{f.capped ? ' One lender’s return was held to the most a loan can earn, about 30% a month, because they have very little money left.' : ''}</li>
           <li>Money in and out goes to the pot you are looking at. On the whole pot it is shared across lenders by the size of their pots.</li>
           <li>A month never shows less than your running loans will pay in it; the table says which figure it used. A month where a big loan falls due can read a little high, because a loan’s whole interest counts on its due date. This month counts from today only, so the “a month” figure, an average over the months shown, reads slightly low.</li>
           <li>A lender’s figures are their own earnings only. The Admin’s include the Admin cut. The whole pot is everyone.</li>
