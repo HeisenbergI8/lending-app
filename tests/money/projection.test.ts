@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { centavos } from '../../src/lib/money/centavos.ts'
-import { type ProjectedRow, projectFloating } from '../../src/lib/money/projection.ts'
+import { type ProjectedRow, projectFloating, scheduleArrivals } from '../../src/lib/money/projection.ts'
 
 const day = (m: number, d: number) => new Date(2026, m - 1, d, 12)
 const today = day(10, 5)
@@ -77,4 +77,14 @@ test('weekly: a missed week is late, not projected', () => {
   const p = projectFloating(centavos(0), [weekly([])], today, day(10, 19))
   assert.equal(p.late, 100_000)
   assert.equal(p.interest, 300_001)
+})
+
+test('scheduleArrivals: a weekly row returns one arrival per unpaid week, capital with the last', () => {
+  const row = atEnd(day(10, 19), { interestCollection: 'WEEKLY', termDays: 28, earnings: centavos(400_003), paidWeeks: new Set([1]) })
+  const a = scheduleArrivals(row)
+  assert.equal(a.length, 3)
+  assert.equal(a.filter((x) => x.capital > 0).length, 1)
+  assert.equal(a[2].final, true)
+  // weeks 2..4 of the four slices: everything but week 1
+  assert.equal(a.reduce((s, x) => s + x.interest, 0), 400_003 - 100_000)
 })

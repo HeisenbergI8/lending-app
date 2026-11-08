@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { centavos, parsePesos, formatPesos, checkedProduct } from '../../src/lib/money/centavos.ts'
+import { centavos, parsePesos, formatPesos, checkedProduct, bpsOf } from '../../src/lib/money/centavos.ts'
 
 describe('parsePesos — what a person types', () => {
   const accepted: [string, number][] = [
@@ -77,4 +77,11 @@ describe('the integer guarantee', () => {
     // ₱10,000,000 at 7%/week for 52 weeks
     assert.equal(checkedProduct(1_000_000_000, 700, 52), 36_400_000_000_000)
   })
+})
+
+test('bpsOf rounds down, so amount - bpsOf(amount) is the exact rest', () => {
+  assert.equal(bpsOf(centavos(999), 5_000), 499)
+  assert.equal(bpsOf(centavos(999), 10_000), 999)
+  assert.equal(bpsOf(centavos(999), 0), 0)
+  assert.throws(() => bpsOf(centavos(1), 10_001))
 })
