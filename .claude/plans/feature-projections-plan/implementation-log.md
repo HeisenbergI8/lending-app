@@ -95,3 +95,4 @@ Record: `.claude/reconciliation/projections.md` (LOCAL DEMO data only; gitignore
 
 Checked in the browser as DEMO: card and page both show ₱83,160.00 without re-lending for October 2027, which equals data-truth's figure.
 **Gate:** `npm run verify` green (943 pass).
+- Data-truth re-check (same day): card, realistic legend and "without re-lending" total TRUE. One more label fixed: the solid line now reads "all pay on time; re-lending at the "up to" rates below" when the plan re-lends. The single-month tile also shows "Without re-lending" (October 2027: ₱5,600.00 = 2 × ₱10,000 × 28%). `npm run verify` green, 943 pass; `next build` exit 0.

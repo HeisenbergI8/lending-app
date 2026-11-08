@@ -81,7 +81,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const targetKind: TargetKind = one('targetKind') === 'pot' && view.kind !== 'admin-cut' ? 'pot' : 'interest'
 
   const lines: ChartLine[] = runs.flatMap((r, i) => [
-    { key: `${r.id}-best`, label: `${r.name} — all pay on time`, color: SERIES[i], dashed: false, points: r.best },
+    { key: `${r.id}-best`, label: `${r.name} — all pay on time${r.plan.relend ? '; re-lending at the "up to" rates below' : ''}`, color: SERIES[i], dashed: false, points: r.best },
     ...(r.realistic ? [{ key: `${r.id}-real`, label: `${r.name} — realistic (payments later, as in your history${r.plan.relend ? '; re-lending at the "up to" rates below' : ''})`, color: SERIES[i], dashed: true, points: r.realistic }] : []),
   ])
   const flagged = new Set(first.best.filter((m) => m.warnings.length > 0).map((m) => m.key))
@@ -181,6 +181,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           </p>
           <p className="text-xl font-semibold"><Money amount={best.interest} variant="display" /></p>
           {realistic ? <p className="text-muted-foreground text-xs">Realistic: <Money amount={realistic.interest} variant="display" /></p> : null}
+          {plainRun ? (
+            <p className="text-muted-foreground text-xs">
+              Without re-lending: <Money amount={monthOf(plainRun.best, best.key)?.interest ?? centavos(0)} variant="display" />
+            </p>
+          ) : null}
         </div>
         <div className="bg-card rounded-2xl p-4 ring-1 ring-border/70">
           {/* interestToDate: from today, not from the start of lending */}
