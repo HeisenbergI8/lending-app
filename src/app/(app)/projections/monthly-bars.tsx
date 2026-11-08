@@ -25,7 +25,7 @@ export function MonthlyBars({ months }: { months: readonly SimpleMonth[] }) {
       </div>
       <div className="text-muted-foreground flex gap-1 text-xs" aria-hidden>
         {months.map((m, i) => (
-          <span key={m.key} className="min-w-0 flex-1 text-center">{i % every === 0 ? label(m.month) : ''}</span>
+          <span key={m.key} className={`flex min-w-0 flex-1 overflow-visible whitespace-nowrap ${i === 0 ? 'justify-start' : 'justify-center'}`}>{i % every === 0 ? label(m.month) : ''}</span>
         ))}
       </div>
     </figure>
