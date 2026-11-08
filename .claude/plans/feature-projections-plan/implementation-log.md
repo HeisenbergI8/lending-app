@@ -54,3 +54,11 @@
 - The `dataviz` skill was not loaded; the chart follows the existing hand-drawn SVG pattern and the plan's colour rules (`--series-N` only).
 **Gate:** `npm run verify` green (941 pass). Browser check as the DEMO user against the local database: page renders, plan created, monthly deposit added, month pick and target work, no page errors.
 **Notes:** "Pot size (cash + capital out)" is deliberately NOT the lender page's "Pot total" (floating + out on loan + interest pending); the different words keep them apart.
+
+## Phase 7: Dashboard preview — 2026-11-08
+
+**Steps completed:** 7.1
+**Files changed:** `src/app/(app)/projection-preview.tsx` (new), `src/app/(app)/page.tsx`, `src/server/projections/queries.ts`
+**Deviations from plan:** none. Card placed directly under the stat tiles (after `</StatRow>`), before the lenders section — not a second hero.
+**Gate:** `npm run verify` green (941 pass). Browser check as DEMO on the local database: card renders "Estimated interest, next 12 months" with realistic figure and plan name; Projections page has no horizontal scroll at 390px.
+**Notes:** the Phase 7 proving queries (label-truth) can only be run here against the LOCAL demo database. The real Supabase database is not reachable from this session, so the real-data checks remain owed.

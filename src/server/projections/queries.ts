@@ -39,12 +39,16 @@ export type ProjectionContext = {
   habits: ReturnType<typeof relendHabits>
 }
 
-export async function projectionContext(userId: string): Promise<ProjectionContext> {
+export async function projectionContext(
+  userId: string,
+  /** The dashboard's own listLenders result, so the heavy ledger read is not run twice. */
+  known?: Awaited<ReturnType<typeof listLenders>>,
+): Promise<ProjectionContext> {
   const today = calendarDate(new Date())
   const from = historyWindowStart(today)
 
   const [lenders, running, history] = await Promise.all([
-    listLenders(userId),
+    known ?? listLenders(userId),
     db.loanFunding.findMany({
       where: { userId, loan: { deletedAt: null, status: 'ACTIVE' } },
       select: {
