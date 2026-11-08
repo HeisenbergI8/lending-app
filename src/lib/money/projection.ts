@@ -69,6 +69,40 @@ export type Projection = {
   late: Centavos
 }
 
+/** The fields of a row that decide WHEN its money comes back. */
+export type ScheduledRow = Pick<
+  ProjectedRow,
+  'interestCollection' | 'startOn' | 'dueOn' | 'termDays' | 'principal' | 'earnings' | 'adminCut' | 'paidWeeks'
+>
+
+export type RowArrival = { on: Date; capital: Centavos; interest: Centavos; adminCut: Centavos; final: boolean }
+
+/**
+ * Every day this row still has money coming back, in date order — the ONE
+ * place that says how a loan returns its money, for projectFloating and for
+ * the Projections estimate (lib/money/forecast.ts) alike.
+ *
+ * AT_END: one arrival on dueOn with everything. WEEKLY: one per unpaid week,
+ * slices from weeklySlices, capital with the last week. Paid weeks are skipped.
+ * It does NOT look at today: deciding what is already late is the caller's job.
+ */
+export function scheduleArrivals(row: ScheduledRow): RowArrival[] {
+  if (row.interestCollection !== 'WEEKLY') {
+    return [{ on: row.dueOn, capital: row.principal, interest: row.earnings, adminCut: row.adminCut, final: true }]
+  }
+  const weeks = row.termDays / DAYS_PER_WEEK
+  const earnings = weeklySlices(row.earnings, weeks)
+  const cuts = weeklySlices(row.adminCut, weeks)
+  const out: RowArrival[] = []
+  weeklyDueDates(row.startOn, weeks).forEach((on, index) => {
+    const week = index + 1
+    if (row.paidWeeks.has(week)) return
+    const last = week === weeks
+    out.push({ on, capital: last ? row.principal : centavos(0), interest: earnings[index], adminCut: cuts[index], final: last })
+  })
+  return out
+}
+
 export function projectFloating(
   floatingNow: Centavos,
   rows: readonly ProjectedRow[],
@@ -107,19 +141,7 @@ export function projectFloating(
   }
 
   for (const row of rows) {
-    if (row.interestCollection === 'WEEKLY') {
-      const weeks = row.termDays / DAYS_PER_WEEK
-      const earnings = weeklySlices(row.earnings, weeks)
-      const cuts = weeklySlices(row.adminCut, weeks)
-      weeklyDueDates(row.startOn, weeks).forEach((day, index) => {
-        const week = index + 1
-        if (row.paidWeeks.has(week)) return
-        const last = week === weeks
-        add(row, day, last ? row.principal : 0, earnings[index], cuts[index], last)
-      })
-    } else {
-      add(row, row.dueOn, row.principal, row.earnings, row.adminCut, true)
-    }
+    for (const a of scheduleArrivals(row)) add(row, a.on, a.capital, a.interest, a.adminCut, a.final)
   }
 
   arrivals.sort((a, b) => a.on.getTime() - b.on.getTime() || a.borrowerName.localeCompare(b.borrowerName))

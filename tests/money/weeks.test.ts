@@ -5,6 +5,8 @@ import {
   daysBetween,
   describeWeeksError,
   dueDateAfterWeeks,
+  firstOfMonth,
+  monthKey,
   parseCalendarDate,
   storedCalendarDate,
   toDateInput,
@@ -226,4 +228,11 @@ describe('describeWeeksError — the dates that would work', () => {
     assert.match(said, /^3 days is less than a week\. Try [^.]*11[^.]*\.$/)
     assert.doesNotMatch(said, / or /)
   })
+})
+
+test('firstOfMonth is the 1st at midday and never rolls over', () => {
+  const jan31 = new Date(2027, 0, 31, 12)
+  assert.deepEqual(firstOfMonth(jan31, 1), new Date(2027, 1, 1, 12))
+  assert.deepEqual(firstOfMonth(jan31, 12), new Date(2028, 0, 1, 12))
+  assert.equal(monthKey(firstOfMonth(jan31, -1)), '2026-12')
 })

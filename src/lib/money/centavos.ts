@@ -112,3 +112,17 @@ export function checkedProduct(...factors: number[]): number {
   }
   return product
 }
+
+/**
+ * `bps` basis points of an amount, rounded DOWN to a whole centavo.
+ *
+ * Down, never half-up: the caller always takes the rest as `amount - bpsOf(...)`,
+ * so the two parts sum to the amount exactly and nothing is dropped. This is the
+ * one place the Projections estimate scales money by a rate.
+ */
+export function bpsOf(amount: Centavos, bps: BasisPoints): Centavos {
+  if (!Number.isInteger(bps) || bps < 0 || bps > BPS_DENOMINATOR) {
+    throw new Error(`A share must be 0..${BPS_DENOMINATOR} basis points, got ${bps}`)
+  }
+  return centavos(Math.floor(checkedProduct(amount, bps) / BPS_DENOMINATOR))
+}

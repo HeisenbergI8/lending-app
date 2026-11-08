@@ -102,6 +102,22 @@ export function addDays(date: Date, days: number): Date {
 }
 
 /**
+ * The 1st of the month `offset` months after `date`'s month, at local midday.
+ *
+ * Always the 1st, so the constructor's roll-over (31 January + 1 month = 3 March)
+ * cannot happen: day 1 exists in every month. Used by the Projections engine,
+ * whose time step is a calendar month.
+ */
+export function firstOfMonth(date: Date, offset = 0): Date {
+  return new Date(date.getFullYear(), date.getMonth() + offset, 1, 12)
+}
+
+/** "2027-01" for the month containing `date` — the key a month is looked up by. */
+export function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+/**
  * The loan's term in weeks, or why the dates are not acceptable.
  *
  * This is what powers the live "= 4 weeks" badge next to the due-date field.

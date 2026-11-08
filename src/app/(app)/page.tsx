@@ -11,6 +11,9 @@ import { borrowerPhotoUrls } from '@/server/storage/borrower-photos.ts'
 import { borrowerCounts, topBorrowers } from '@/server/borrowers/queries.ts'
 import { listLenders } from '@/server/lenders/queries.ts'
 import { dueThisWeek, interestSummary, overdueSummary } from '@/server/loans/queries.ts'
+import { listPlans, plansById, projectionContext } from '@/server/projections/queries.ts'
+
+import { ProjectionPreview } from './projection-preview.tsx'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -48,6 +51,11 @@ export default async function DashboardPage() {
     borrowerPhotoUrls(user.id),
     dueThisWeek(user.id),
   ])
+
+  // After the Promise.all on purpose: it reuses `lenders` instead of reading
+  // every ledger a second time (listLenders is the heavy read).
+  const [projection, plans] = await Promise.all([projectionContext(user.id, lenders), listPlans(user.id)])
+  const newest = plans[0] ? ((await plansById(user.id, [plans[0].id]))[0] ?? null) : null
 
   const pots = lenders.reduce(
     (sum, lender) => ({
@@ -190,6 +198,9 @@ export default async function DashboardPage() {
           }
         />
       </StatRow>
+
+      {/* Estimate only, not a hero: a plain card under the real figures. See projection-preview.tsx. */}
+      <ProjectionPreview ctx={projection} plan={newest?.plan ?? null} planName={newest?.name ?? null} />
 
       {/* LENDERS ACROSS THE TOP, per the spec's main screen — the admin's own pot
           included, because it is a lender row like any other. */}

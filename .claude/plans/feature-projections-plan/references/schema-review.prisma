@@ -1,0 +1,45 @@
+// prisma/schema.prisma — the data model. Only the columns and rules the plan depends on.
+
+// Money: Int centavos. Rates: Int basis points. userId on every domain table. No Json column anywhere —
+// which is why saved plans get a typed child table (ProjectionMove) rather than a JSON blob.
+
+model Loan {
+  capitalCentavos    Int
+  interestBasis      InterestBasis      // WEEKLY_RATE | FIXED_AMOUNT
+  interestCollection InterestCollection // AT_END | WEEKLY
+  borrowerRateBps    Int?               // NULL on FIXED_AMOUNT
+  startOn            DateTime @db.Date
+  dueOn              DateTime @db.Date  // the day the CAPITAL comes back (moved by an extension)
+  termDays           Int
+  status             LoanStatus         // ACTIVE | PAID; overdue is derived
+  deletedAt          DateTime? @map("archivedAt")
+  extensions    LoanExtension[] @relation("Extended")
+  continuedFrom LoanExtension[] @relation("Continuation")
+}
+
+model LoanFunding {
+  lenderId          String
+  principalCentavos Int
+  lenderRateBps     Int?  // NULL on FIXED_AMOUNT
+  adminCutBps       Int?  // NULL on FIXED_AMOUNT
+  earningsCentavos  Int   // stored once; never recomputed
+  adminCutCentavos  Int   // zero when funder is the Admin
+}
+
+model Payment {
+  weekNumber Int?           // NULL = settling payment; 1..N-1 = one week of a WEEKLY loan
+  paidOn     DateTime @db.Date
+  deletedAt  DateTime? @map("archivedAt") // an undone payment — must be excluded
+}
+
+model LoanExtension {
+  fromDueOn       DateTime @db.Date // NOT read: on-time uses Loan.dueOn, the extended date (owner, 2026-11-08)
+  continuedLoanId String?           // IMPORTANT: set => closed by extension. That loan's settling payment returned
+                                    // interest only, and its continuation moved no new capital (excluded from
+                                    // the lender split and from "lent" in the re-lend habit).
+}
+
+// NOTE: LoanNote is the precedent for a table that REALLY deletes (no money history).
+// ProjectionPlan / ProjectionMove follow it.
+// QUESTION: FEATURES.md §12 lists "loan extensions" as out of MVP, yet LoanExtension exists — the doc
+// may be stale there. Not this plan's concern, recorded for whoever maintains FEATURES.md.

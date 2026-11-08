@@ -3,6 +3,7 @@ import {
   FileText,
   Inbox,
   LayoutDashboard,
+  TrendingUp,
   Trash2,
   Users,
   Contact,
@@ -41,6 +42,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/lenders', label: 'Lenders', short: 'People', icon: Users, primary: true },
   // Every lender's money moves on one screen (owner, 2026-10-24). Behind "More" on a phone.
   { href: '/money', label: 'Money history', short: 'Money', icon: ArrowLeftRight, primary: false },
+  // Estimates only (owner, 2026-11-08). Behind "More" on a phone: it is planning, not daily work.
+  { href: '/projections', label: 'Projections', short: 'Projections', icon: TrendingUp, primary: false },
   { href: '/reports', label: 'Reports', short: 'Reports', icon: FileText, primary: false },
   { href: '/deleted', label: 'Recently Deleted', short: 'Deleted', icon: Trash2, primary: false },
 ]

@@ -72,8 +72,8 @@ function term(days: number): string {
   return days === 1 ? '1day' : `${days}days`
 }
 
-/** 700 -> "7%", 650 -> "6.5%". */
-function rate(bps: number): string {
+/** 700 -> "7%", 650 -> "6.5%". Also the Projections page's percent. */
+export function rate(bps: number): string {
   return `${Number(((bps / BPS_DENOMINATOR) * 100).toFixed(2))}%`
 }
 
