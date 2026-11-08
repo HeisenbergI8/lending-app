@@ -462,8 +462,8 @@ function StepBadge({ n, light = false, children }: { n: number; light?: boolean;
 /** One line of choices that scrolls sideways on a phone instead of wrapping into a block. */
 function ScrollRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <nav aria-label={label} className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none]">
-      <div className="flex w-max gap-2 pb-0.5">{children}</div>
+    <nav aria-label={label} className="-mx-4 -my-1 overflow-x-auto px-4 [scrollbar-width:none]">
+      <div className="flex w-max gap-2 py-1">{children}</div>
     </nav>
   )
 }
