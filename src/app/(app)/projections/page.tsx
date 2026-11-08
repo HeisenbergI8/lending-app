@@ -137,7 +137,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       {/* STEP 1 and 2: what is being projected. Choices first, so every figure
           below reads as the answer to them. One scrolling row each on a phone. */}
       <section className="bg-card ring-border/70 space-y-4 rounded-2xl p-4 ring-1">
-        <SectionHead title="Choose what to look at" purpose="The figures and the chart below change to match what you pick here." />
+        <SectionHead title="Choose what to look at" purpose="The estimate and the chart change to match what you pick here." />
         <div className="space-y-2">
           <StepTitle n={1}>Pick a plan</StepTitle>
           <p className="text-muted-foreground -mt-1 text-xs">A plan is your guess about the loans you will make. “Running loans only” shows just today’s loans.</p>
@@ -373,7 +373,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
           <span>
             <span className="block text-base font-semibold">{isNew ? 'Create a plan' : 'Plan settings'}</span>
-            <span className="text-muted-foreground block text-xs">{isNew ? 'Describe the loans you expect to make. The estimate is built from these guesses.' : `The guesses “${loaded[0].name}” is built on. Change them here.`}</span>
+            <span className="text-muted-foreground block text-xs">{isNew ? 'Describe the loans you expect to make. The estimate is built from these guesses.' : `What “${loaded[0].name}” assumes. Change it here.`}</span>
           </span>
           <ChevronDown className="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
         </summary>
