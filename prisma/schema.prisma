@@ -72,6 +72,8 @@ model User {
   loanExtensions     LoanExtension[]
   capitalVersions    StartingCapitalVersion[]
   assistantMemories  AssistantMemory[]
+  projectionPlans    ProjectionPlan[]
+  projectionMoves    ProjectionMove[]
 }
 
 /// A logged-in browser. Server-side sessions rather than JWTs, deliberately:
@@ -140,6 +142,7 @@ model Lender {
   transactions    LenderTransaction[]
   fundings        LoanFunding[]
   capitalVersions StartingCapitalVersion[]
+  projectionMoves ProjectionMove[]
 
   @@index([userId, deletedAt])
 }
@@ -690,4 +693,75 @@ model AssistantMemory {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, pattern])
+}
+
+/// A saved "what if" for the Projections page. INPUTS ONLY.
+///
+/// Nothing here is a result. Every projected figure is recomputed on read by
+/// src/lib/money/forecast.ts from TODAY's running loans and history, so a plan
+/// saved in March still projects from what is really out in June. Storing a
+/// result would be a figure that silently goes stale the day a loan is paid.
+///
+/// The rate and cut are what the Admin chose for THIS plan (they start from the
+/// history defaults, then are the Admin's). They move no money and are never read
+/// by anything but the Projections page.
+///
+/// THE SECOND TABLE THAT REALLY DELETES, after LoanNote and for the same reason:
+/// no money history lives here. A deleted plan in Recently Deleted would invite
+/// the question of what money it was worth. Deleting asks first and then means it.
+model ProjectionPlan {
+  id                 String             @id @default(cuid())
+  userId             String
+  name               String
+  newLoansPerMonth   Int
+  loanAmountCentavos Int
+  termWeeks          Int
+  borrowerRateBps    Int
+  adminCutBps        Int
+  interestCollection InterestCollection @default(AT_END)
+  /// True: returned money is re-lent per lender, following each lender's own history
+  /// (share and lag — lib/money/forecast-history.ts relendHabits). False: it sits as cash.
+  relend             Boolean            @default(true)
+  horizonMonths      Int                @default(24)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moves ProjectionMove[]
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+}
+
+/// A planned deposit or withdrawal inside one ProjectionPlan — "John adds ₱10,000
+/// every month", "Maria takes out ₱5,000 in March". PRETEND MONEY: it is never a
+/// LenderTransaction and never touches floating funds.
+///
+/// fromMonth and untilMonth are the 1st of a month, in date-only columns, so
+/// both CONVENTIONS.md date rules apply: write through calendarDate(), read back
+/// through storedCalendarDate().
+///
+/// A move on a lender who is later deleted (Lender.deletedAt) is skipped by the
+/// page, not removed: restoring the lender brings the plan back whole.
+model ProjectionMove {
+  id             String                @id @default(cuid())
+  userId         String
+  planId         String
+  lenderId       String
+  type           LenderTransactionType
+  amountCentavos Int
+  fromMonth      DateTime              @db.Date
+  /// False: once, in fromMonth. True: every month from fromMonth on.
+  everyMonth     Boolean               @default(false)
+  /// Last month of a repeating move, inclusive. Null: to the end of the plan.
+  untilMonth     DateTime?             @db.Date
+  createdAt      DateTime              @default(now())
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan   ProjectionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  lender Lender         @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([lenderId])
+  @@index([userId])
 }
