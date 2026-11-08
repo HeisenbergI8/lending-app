@@ -69,7 +69,7 @@ export async function projectionContext(
       },
     }),
     db.loan.findMany({
-      where: { userId, deletedAt: null, startOn: { gte: from }, continuedFrom: { none: {} } },
+      where: { userId, deletedAt: null, startOn: { gte: from, lte: today }, continuedFrom: { none: {} } },
       select: {
         startOn: true,
         fundings: { select: { lenderId: true, earningsCentavos: true, adminCutCentavos: true } },

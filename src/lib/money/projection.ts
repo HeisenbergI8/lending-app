@@ -80,7 +80,7 @@ export type RowArrival = { on: Date; capital: Centavos; interest: Centavos; admi
 /**
  * Every day this row still has money coming back, in date order — the ONE
  * place that says how a loan returns its money, for projectFloating and for
- * the Projections estimate (lib/money/forecast.ts) alike.
+ * the Projections estimate (lib/money/simple-forecast.ts) alike.
  *
  * AT_END: one arrival on dueOn with everything. WEEKLY: one per unpaid week,
  * slices from weeklySlices, capital with the last week. Paid weeks are skipped.
