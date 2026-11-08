@@ -4,7 +4,6 @@ import { centavos, type Centavos } from '../../src/lib/money/centavos.ts'
 import {
   splitFixed,
   splitLoan,
-  splitByWeight,
   adminTakeOnLoan,
   adminTotalEarnings,
   type FixedTerms,
@@ -548,28 +547,4 @@ describe('adminTakeOnLoan — the same answer, read back from stored rows', () =
       .reduce((total, share) => total + share.earnings, 0)
     assert.equal(adminTakeOnLoan(stored) + others, split.totalInterest)
   })
-})
-
-test('splitByWeight sums to the total exactly, even when weights do not divide it', () => {
-  for (const total of [1, 7, 99_999, 3_000_000, 2_147_483_647]) {
-    const parts = splitByWeight(centavos(total), [
-      { key: 'a', weight: 1 }, { key: 'b', weight: 1 }, { key: 'c', weight: 1 },
-    ])
-    assert.equal([...parts.values()].reduce((s, v) => s + v, 0), total)
-  }
-})
-
-test('splitByWeight survives weights whose product with the total passes MAX_SAFE_INTEGER', () => {
-  const parts = splitByWeight(centavos(2_000_000_000), [
-    { key: 'a', weight: 9_000_000_000 }, { key: 'b', weight: 3_000_000_000 },
-  ])
-  assert.equal(parts.get('a'), 1_500_000_000)
-  assert.equal(parts.get('b'), 500_000_000)
-})
-
-test('splitByWeight gives a zero weight nothing and refuses an all-zero set', () => {
-  const parts = splitByWeight(centavos(1_000), [{ key: 'a', weight: 0 }, { key: 'b', weight: 5 }])
-  assert.equal(parts.get('a'), 0)
-  assert.equal(parts.get('b'), 1_000)
-  assert.throws(() => splitByWeight(centavos(1_000), [{ key: 'a', weight: 0 }]))
 })

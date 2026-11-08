@@ -1,5 +1,4 @@
 import { type Centavos, centavos } from './centavos.ts'
-import { HISTORY_MONTHS, historyWindowStart } from './forecast-history.ts'
 import { type ScheduledRow, scheduleArrivals } from './projection.ts'
 import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
 
@@ -25,6 +24,25 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * interest counted so far. No deposits or withdrawals are assumed, as asked.
  * Money already overdue today is in neither figure, and is reported apart.
  */
+
+/** How far back "the way you have been lending" looks. */
+export const HISTORY_MONTHS = 6
+
+/**
+ * The 1st of the month HISTORY_MONTHS before this one: a month-aligned start
+ * cannot roll over (31 August minus six months is not a date).
+ */
+export function historyWindowStart(today: Date): Date {
+  return firstOfMonth(today, -HISTORY_MONTHS)
+}
+
+/** The time frames offered: months, the current one counting as the first. */
+export const RANGES = [3, 6, 12, 24] as const
+export const DEFAULT_RANGE = 12
+
+export function rangeLabel(months: number): string {
+  return months === 12 ? '1 year' : months === 24 ? '2 years' : `${months} months`
+}
 
 export type Whose = { kind: 'pot' } | { kind: 'lender'; lenderId: string }
 

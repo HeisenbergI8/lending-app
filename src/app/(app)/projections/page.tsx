@@ -3,9 +3,7 @@ import { ChevronDown } from 'lucide-react'
 
 import { Money } from '@/components/money.tsx'
 import { centavos } from '@/lib/money/centavos.ts'
-import { HISTORY_MONTHS, historyWindowStart } from '@/lib/money/forecast-history.ts'
-import { DEFAULT_RANGE, RANGES, rangeLabel } from '@/lib/money/forecast.ts'
-import { type Whose, simpleForecast } from '@/lib/money/simple-forecast.ts'
+import { DEFAULT_RANGE, HISTORY_MONTHS, RANGES, type Whose, historyWindowStart, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
 import { requireUser } from '@/server/auth/guard.ts'
 import { projectionContext, simpleInput } from '@/server/projections/queries.ts'
 
@@ -39,7 +37,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const lenderId = one('view') === 'admin' ? admin?.id : one('view') === 'lender' ? one('lender') : undefined
   const picked = lenderId ? ctx.lenders.find((l) => l.id === lenderId) : undefined
   const whose: Whose = picked ? { kind: 'lender', lenderId: picked.id } : { kind: 'pot' }
-  const f = simpleForecast(simpleInput(ctx, range), whose, ctx.auto.basedOn)
+  const f = simpleForecast(simpleInput(ctx, range), whose, ctx.newLoans)
 
   const last = f.months.at(-1)
   const perMonth = centavos(Math.round(f.total / f.months.length))
@@ -134,7 +132,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
                     {m.month.toLocaleDateString('en-PH', { month: 'short', year: 'numeric' })}
                     {i === 0 ? <span className="text-muted-foreground block text-xs font-normal">from today</span> : null}
                   </th>
-                  <td className="px-2 py-2.5 text-right"><Money amount={m.interest} variant="column" /></td>
+                  <td className="px-2 py-2.5 text-right">
+                    <Money amount={m.interest} variant="column" />
+                    {/* Which figure the month used: shown so a month can be understood at a glance. */}
+                    <span className="text-muted-foreground block text-xs">{m.basis === 'known' ? 'running loans' : 'usual pace'}</span>
+                  </td>
                   <td className="px-4 py-2.5 text-right"><Money amount={m.pot} variant="column" /></td>
                 </tr>
               ))}
@@ -157,7 +159,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             {historyWindowStart(ctx.today).toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })} earned{' '}
             {who} about <Money amount={f.usual} variant="display" /> a month.
           </li>
-          <li>Each month uses what your running loans will pay that month, or your usual pace, whichever is more. This month counts from today only.</li>
+          <li>Each month uses what your running loans will pay that month, or your usual pace, whichever is more; the table says which. A month where a big loan falls due can read a little high, because a loan’s whole interest counts on its due date. This month counts from today only, so the “a month” figure, an average over the months shown, reads slightly low.</li>
           <li>A lender’s figures are their own earnings only. The Admin’s include the Admin cut. The whole pot is everyone.</li>
           <li>The pot is today’s capital (cash + money out on loan) plus the interest counted so far. It assumes no money is added or taken out.</li>
           {f.overdue > 0 ? <li>Not counted: <Money amount={f.overdue} variant="display" /> already overdue today.</li> : null}

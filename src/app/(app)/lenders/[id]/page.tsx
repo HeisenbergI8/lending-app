@@ -18,7 +18,7 @@ import { type Projection } from '@/lib/money/projection.ts'
 import { PAGE_SIZE, pagedHref, parsePage } from '@/lib/pagination.ts'
 import { HISTORY_FILTERS, type HistoryFilterKey, filterHistory, parseHistoryFilter } from '@/lib/money/history-filter.ts'
 import { cn } from '@/lib/utils'
-import { DEFAULT_RANGE } from '@/lib/money/forecast.ts'
+import { DEFAULT_RANGE } from '@/lib/money/simple-forecast.ts'
 import {
   type ReportRange,
   describeRange,

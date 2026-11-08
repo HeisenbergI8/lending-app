@@ -197,40 +197,6 @@ function distribute(shares: Share[], total: Centavos, denominator: number): Map<
   return result
 }
 
-/** Parts per million: the scale a weight is reduced to before it splits money. */
-const PPM = 1_000_000
-
-/**
- * Split `total` in proportion to `weights`, losing no centavo.
- *
- * For the Projections estimate: a pretend loan's capital split across lenders by
- * how much capital each put into real loans lately. TWO passes of the same
- * largest-remainder rule, because a weight is itself a sum of centavos and
- * weight x total can pass Number.MAX_SAFE_INTEGER. The weights are first turned
- * into parts per million that sum to exactly 1,000,000, then the money is split
- * by those. The consequence is deliberate: a share is exact to a millionth, not
- * to the centavo of the history it came from.
- *
- * Zero weights are allowed and get zero. Keys keep their input order, which is
- * how ties break, so the same inputs always split the same way.
- */
-export function splitByWeight(total: Centavos, weights: { key: string; weight: number }[]): Map<string, Centavos> {
-  const sum = weights.reduce((acc, w) => acc + w.weight, 0)
-  if (weights.some((w) => !Number.isInteger(w.weight) || w.weight < 0) || sum <= 0) {
-    throw new Error('splitByWeight needs non-negative whole weights with a positive sum.')
-  }
-  const ppm = distribute(
-    weights.map((w) => ({ key: w.key, numerator: checkedProduct(w.weight, PPM) })),
-    centavos(PPM),
-    sum,
-  )
-  return distribute(
-    weights.map((w) => ({ key: w.key, numerator: checkedProduct(ppm.get(w.key) as number, total) })),
-    total,
-    PPM,
-  )
-}
-
 const ADMIN_SHARE_KEY = '\u0000admin'
 
 /**

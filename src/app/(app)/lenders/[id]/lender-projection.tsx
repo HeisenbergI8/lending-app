@@ -4,8 +4,7 @@ import { ChevronRight, TrendingUp } from 'lucide-react'
 import { Money } from '@/components/money.tsx'
 import { centavos } from '@/lib/money/centavos.ts'
 import { IconChip } from '@/components/stat-tile.tsx'
-import { RANGES, rangeLabel } from '@/lib/money/forecast.ts'
-import { simpleForecast } from '@/lib/money/simple-forecast.ts'
+import { RANGES, rangeLabel, simpleForecast } from '@/lib/money/simple-forecast.ts'
 import { projectionContext, simpleInput } from '@/server/projections/queries.ts'
 
 /** The lender page offers the shorter time frames; the Projections page has them all. */
@@ -39,7 +38,7 @@ export async function LenderProjection({
   rangeHref: (months: number) => string
 }) {
   const ctx = await projectionContext(userId)
-  const f = simpleForecast(simpleInput(ctx, range), { kind: 'lender', lenderId }, ctx.auto.basedOn)
+  const f = simpleForecast(simpleInput(ctx, range), { kind: 'lender', lenderId }, ctx.newLoans)
   const best = f.months.at(-1)
   if (!best) return null
   const perMonth = Math.round(f.total / f.months.length)

@@ -16,7 +16,7 @@ const PREVIEW_MONTHS = 12
  * and the card says so. Money already overdue today is not in it.
  */
 export function ProjectionPreview({ ctx }: { ctx: ProjectionContext }) {
-  const f = simpleForecast(simpleInput(ctx, PREVIEW_MONTHS), { kind: 'pot' }, ctx.auto.basedOn)
+  const f = simpleForecast(simpleInput(ctx, PREVIEW_MONTHS), { kind: 'pot' }, ctx.newLoans)
   const last = f.months.at(-1)
   if (!last) return null
   const end = last.month.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })
