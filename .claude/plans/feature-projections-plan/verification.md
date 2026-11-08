@@ -57,3 +57,19 @@ Plan section 1.2 and 3.1: each lender re-lends 100% (default) or their measured 
 - No-realistic-line message in a browser.
 - Weekly-collection plans and real EXTENDED/FIXED_AMOUNT loans (none in demo data).
 - Print/PWA, dark mode.
+
+## Re-check against a321e98 (2026-11-08)
+
+Same environment, demo only, no source edits. Script: /tmp/claude-0/-home-user-lending-app/72e4ab4c-03ed-54e8-adc6-54a8020a04ce/scratchpad/h1.cjs.
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| 1. Aa60 (3 x 30,000, 60 months, re-lend) and 0 loans + re-lend + 36 months | PASS | page loads; alert "“Aa60” grows too large to calculate ... Showing running loans only. Shorten its months ahead, or turn re-lending off."; Delete plan button present and worked; dashboard loads (shows the plan's 12-month card) for both |
+| 2. Overdue per view | PASS | DB funding row of the overdue loan: principal 1,200,000, earnings 240,000, cut 96,000 centavos (funder Jun). Agree with expected values. Page: Whole pot 15,360.00, Admin cut 960.00, Jun 14,400.00; Admin, John, Maria show no overdue line |
+| 3. 60-char unbroken name at 390px | PASS | scrollWidth 390 = clientWidth 390, h1-long.png |
+| 4a. "Saved." after edit | PASS | text appears |
+| 4b. "− remove" on compared plan | PASS | link present, click returns to the single-plan view |
+| 4c. blank amount with 0 loans | PASS | plan created |
+| 4d. add-move form clears | PASS | amount and month empty, move listed |
+| npm run verify | PASS | 943 pass, 0 fail, 3 pre-existing warnings, exit 0 (/tmp/claude-0/-home-user-lending-app/72e4ab4c-03ed-54e8-adc6-54a8020a04ce/scratchpad/verify2.log) |
+| Cleanup | done | only "Steady growth" remains |
