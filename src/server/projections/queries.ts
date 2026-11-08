@@ -11,7 +11,8 @@ import {
   relendHabits,
   returnEvents,
 } from '../../lib/money/forecast-history.ts'
-import { type ForecastInput, type Plan, type RealRow } from '../../lib/money/forecast.ts'
+import { type ForecastInput, type RealRow } from '../../lib/money/forecast.ts'
+import { type HistoryRow, type SimpleInput } from '../../lib/money/simple-forecast.ts'
 import { calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
 import { db } from '../db.ts'
 import { listLenders } from '../lenders/queries.ts'
@@ -40,6 +41,22 @@ export type ProjectionContext = {
   habits: ReturnType<typeof relendHabits>
   /** "Carry on lending the way you have been": the plan the page uses until the Admin customizes one. */
   auto: ReturnType<typeof autoPlan>
+  /** Funding rows of NEW loans (continuations left out) — the "usual pace" in simple-forecast.ts. */
+  newLending: HistoryRow[]
+}
+
+/** The simple projection's input, built once from the context. */
+export function simpleInput(ctx: ProjectionContext, months: number): SimpleInput {
+  const capitalNow = new Map(ctx.lenders.map((l) => [l.id, l.floatingNow as number]))
+  for (const row of ctx.realRows) capitalNow.set(row.lenderId, (capitalNow.get(row.lenderId) ?? 0) + row.principal)
+  return {
+    today: ctx.today,
+    months,
+    adminId: ctx.lenders.find((l) => l.isSelf)?.id ?? null,
+    capitalNow: new Map([...capitalNow].map(([k, v]) => [k, centavos(v)])),
+    running: ctx.realRows,
+    history: ctx.newLending,
+  }
 }
 
 export async function projectionContext(
@@ -182,6 +199,16 @@ export async function projectionContext(
       adminCutBps: DEFAULT_ADMIN_CUT_BPS as BasisPoints,
     }),
     habits: relendHabits(returns, lends, today, lenders.map((l) => l.id)),
+    newLending: history
+      .filter((loan) => loan.continuedFrom.length === 0)
+      .flatMap((loan) =>
+        loan.fundings.map((f) => ({
+          lenderId: f.lenderId,
+          startOn: storedCalendarDate(loan.startOn),
+          earnings: centavos(f.earningsCentavos),
+          adminCut: centavos(f.adminCutCentavos),
+        })),
+      ),
     auto: autoPlan(
       history.map((loan) => ({
         startOn: storedCalendarDate(loan.startOn),
@@ -192,48 +219,4 @@ export async function projectionContext(
       today,
     ),
   }
-}
-
-/** Plan names and ids for the picker, newest first. */
-export async function listPlans(userId: string) {
-  return db.projectionPlan.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, name: true },
-  })
-}
-
-/**
- * The saved plans asked for, each as the engine's Plan, in the order asked.
- * Moves on a deleted lender are dropped here (the row stays; see the schema).
- */
-export async function plansById(userId: string, ids: string[]) {
-  const rows = await db.projectionPlan.findMany({
-    where: { userId, id: { in: ids } },
-    include: { moves: { where: { lender: { deletedAt: null } }, orderBy: { fromMonth: 'asc' } } },
-  })
-  const byId = new Map(rows.map((r) => [r.id, r]))
-  return ids.flatMap((id) => {
-    const row = byId.get(id)
-    if (!row) return []
-    const plan: Plan = {
-      horizonMonths: row.horizonMonths,
-      newLoansPerMonth: row.newLoansPerMonth,
-      loanAmount: centavos(row.loanAmountCentavos),
-      termWeeks: row.termWeeks,
-      borrowerRateBps: row.borrowerRateBps,
-      adminCutBps: row.adminCutBps,
-      collection: row.interestCollection,
-      relend: row.relend,
-      moves: row.moves.map((m) => ({
-        lenderId: m.lenderId,
-        type: m.type,
-        amount: centavos(m.amountCentavos),
-        fromMonth: storedCalendarDate(m.fromMonth),
-        everyMonth: m.everyMonth,
-        untilMonth: m.untilMonth ? storedCalendarDate(m.untilMonth) : null,
-      })),
-    }
-    return [{ id: row.id, name: row.name, plan, moves: row.moves }]
-  })
 }
