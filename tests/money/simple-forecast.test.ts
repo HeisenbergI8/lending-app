@@ -140,3 +140,10 @@ test('all lenders together never earn more in a month than the whole pot’s bus
   assert.ok(pot.months.every((m, i) => i === 0 || m.interest <= 1_200_000 + 1))
   assert.ok(pot.months[23].interest >= 1_200_000 - 1)
 })
+
+test('months before lending began are not counted as slow months', () => {
+  const late = history.slice(3) // August, September (slow), October (busy) only
+  const f = simpleForecast(input({ history: late, pace: 'slow' }), { kind: 'pot' }, 3)
+  // (8,000 + 4,000 + 12,000) ÷ 3 = 8,000 a month; the slowest is 4,000
+  assert.equal(f.paceFactor, 0.5)
+})

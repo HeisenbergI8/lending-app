@@ -31,7 +31,8 @@ import { daysBetween, firstOfMonth, monthKey } from './weeks.ts'
  * BORROWERS ARE LIMITED (owner, 2026-11-08). Two things keep the estimate
  * honest about how many borrowers there are, both read from the same history:
  *   PACE     slow / usual / busy. The whole pot's month-by-month interest from
- *            new lending over the last HISTORY_MONTHS FULL months; slow is the
+ *            new lending over the last HISTORY_MONTHS FULL months (from the
+ *            first month with a loan, if lending began later); slow is the
  *            slowest of them ÷ their average, busy the busiest ÷ the average.
  *            Every lender's return is multiplied by that one factor, so the
  *            lenders still add up to the whole pot.
@@ -204,9 +205,11 @@ export function simpleForecast(input: SimpleInput, whose: Whose, basedOnLoans: n
   }
   const potCeil = Math.max(...potMonths, potThisMonth)
   const pace = input.pace ?? 'usual'
-  const potAverage = potMonths.reduce((a, b) => a + b, 0) / HISTORY_MONTHS
+  // Months before the first loan in the window are not slow months, just before lending began.
+  const lent = potMonths.slice(Math.max(0, potMonths.findIndex((v) => v > 0)))
+  const potAverage = potMonths.some((v) => v > 0) ? lent.reduce((a, b) => a + b, 0) / lent.length : 0
   const paceFactor =
-    pace === 'usual' || potAverage <= 0 ? 1 : (pace === 'slow' ? Math.min(...potMonths) : Math.max(...potMonths)) / potAverage
+    pace === 'usual' || potAverage <= 0 ? 1 : (pace === 'slow' ? Math.min(...lent) : Math.max(...lent)) / potAverage
   const capital0 = new Map(ids.map((id) => [id, input.capitalNow.get(id) ?? 0]))
   const raw = (usual: Map<string, number>, id: string) =>
     (capital0.get(id) as number) > 0 ? (usual.get(id) as number) / (capital0.get(id) as number) : 0

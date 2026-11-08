@@ -174,7 +174,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             </div>
           ) : null}
         </dl>
-        <p className="relative mt-3 text-xs text-white/80">Interest never goes above your busiest month so far, because the number of borrowers may not grow with the pot.</p>
+        <p className="relative mt-3 text-xs text-white/80">Apart from what running loans already owe, interest never goes above your busiest month so far, because the number of borrowers may not grow with the pot.</p>
       </section>
 
       {/* MONEY IN AND OUT: a plain GET form, so it works without JavaScript and nothing is saved. */}
@@ -245,11 +245,11 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           </li>
           <li>From next month, each lender’s pot earns their own return as it stands. Interest left in earns interest too, so it compounds.</li>
           <li>
-            <span className="text-foreground">Borrowers:</span> a lender never earns more in a month than in their busiest month of the last {HISTORY_MONTHS}, because more money does not bring more borrowers by itself. Money past that is shown as having no borrower.
+            <span className="text-foreground">Borrowers:</span> a lender never earns more in a month than in their busiest month of the last {HISTORY_MONTHS}, because more money does not bring more borrowers by itself. Money past that is shown as having no borrower (the lenders’ own money only; the Admin cut is not money sitting anywhere).
           </li>
-          <li>
+          {f.basedOnLoans > 0 ? <li>
             <span className="text-foreground">Slow and busy:</span> your slowest of the last {HISTORY_MONTHS} full months earned {Math.round(slow.paceFactor * 100)}% of an average month, your busiest {Math.round(busy.paceFactor * 100)}%. Slow and busy use those against the usual return. Running loans still pay what they will either way.
-          </li>
+          </li> : null}
           <li>The Admin cut is earned on the other lenders’ money, so it grows with their pots, not with the Admin’s. That is why every lender’s figures add up to the whole pot.</li>
           <li>Money added in a month starts earning the month after.</li>
           <li>The return uses the money there is today. If a lot was added or taken out recently, it can read high or low.{f.capped ? ' One lender’s return was held to the most a loan can earn, about 30% a month, because they have very little money left.' : ''}</li>
