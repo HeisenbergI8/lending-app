@@ -33,8 +33,10 @@ model Payment {
 }
 
 model LoanExtension {
-  fromDueOn       DateTime @db.Date // IMPORTANT: the original due date the on-time measure uses
-  continuedLoanId String?           // set => closed by extension; the continuation moved no new capital
+  fromDueOn       DateTime @db.Date // NOT read: on-time uses Loan.dueOn, the extended date (owner, 2026-11-08)
+  continuedLoanId String?           // IMPORTANT: set => closed by extension. That loan's settling payment returned
+                                    // interest only, and its continuation moved no new capital (excluded from
+                                    // the lender split and from "lent" in the re-lend habit).
 }
 
 // NOTE: LoanNote is the precedent for a table that REALLY deletes (no money history).

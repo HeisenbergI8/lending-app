@@ -9,10 +9,9 @@ if (loan.status === 'PAID') {
   // ...
 }
 
-// IMPORTANT: this rule compares against Loan.nextDueOn / the MOVED due date of an extended loan.
-// The Projections on-time measure deliberately uses the ORIGINAL due date (earliest
-// LoanExtension.fromDueOn) — a difference raised as owner question Q1.
-// QUESTION: is it acceptable that "on time" differs between the borrower record and the estimate?
+// IMPORTANT: this rule compares against the loan's CURRENT due date — for an extended loan, the date the
+// extension moved it to. The Projections on-time measure now does exactly the same (owner, 2026-11-08:
+// an extension is agreed, not late). "On time" therefore means one thing across the app.
 
 // NOTE: a PAID loan with paidOn null counts as on time here. The Projections measure reads Payment.paidOn,
 // which is NOT NULL in the schema, so that case cannot arise there.

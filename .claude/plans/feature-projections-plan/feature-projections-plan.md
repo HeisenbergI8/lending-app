@@ -39,25 +39,47 @@ Every claim traces to a review in `references/`.
    figure in this plan was measured. Every historical default is computed at run time and printed with
    what it was computed from.
 
-### 1.2 Decisions this plan makes (each listed again in Follow Ups for the owner)
+### 1.2 Decisions (owner answers received 2026-11-08)
+
+**Decided by the owner:**
+
+| Topic | Decision |
+| --- | --- |
+| "When do I reach ₱X" | **Both** targets, the user picks: total estimated interest from today, or pot size (cash + capital out on loan). |
+| Extended loans | **Not late.** An extension through `LoanExtension` is agreed. On-time is measured against the extended due date (`Loan.dueOn`), exactly as `trackRecord` does. |
+| Unpaid money | **No allowance.** The owner's history has no unpaid loans, so the realistic line models lateness only. |
+| Re-lending | **Per lender, from each lender's own history:** what share of their returned money they re-lent, and how many months later. Each lender re-lends only their own cash, so one lender short of cash never stops another. Switch off = no re-lending. Too little history for a lender = a labelled default (100%, 1 month). |
+
+**Defaulted as recommended** (owner said go with the recommendation):
+
+| Topic | Default |
+| --- | --- |
+| On-time rate | Counts due amounts, not pesos. |
+| Earliest re-lend | Pretend loans start on the 1st, so money back in month M is re-lent in M+1 at the earliest. A measured lag of 0 is treated as 1. |
+| FIXED_AMOUNT history | Counted in the lender split, the on-time rate and the re-lend habits. Left out of the default rate (it has none). |
+| Pretend loans | Always WEEKLY_RATE, whole weeks. |
+| Admin-cut view | The cut only. The Admin's earnings on its own money are under "per lender → Admin". |
+| Lender split | Frozen at today's 6-month history for the whole horizon. |
+| Backup / demo seed | Saved plans are left out of the backup export and the demo seed for now (Follow Up). |
+| Manual SQL file | Keep writing a `prisma/manual/` paste file, as the older migrations do. |
+
+**Other fixed choices:**
 
 | Topic | Decision |
 | --- | --- |
 | Time step | Calendar months, starting with the current month. Pretend loans start on the 1st of each month from **next** month. |
 | Horizon | 24 months by default, 1–60 allowed. |
-| Pretend loans | Always WEEKLY_RATE, whole weeks. A fixed amount has no rate to project. |
 | Default rate / cut / collection | The most common value (not the average) over WEEKLY_RATE loans started in the last 6 months; falls back to 7% / 2% / AT_END. |
-| Lender split | Each lender's share of `LoanFunding.principalCentavos` on non-deleted loans started in the last 6 months, FIXED_AMOUNT loans included (capital is capital). |
-| Re-lend on | After the planned loans each month, extra whole loans of the same size are made while **every** lender in the split can pay their share. Never creates a shortfall by itself. |
-| Re-lend off | Returned money stays as cash. Planned loans are still made and may warn. |
-| Realistic line | Each arrival is split: `floor(amount × onTimeBps / 10000)` arrives on its date, the rest arrives `lateDelayDays` later. Nothing is lost. Money already late today is left out of both lines. |
+| Lender split | Each lender's share of `LoanFunding.principalCentavos` on non-deleted loans started in the last 6 months (continuation loans excluded: they moved no new capital). |
+| Re-lend loans | One single-funder pretend loan per lender per month, sized to what that lender re-lends that month (if at least ₱1,000), at the plan's term, rate and cut. Capped by the lender's cash, so it never causes a warning. |
+| Realistic line | Each arrival is split: `floor(amount × onTimeBps / 10000)` arrives on its date, the rest arrives `lateDelayDays` later. Nothing is lost and nothing is assumed unpaid. Money already overdue today is left out of both lines and shown apart. |
 | Saved plans | Two new tables, inputs only, real delete (like `LoanNote`). |
 
 ### 1.3 "On time", defined
 
 A **scheduled amount** is one due date on a non-deleted loan: the `dueOn` of an AT_END loan, or each
-week date of a WEEKLY loan (`weeklyDueDates`). It counts when its due date falls in the **last 6 months
-before today**.
+week date of a WEEKLY loan (`weeklyDueDates`), with the last week on `dueOn`. It counts when its due
+date falls in the **last 6 months before today**.
 
 It is **on time** when a live (`deletedAt` null) `Payment` covers it — the settling row (`weekNumber`
 null) for the capital/last week, the row with that `weekNumber` for a week — and that payment's
@@ -71,14 +93,36 @@ It is **not on time** when it was paid later, or is still unpaid after its due d
 Why:
 - It measures what the realistic line needs — *did the money arrive on the day it was planned* — at
   the same grain the projection schedules money (per week for weekly loans).
-- Counting still-unpaid amounts as not on time stops the rate looking better than reality just
-  because the late loans haven't been paid yet.
-- The "on or before the due day" rule and leaving out loans closed by an extension are the same as
-  `trackRecord`, so "on time" means one thing in the app.
-- **Extended loans are measured against their ORIGINAL due date** (the earliest
-  `LoanExtension.fromDueOn`), not the moved one. For cash timing, money that came after the agreed day
-  was late. This differs from `trackRecord` on purpose and is flagged for the owner.
-- It counts loans, not pesos: one big late loan should not swing the rate. Also flagged.
+- **The due date is `Loan.dueOn`, which an extension moves** (owner, 2026-11-08: an extension is
+  agreed, not late). That's the same date `trackRecord` uses, so "on time" means one thing everywhere
+  in the app. A loan extended from 4 to 8 weeks and paid at week 8 is on time.
+- A loan closed by an extension (interest paid, capital carried on as a new loan) isn't counted, as
+  in `trackRecord`. The continuation loan is counted instead.
+- A still-unpaid amount past its due date counts as not on time. The owner's history has none today,
+  so this only matters if one appears.
+- It counts amounts, not pesos (default).
+
+### 1.4 Re-lending habits, defined
+
+For each lender, over the same 6-month window:
+
+- **Returned** in month M = what live payments in M handed back to that lender's pot: capital plus own
+  earnings, plus the Admin cut on the Admin's pot. Each payment's share is found with
+  `scheduleArrivals` (a weekly row is that week's slice; the settling row is the capital plus the last
+  slice), so it uses the same arithmetic as the projection.
+- **Lent** in month M = that lender's `principalCentavos` on loans started in M, continuation loans
+  excluded.
+- **Re-lend share** = `min(100%, total lent / total returned)`, counting only lending from the first
+  month with a return onward.
+- **Lag** = the median, over months with a return, of months until that lender next lent anything
+  (0 if the same month). The engine uses `max(1, lag)` (see 1.2).
+- **Too thin:** fewer than 2 months with a return. Then the default is share 100%, lag 1, and the page
+  says "default — not enough history for {lender}".
+
+**Known limitation, written into the code:** lending paid for by fresh deposits looks like
+re-lending, so the share is an upper bound. Deposits can't be subtracted reliably: the schema notes
+that deposit rows on this account were entered loan by loan after the fact (`Lender.startingCapital`
+comment).
 
 ## 2. Comprehensive Plan by Phases
 
@@ -355,7 +399,8 @@ pattern.
 **File:** `src/lib/money/forecast-history.ts`
 **Verify:** `npm run typecheck`
 
-Pure functions: `capitalShares`, `onTimeRate`, `lateDelayDays`, `historyDefaults`.
+Pure functions: `capitalShares`, `onTimeRate`, `lateDelayDays`, `historyDefaults`, and the
+per-lender re-lending habits `returnEvents` / `relendHabits` (plan §1.4).
 
 New file. No database, no React. Every date in is a calendar date at local midday (the server
 converts `@db.Date` columns with `storedCalendarDate` before calling).
@@ -363,6 +408,7 @@ converts `@db.Date` columns with `storedCalendarDate` before calling).
 ```ts
 import { type BasisPoints, type Centavos, BPS_DENOMINATOR, centavos } from './centavos.ts'
 import { type InterestBasis, type InterestCollection } from './interest.ts'
+import { type ScheduledRow, scheduleArrivals } from './projection.ts'
 import { DAYS_PER_WEEK, daysBetween, firstOfMonth } from './weeks.ts'
 import { weeklyDueDates } from './weekly.ts'
 
@@ -420,15 +466,15 @@ export function capitalShares(
 
 /**
  * One loan as the on-time measure needs it. Built by the server from Loan,
- * its live Payments and its LoanExtensions.
+ * its live Payments and its LoanExtensions. dueOn is Loan.dueOn — the date an
+ * extension moved it TO, because an extension is agreed, not late (owner,
+ * 2026-11-08), exactly as trackRecord reads it.
  */
 export type HistoryLoan = {
   interestCollection: InterestCollection
   startOn: Date
   dueOn: Date
   termDays: number
-  /** The earliest LoanExtension.fromDueOn: the day first agreed. Null if never extended. */
-  originalDueOn: Date | null
   /** paidOn of the live settling Payment (weekNumber null). */
   settledOn: Date | null
   /** paidOn of each live weekly Payment, by weekNumber. */
@@ -443,15 +489,14 @@ export type DueRecord = { dueOn: Date; paidOn: Date | null }
 /**
  * Every amount this loan was due to hand over, each with its due day.
  *
- * AT_END: one, on the ORIGINAL due date. WEEKLY: weeks 1..N-1 on their own week
- * dates, then the settling payment on the original due date. Measured against
- * the original date on purpose: for the estimate, money that came after the day
- * first agreed was late, even if an extension later made it "on time" on the
- * borrower's record (src/lib/track-record.ts uses the moved date). See plan §1.3.
+ * AT_END: one, on dueOn. WEEKLY: weeks 1..N-1 on their own week dates, then the
+ * settling payment on dueOn. An extended loan is measured against its EXTENDED
+ * due date, the same as src/lib/track-record.ts — a loan extended from 4 weeks
+ * to 8 and paid at week 8 is on time. See plan §1.3.
  */
 export function dueRecords(loan: HistoryLoan): DueRecord[] {
   if (loan.closedByExtension) return []
-  const settleDue = loan.originalDueOn ?? loan.dueOn
+  const settleDue = loan.dueOn
   if (loan.interestCollection !== 'WEEKLY') return [{ dueOn: settleDue, paidOn: loan.settledOn }]
   const weeks = loan.termDays / DAYS_PER_WEEK
   const dates = weeklyDueDates(loan.startOn, weeks)
@@ -560,6 +605,118 @@ export function historyDefaults(
     basedOn: rated.length,
   }
 }
+
+// ---------------------------------------------------------------- re-lending habits
+
+/** Money handed back to one lender's pot on a day: capital + own earnings, or the cut on the Admin pot. */
+export type ReturnEvent = { lenderId: string; on: Date; amount: Centavos }
+export type LendEvent = { lenderId: string; on: Date; principal: Centavos }
+
+/** One funding row of a loan, as scheduleArrivals reads it. paidWeeks is ignored here. */
+export type ReturnFunding = ScheduledRow & { lenderId: string }
+
+/**
+ * What each live payment on one loan handed back, per pot.
+ *
+ * Each payment's share comes from scheduleArrivals — the projection's own rule —
+ * so a weekly row is that week's slice and the settling row is the capital plus
+ * the last slice. The Admin cut goes to the Admin pot.
+ *
+ * A loan CLOSED BY AN EXTENSION ("interest paid now") handed back its interest
+ * only: its capital carried on as the continuation loan without leaving the
+ * borrower. So capital is left out of its settling payment.
+ */
+export function returnEvents(
+  loan: { rows: readonly ReturnFunding[]; payments: readonly { weekNumber: number | null; paidOn: Date }[]; closedByExtension: boolean },
+  adminId: string | null,
+): ReturnEvent[] {
+  const out: ReturnEvent[] = []
+  for (const row of loan.rows) {
+    const arrivals = scheduleArrivals({ ...row, paidWeeks: new Set() })
+    for (const p of loan.payments) {
+      const a = p.weekNumber === null ? arrivals.find((x) => x.final) : arrivals[p.weekNumber - 1]
+      if (!a) continue
+      const capital = p.weekNumber === null && loan.closedByExtension ? 0 : a.capital
+      if (capital + a.interest > 0) out.push({ lenderId: row.lenderId, on: p.paidOn, amount: centavos(capital + a.interest) })
+      if (a.adminCut > 0 && adminId !== null) out.push({ lenderId: adminId, on: p.paidOn, amount: a.adminCut })
+    }
+  }
+  return out
+}
+
+export type RelendHabit = {
+  /** Share of returned money this lender re-lent. An UPPER BOUND — see plan §1.4. */
+  shareBps: BasisPoints
+  /** Months from a return to this lender's next lending, as measured. 0 = the same month. */
+  lagMonths: number
+  /** 'default' when there was too little history: the page must say so, by name. */
+  basis: 'history' | 'default'
+  /** Months with a return in the window — printed beside the figure. */
+  returnMonths: number
+}
+
+export const MIN_RETURN_MONTHS = 2
+export const DEFAULT_RELEND: RelendHabit = { shareBps: BPS_DENOMINATOR, lagMonths: 1, basis: 'default', returnMonths: 0 }
+
+const monthNumber = (d: Date) => d.getFullYear() * 12 + d.getMonth()
+
+/**
+ * Each lender's own re-lending habit over the window (owner, 2026-11-08).
+ *
+ *   share  min(100%, lent / returned), lending counted from the first month
+ *          with a return onward
+ *   lag    median, over months with a return, of months until this lender next
+ *          lent anything (0 if the same month); default when they never did
+ *
+ * Fewer than MIN_RETURN_MONTHS months with a return: DEFAULT_RELEND (100%, one
+ * month), marked basis 'default'. A lender with returns who never lent again
+ * gets share 0 — that IS their history.
+ *
+ * KNOWN LIMIT: lending paid for by a fresh deposit looks like re-lending, so
+ * the share errs high. Deposits are not subtracted because the deposit rows on
+ * this account were entered loan by loan after the fact (schema, Lender).
+ */
+export function relendHabits(
+  returns: readonly ReturnEvent[],
+  lends: readonly LendEvent[],
+  today: Date,
+  lenderIds: readonly string[],
+): Map<string, RelendHabit> {
+  const from = historyWindowStart(today)
+  const inWindow = (d: Date) => daysBetween(from, d) >= 0 && daysBetween(d, today) >= 0
+  const byMonth = (events: { lenderId: string; on: Date; amount: number }[], id: string) => {
+    const m = new Map<number, number>()
+    for (const e of events) if (e.lenderId === id && inWindow(e.on) && e.amount > 0) m.set(monthNumber(e.on), (m.get(monthNumber(e.on)) ?? 0) + e.amount)
+    return m
+  }
+  const habits = new Map<string, RelendHabit>()
+  for (const id of lenderIds) {
+    const back = byMonth([...returns], id)
+    const lent = byMonth(lends.map((l) => ({ lenderId: l.lenderId, on: l.on, amount: l.principal })), id)
+    const returnMonths = [...back.keys()].sort((a, b) => a - b)
+    if (returnMonths.length < MIN_RETURN_MONTHS) {
+      habits.set(id, { ...DEFAULT_RELEND, returnMonths: returnMonths.length })
+      continue
+    }
+    const first = returnMonths[0]
+    const totalBack = [...back.values()].reduce((s, v) => s + v, 0)
+    const totalLent = [...lent].filter(([m]) => m >= first).reduce((s, [, v]) => s + v, 0)
+    const lentMonths = [...lent.keys()].sort((a, b) => a - b)
+    const lags = returnMonths
+      .flatMap((m) => {
+        const next = lentMonths.find((x) => x >= m)
+        return next === undefined ? [] : [next - m]
+      })
+      .sort((a, b) => a - b)
+    habits.set(id, {
+      shareBps: Math.min(BPS_DENOMINATOR, Math.floor((BPS_DENOMINATOR * totalLent) / totalBack)),
+      lagMonths: lags.length === 0 ? DEFAULT_RELEND.lagMonths : lags[Math.floor((lags.length - 1) / 2)],
+      basis: 'history',
+      returnMonths: returnMonths.length,
+    })
+  }
+  return habits
+}
 ```
 
 #### Step 2.2: Tests for the history functions
@@ -581,6 +738,8 @@ import {
   historyDefaults,
   lateDelayDays,
   onTimeRate,
+  relendHabits,
+  returnEvents,
 } from '../../src/lib/money/forecast-history.ts'
 
 const day = (y: number, m: number, d: number) => new Date(y, m - 1, d, 12)
@@ -601,7 +760,6 @@ const loan = (extra: Partial<HistoryLoan>): HistoryLoan => ({
   startOn: day(2026, 9, 1),
   dueOn: day(2026, 9, 29),
   termDays: 28,
-  originalDueOn: null,
   settledOn: null,
   weekPaidOn: new Map(),
   closedByExtension: false,
@@ -620,9 +778,10 @@ test('on the due day is on time; the day after is not; unpaid and past due is no
   assert.equal(r.bps, 3_333)
 })
 
-test('an extended loan is measured against the date first agreed', () => {
-  const extended = loan({ dueOn: day(2026, 10, 27), originalDueOn: day(2026, 9, 29), settledOn: day(2026, 10, 27) })
-  assert.equal(onTimeRate(dueRecords(extended), today).onTime, 0)
+test('an extended loan is on time when paid by its EXTENDED due date (owner, 2026-11-08)', () => {
+  // 4 weeks + another 4: dueOn has moved from 29 Sep to 27 Oct; paid 27 Oct.
+  const extended = loan({ dueOn: day(2026, 10, 27), termDays: 56, settledOn: day(2026, 10, 27) })
+  assert.equal(onTimeRate(dueRecords(extended), today).onTime, 1)
 })
 
 test('a loan closed by an extension is not counted at all', () => {
@@ -669,13 +828,44 @@ test('historyDefaults takes the most common rate, ignores FIXED_AMOUNT, and fall
   assert.equal(d.basedOn, 3)
   assert.equal(historyDefaults([], today, { borrowerRateBps: 700, adminCutBps: 200 }).basedOn, 0)
 })
+
+test('returnEvents: a settled loan hands back capital + earnings to the funder and the cut to the Admin', () => {
+  const row = {
+    lenderId: 'john', interestCollection: 'AT_END' as const, startOn: day(2026, 9, 1), dueOn: day(2026, 9, 29),
+    termDays: 28, principal: centavos(3_000_000), earnings: centavos(600_000), adminCut: centavos(240_000), paidWeeks: new Set<number>(),
+  }
+  const events = returnEvents({ rows: [row], payments: [{ weekNumber: null, paidOn: day(2026, 9, 29) }], closedByExtension: false }, 'admin')
+  assert.deepEqual(events.map((e) => [e.lenderId, e.amount]), [['john', 3_600_000], ['admin', 240_000]])
+  const closed = returnEvents({ rows: [row], payments: [{ weekNumber: null, paidOn: day(2026, 9, 29) }], closedByExtension: true }, 'admin')
+  assert.equal(closed[0].amount, 600_000) // interest only: the capital carried on
+})
+
+test('relendHabits: share and lag from a lender\'s own history', () => {
+  const r = (m: number, amount: number) => ({ lenderId: 'a', on: day(2026, m, 10), amount: centavos(amount) })
+  const l = (m: number, principal: number) => ({ lenderId: 'a', on: day(2026, m, 1), principal: centavos(principal) })
+  const h = relendHabits([r(6, 100_000), r(8, 100_000)], [l(7, 50_000), l(9, 50_000)], today, ['a']).get('a')
+  assert.deepEqual(h, { shareBps: 5_000, lagMonths: 1, basis: 'history', returnMonths: 2 })
+})
+
+test('relendHabits: thin history falls back to the labelled default; never re-lending is share 0', () => {
+  const r = (m: number) => ({ lenderId: 'a', on: day(2026, m, 10), amount: centavos(100_000) })
+  assert.equal(relendHabits([r(6)], [], today, ['a']).get('a')?.basis, 'default')
+  assert.equal(relendHabits([r(6), r(8)], [], today, ['a']).get('a')?.shareBps, 0)
+})
 ```
 
 #### Phase 2 — Potential Issues
 
-- **FIXED_AMOUNT in history.** Counted in the lender split (it's real capital) and in the on-time
-  rate (it's a real due date). Left out of the rate/collection defaults (no rate exists). Flagged for
-  the owner.
+- **FIXED_AMOUNT in history.** Counted in the lender split, the on-time rate and the re-lend habits.
+  Left out of the rate/collection defaults (no rate exists). Owner default, 2026-11-08.
+- **Re-lend share is an upper bound** (plan §1.4): lending paid for by a deposit looks like
+  re-lending. The page must label it "up to N% re-lent". Before shipping, someone with database access
+  should compare it with the lender's deposit rows for one or two lenders (Phase 7 checks).
+- **`returnEvents` assumes a payment matches the stored schedule.** That holds by schema: a payment's
+  amount is "never typed, always read from the loan". An extension that "added interest to the same
+  loan" updates the stored earnings, so the settling arrival already includes it.
+- **`forecast-history.ts` now imports `projection.ts`** (for `scheduleArrivals`). Both are domain
+  files, so the dependency direction is unchanged.
 - **Advances (`LenderTransaction.loanId`)** have no effect here. They are withdrawals against a
   loan, already in today's floating figure. The estimate does not predict future advances. Flagged.
 - **Too little history.** With few loans in the window, `bps` and `lateDelayDays` are noisy, and the
@@ -687,8 +877,8 @@ test('historyDefaults takes the most common rate, ignores FIXED_AMOUNT, and fall
 - **Demo vs real account.** Every input is scoped by `userId` in Phase 5. This file never sees it.
 - No new pattern: pure domain functions with a test file mirroring `src/lib/money/`.
 
-**Issues identified:** owner decisions on the extension rule and count-vs-pesos (Follow Ups);
-realistic line hidden when there is no history.
+**Issues identified:** realistic line hidden when there is no history; the re-lend share errs high and
+is labelled as "up to".
 
 ### Phase 3: The forecast engine (pure)
 
@@ -702,16 +892,23 @@ realistic line hidden when there is no history.
 **Order inside a month**, chosen to match the dates (everything planned happens on the 1st):
 1. planned deposits / withdrawals for the month;
 2. planned pretend loans (from month 1 on), funded from cash *at that moment*, with a shortfall check;
-3. re-lend loans, if on;
-4. money coming back during the month (real and pretend), added to cash.
+3. re-lend loans, if on: **each lender separately**, from their own queue (below), capped by their
+   own cash;
+4. money coming back during the month (real and pretend), added to cash. If re-lend is on, each
+   lender's `shareBps` of it joins their queue for month `m + max(1, lagMonths)` (plan §1.4).
 
-So money that comes back in March is first lent again on 1 April. That's conservative by up to a
-month, and flagged.
+A re-lend loan is one **single-funder** pretend loan for that lender, sized to what they re-lend that
+month, at the plan's term, rate and cut, priced by `splitLoan` like any other. Less than
+`MIN_RELEND_CENTAVOS` (₱1,000) waits in the queue for the next month instead of becoming a trickle loan.
+What the cash cap holds back also waits. Nothing in the queue is lost: it's cash the whole time,
+earmarked.
+
+So money that comes back in March is re-lent on 1 April at the earliest (owner default).
 
 ```ts
 import { type BasisPoints, type Centavos, bpsOf, centavos, checkedProduct } from './centavos.ts'
 import { shortfalls } from './floating.ts'
-import { type CapitalShare } from './forecast-history.ts'
+import { type CapitalShare, DEFAULT_RELEND, type RelendHabit } from './forecast-history.ts'
 import { type InterestCollection } from './interest.ts'
 import { type RowArrival, type ScheduledRow, scheduleArrivals } from './projection.ts'
 import { splitByWeight, splitLoan } from './split.ts'
@@ -737,6 +934,8 @@ import { MIN_WEEKLY_WEEKS } from './weekly.ts'
 export const MAX_HORIZON_MONTHS = 60
 export const DEFAULT_HORIZON_MONTHS = 24
 export const MAX_LOANS_PER_MONTH = 50
+/** Below this, a lender's re-lend amount waits for next month rather than becoming a tiny loan. ₱1,000. */
+export const MIN_RELEND_CENTAVOS = 100_000
 
 export type PlannedMove = {
   lenderId: string
@@ -776,6 +975,8 @@ export type ForecastInput = {
   lenders: readonly ForecastLender[]
   realRows: readonly RealRow[]
   shares: readonly CapitalShare[]
+  /** Per lender, from relendHabits. A lender missing here uses DEFAULT_RELEND. */
+  habits: ReadonlyMap<string, RelendHabit>
 }
 
 export type Scenario =
@@ -809,7 +1010,8 @@ export type LenderMonth = {
 export type MonthResult = {
   month: Date
   plannedLoans: number
-  relentLoans: number
+  /** Capital re-lent on the 1st, all lenders. Per lender it is inside LenderMonth.lent. */
+  relent: Centavos
   byLender: ReadonlyMap<string, LenderMonth>
   warnings: Warning[]
 }
@@ -830,15 +1032,25 @@ function monthIndex(from: Date, on: Date): number {
   return (on.getFullYear() - from.getFullYear()) * 12 + (on.getMonth() - from.getMonth())
 }
 
-/** One pretend loan starting on `startOn`, split across lenders, priced by splitLoan. */
-function pretendLoan(input: ForecastInput, startOn: Date): Template | string {
-  const { plan, shares, lenders } = input
-  if (shares.length === 0) return 'No loans were made in the last 6 months, so there is nothing to split new loans by.'
+/**
+ * One pretend loan of `capital` starting on `startOn`, split by `weights`, priced
+ * by splitLoan. A planned loan is weighted by the 6-month shares; a re-lend loan
+ * by one lender alone ([{ lenderId, weight: 1 }]).
+ */
+function pretendLoan(
+  input: ForecastInput,
+  startOn: Date,
+  capital: Centavos,
+  weights: readonly CapitalShare[],
+): Template | string {
+  const { plan, lenders } = input
+  if (weights.length === 0) return 'No loans were made in the last 6 months, so there is nothing to split new loans by.'
   if (plan.collection === 'WEEKLY' && plan.termWeeks < MIN_WEEKLY_WEEKS) {
     return `Interest collected weekly needs at least ${MIN_WEEKLY_WEEKS} weeks.`
   }
   if (plan.adminCutBps > plan.borrowerRateBps) return 'The Admin cut is larger than the rate charged.'
-  const parts = splitByWeight(plan.loanAmount, shares.map((s) => ({ key: s.lenderId, weight: s.weight })))
+  const shares = weights
+  const parts = splitByWeight(capital, shares.map((s) => ({ key: s.lenderId, weight: s.weight })))
   const self = new Set(lenders.filter((l) => l.isSelf).map((l) => l.id))
   const fundings = shares
     .filter((s) => (parts.get(s.lenderId) as number) > 0)
@@ -850,7 +1062,7 @@ function pretendLoan(input: ForecastInput, startOn: Date): Template | string {
       lenderRateBps: self.has(s.lenderId) ? plan.borrowerRateBps : plan.borrowerRateBps - plan.adminCutBps,
       adminCutBps: self.has(s.lenderId) ? 0 : plan.adminCutBps,
     }))
-  const split = splitLoan({ capital: plan.loanAmount, borrowerRateBps: plan.borrowerRateBps, weeks: plan.termWeeks, fundings })
+  const split = splitLoan({ capital, borrowerRateBps: plan.borrowerRateBps, weeks: plan.termWeeks, fundings })
   if (!split.ok) return `These loan settings cannot be split (${split.error.kind}).`
   const dueOn = dueDateAfterWeeks(startOn, plan.termWeeks)
   return {
@@ -885,6 +1097,9 @@ export function simulate(input: ForecastInput, scenario: Scenario): Simulation {
   const out = new Map(lenders.map((l) => [l.id, 0]))
   // incoming[month][lenderId] — money that will come back during that month.
   const incoming = Array.from({ length: horizon }, () => new Map<string, Amounts>())
+  // relendQueue[month][lenderId] — returned money a lender will re-lend on that month's 1st.
+  const relendQueue = Array.from({ length: horizon }, () => new Map<string, number>())
+  const pool = new Map(lenders.map((l) => [l.id, 0]))
   let lateNow = 0
 
   const credit = (month: number, lenderId: string, part: Amounts) => {
@@ -958,45 +1173,66 @@ export function simulate(input: ForecastInput, scenario: Scenario): Simulation {
       cash.set(move.lenderId, have + (move.type === 'DEPOSIT' ? move.amount : -move.amount))
     }
 
+    const make = (template: Template, count: number) => {
+      for (const row of template.rows) {
+        const principal = checkedProduct(row.principal, count)
+        cash.set(row.lenderId, (cash.get(row.lenderId) ?? 0) - principal)
+        out.set(row.lenderId, (out.get(row.lenderId) ?? 0) + principal)
+        lent.set(row.lenderId, (lent.get(row.lenderId) ?? 0) + principal)
+        for (const a of scheduleArrivals(row)) book(row.lenderId, a, count)
+      }
+    }
+
     let planned = 0
-    let relent = 0
-    if (m >= 1 && (plan.newLoansPerMonth > 0 || plan.relend)) {
-      const template = pretendLoan(input, month)
+    if (m >= 1 && plan.newLoansPerMonth > 0) {
+      const template = pretendLoan(input, month, plan.loanAmount, input.shares)
       if (typeof template === 'string') {
         refused ??= template
       } else {
-        const make = (count: number) => {
-          for (const row of template.rows) {
-            const principal = checkedProduct(row.principal, count)
-            cash.set(row.lenderId, (cash.get(row.lenderId) ?? 0) - principal)
-            out.set(row.lenderId, (out.get(row.lenderId) ?? 0) + principal)
-            lent.set(row.lenderId, (lent.get(row.lenderId) ?? 0) + principal)
-            for (const a of scheduleArrivals(row)) book(row.lenderId, a, count)
-          }
-        }
         planned = Math.min(plan.newLoansPerMonth, MAX_LOANS_PER_MONTH)
-        if (planned > 0) {
-          const asked = template.rows.map((r) => ({ lenderId: r.lenderId, principal: centavos(checkedProduct(r.principal, planned)) }))
-          for (const s of shortfalls(asked, (id) => centavos(cash.get(id) ?? 0))) {
-            warnings.push({ lenderId: s.lenderId, cause: 'loans', asked: s.asked, available: s.floating })
+        const asked = template.rows.map((r) => ({ lenderId: r.lenderId, principal: centavos(checkedProduct(r.principal, planned)) }))
+        for (const s of shortfalls(asked, (id) => centavos(cash.get(id) ?? 0))) {
+          warnings.push({ lenderId: s.lenderId, cause: 'loans', asked: s.asked, available: s.floating })
+        }
+        make(template, planned) // still projected, as agreed: warned, not skipped
+      }
+    }
+
+    // RE-LENDING, PER LENDER (owner, 2026-11-08). Each lender re-lends only from
+    // their own queue and only up to their own cash, so one lender short of
+    // cash never holds back another, and re-lending alone never causes a warning.
+    let relent = 0
+    if (plan.relend) {
+      for (const l of lenders) {
+        const waiting = (pool.get(l.id) as number) + (relendQueue[m].get(l.id) ?? 0)
+        const amount = Math.min(waiting, Math.max(0, cash.get(l.id) as number))
+        if (amount >= MIN_RELEND_CENTAVOS) {
+          const template = pretendLoan(input, month, centavos(amount), [{ lenderId: l.id, weight: centavos(1) }])
+          if (typeof template === 'string') {
+            refused ??= template
+          } else {
+            make(template, 1)
+            relent += amount
+            pool.set(l.id, waiting - amount)
+            continue
           }
-          make(planned) // still projected, as agreed: warned, not skipped
         }
-        if (plan.relend) {
-          // As many WHOLE extra loans as every funder can pay their share of.
-          // Never more, so re-lending alone can never cause a warning.
-          relent = Math.min(...template.rows.map((r) => Math.max(0, Math.floor((cash.get(r.lenderId) ?? 0) / r.principal))))
-          if (relent > 0) make(relent)
-        }
+        pool.set(l.id, waiting)
       }
     }
 
     const byLender = new Map<string, LenderMonth>()
     for (const l of lenders) {
       const back = incoming[m].get(l.id) ?? { capital: 0, interest: 0, adminCut: 0 }
-      const c = (cash.get(l.id) as number) + back.capital + back.interest + back.adminCut
+      const total = back.capital + back.interest + back.adminCut
+      const c = (cash.get(l.id) as number) + total
       cash.set(l.id, c)
       out.set(l.id, (out.get(l.id) as number) - back.capital)
+      if (plan.relend && total > 0) {
+        const habit = input.habits.get(l.id) ?? DEFAULT_RELEND
+        const when = m + Math.max(1, habit.lagMonths)
+        if (when < horizon) relendQueue[when].set(l.id, (relendQueue[when].get(l.id) ?? 0) + bpsOf(centavos(total), habit.shareBps))
+      }
       byLender.set(l.id, {
         interest: centavos(back.interest),
         adminCut: centavos(back.adminCut),
@@ -1006,7 +1242,7 @@ export function simulate(input: ForecastInput, scenario: Scenario): Simulation {
         out: centavos(out.get(l.id) as number),
       })
     }
-    months.push({ month, plannedLoans: planned, relentLoans: relent, byLender, warnings })
+    months.push({ month, plannedLoans: planned, relent: centavos(relent), byLender, warnings })
   }
 
   return { months, lateNow: centavos(lateNow), refused }
@@ -1034,6 +1270,13 @@ export type ViewMonth = {
   interestToDate: Centavos
   /** Idle cash at month end, in this view. Null on the Admin-cut view, which is not a pot. */
   cash: Centavos | null
+  /**
+   * POT SIZE at month end: cash + capital out on loan (real and pretend), in
+   * this view. Interest still to come is NOT in it — only money that exists.
+   * Null on the Admin-cut view. Capital on loans already overdue today stays in
+   * `out` (it is still owed), so this matches a pot that has not written it off.
+   */
+  potSize: Centavos | null
   warnings: Warning[]
 }
 
@@ -1062,12 +1305,15 @@ export function forecastView(sim: Simulation, view: View): ViewMonth[] {
           ? pick.reduce((s, [, r]) => s + r.interest, 0)
           : pick.reduce((s, [, r]) => s + r.interest + r.adminCut, 0)
     running += interest
+    const cash = pick.reduce((s, [, r]) => s + r.cash, 0)
+    const out = pick.reduce((s, [, r]) => s + r.out, 0)
     return {
       month: m.month,
       key: monthKey(m.month),
       interest: centavos(interest),
       interestToDate: centavos(running),
-      cash: view.kind === 'admin-cut' ? null : centavos(pick.reduce((s, [, r]) => s + r.cash, 0)),
+      cash: view.kind === 'admin-cut' ? null : centavos(cash),
+      potSize: view.kind === 'admin-cut' ? null : centavos(cash + out),
       warnings: view.kind === 'lender' ? m.warnings.filter((w) => w.lenderId === view.lenderId) : m.warnings,
     }
   })
@@ -1077,9 +1323,19 @@ export function monthOf(series: readonly ViewMonth[], key: string): ViewMonth | 
   return series.find((m) => m.key === key) ?? null
 }
 
-/** The first month whose running total reaches `target`, or null inside the horizon. */
-export function reachTarget(series: readonly ViewMonth[], target: Centavos): ViewMonth | null {
-  return series.find((m) => m.interestToDate >= target) ?? null
+/** What "when do I reach ₱X" measures — the user picks (owner, 2026-11-08). */
+export type TargetKind = 'interest' | 'pot'
+
+/**
+ * The first month that reaches `target`, or null inside the horizon.
+ *   interest  the running total of estimated interest from today (interestToDate)
+ *   pot       the pot size at month end (cash + capital out); never met on the
+ *             Admin-cut view, where potSize is null — the page hides the option there
+ */
+export function reachTarget(series: readonly ViewMonth[], target: Centavos, kind: TargetKind): ViewMonth | null {
+  return (
+    series.find((m) => (kind === 'interest' ? m.interestToDate >= target : m.potSize !== null && m.potSize >= target)) ?? null
+  )
 }
 
 /** Both lines for one plan. `realistic` is null when history gave no on-time rate. */
@@ -1139,6 +1395,7 @@ const input = (extra: Partial<ForecastInput> = {}): ForecastInput => ({
   ],
   realRows: [],
   shares: [{ lenderId: 'john', weight: centavos(3) }, { lenderId: 'admin', weight: centavos(1) }],
+  habits: new Map(), // every lender on DEFAULT_RELEND unless a test says otherwise
   ...extra,
 })
 
@@ -1210,15 +1467,29 @@ test('a lender short of cash for their share is warned in that month, and the lo
   assert.ok((sim.months[1].byLender.get('john')?.cash as number) < 0)
 })
 
-test('re-lending never creates a warning by itself', () => {
-  // Both funders need cash: a shared loan is only re-lent when EVERY funder can pay their share.
-  const lenders = [
-    { id: 'admin', isSelf: true, floatingNow: centavos(1_000_000) },
-    { id: 'john', isSelf: false, floatingNow: centavos(10_000_000) },
-  ]
-  const sim = simulate(input({ lenders, plan: plan({ relend: true, horizonMonths: 24 }) }), { kind: 'best' })
+// John re-lends half of what comes back, a month later; the Admin has no history (default 100%, 1 month).
+const habits = new Map([['john', { shareBps: 5_000, lagMonths: 1, basis: 'history' as const, returnMonths: 3 }]])
+
+test('re-lending follows each lender\'s own habit', () => {
+  const sim = simulate(input({ realRows: [real], habits, plan: plan({ relend: true }) }), { kind: 'best' })
+  // 29 Nov: John gets ₱36,000 back, the Admin its ₱2,400 cut. Re-lent on 1 Dec:
+  assert.equal(sim.months[1].byLender.get('john')?.lent, 1_800_000) // half
+  assert.equal(sim.months[1].byLender.get('admin')?.lent, 240_000) // all of it, by default
+  assert.equal(sim.months[1].relent, 2_040_000)
+})
+
+test('one lender short of cash does not stop another re-lending', () => {
+  const moves = [{ lenderId: 'admin', type: 'WITHDRAWAL' as const, amount: centavos(240_000), fromMonth: day(2026, 12, 1), everyMonth: false, untilMonth: null }]
+  const sim = simulate(input({ realRows: [real], habits, plan: plan({ relend: true, moves }) }), { kind: 'best' })
+  assert.equal(sim.months[1].byLender.get('admin')?.lent, 0) // took it out instead
+  assert.equal(sim.months[1].byLender.get('john')?.lent, 1_800_000) // unaffected
+})
+
+test('re-lending never creates a warning by itself, and never goes below a lender\'s cash', () => {
+  const sim = simulate(input({ realRows: [real], habits, plan: plan({ relend: true, horizonMonths: 24 }) }), { kind: 'best' })
   assert.ok(sim.months.every((m) => m.warnings.length === 0))
-  assert.ok(sim.months.some((m) => m.relentLoans > 0))
+  assert.ok(sim.months.every((m) => [...m.byLender.values()].every((r) => r.cash >= 0)))
+  assert.ok(sim.months.some((m) => m.relent > 0))
 })
 
 test('re-lend off: returned money sits as cash', () => {
@@ -1243,10 +1514,19 @@ test('no history to split by: pretend loans are refused, real loans still projec
   assert.equal(forecastView(sim, { kind: 'pot' })[0].interest, 840_000)
 })
 
-test('reachTarget names the first month the running total gets there, or null', () => {
+test('reachTarget on interest: the first month the running total gets there, or null', () => {
   const pot = forecastView(simulate(input({ realRows: [real] }), { kind: 'best' }), { kind: 'pot' })
-  assert.equal(reachTarget(pot, centavos(840_000))?.key, '2026-11')
-  assert.equal(reachTarget(pot, centavos(840_001)), null)
+  assert.equal(reachTarget(pot, centavos(840_000), 'interest')?.key, '2026-11')
+  assert.equal(reachTarget(pot, centavos(840_001), 'interest'), null)
+})
+
+test('reachTarget on pot size: cash + capital out, never on the Admin-cut view', () => {
+  const sim = simulate(input({ realRows: [real] }), { kind: 'best' })
+  const pot = forecastView(sim, { kind: 'pot' })
+  // John ₱100,000 + ₱36,000 back, Admin ₱2,400: ₱138,400 at the end of November
+  assert.equal(pot[0].potSize, 13_840_000)
+  assert.equal(reachTarget(pot, centavos(13_840_000), 'pot')?.key, '2026-11')
+  assert.equal(reachTarget(forecastView(sim, { kind: 'admin-cut' }), centavos(1), 'pot'), null)
 })
 ```
 
@@ -1254,25 +1534,28 @@ test('reachTarget names the first month the running total gets there, or null', 
 
 - **Arithmetic check on the pretend-loan test.** 3:1 shares of ₱10,000 → ₱7,500 / ₱2,500. John at
   5% × 4 weeks = ₱1,500, Admin at 7% = ₱700, cut 2% on John = ₱600; total ₱2,800 = 10,000 × 7% × 4. ✓
-- **Re-lend only in whole shared loans.** A lender with no cash blocks re-lending for everyone in the
-  split (`min` over funders). In the test John has ₱100,000 and the Admin ₱10,000. That gives
-  min(13, 4) = 4 extra loans in month 1. With the Admin at ₱0 it would be 0 forever. That's a real
-  owner question: **should re-lend instead let each lender re-lend their own idle cash?** See Follow
-  Ups Q3.
+- **Re-lending is per lender (owner, 2026-11-08).** Each lender's re-lend loan is funded by them
+  alone, so one lender short of cash never holds back another (test above). That changes who funds a
+  re-lent loan compared with the 6-month split: a re-lend loan is 100% that lender's. That's intended,
+  since it's that lender's own returned money.
+- **The queue never exceeds what came back, and is never spent past a lender's cash**, so re-lending
+  can't create a warning or push cash below zero (test). A planned withdrawal that empties a lender's
+  cash leaves their queue waiting. It isn't dropped: it re-lends when cash returns.
+- **`MIN_RELEND_CENTAVOS` (₱1,000)** is a new constant with no source in history. It stops a lender's
+  ₱12 weekly slice becoming its own loan. Smaller amounts wait in the queue.
 - **Why the reconciliation tests look like this.** With a delay, some late money always sits one
   month behind. So a running total only matches the best case once everything has landed, which is
   why the test uses real rows only. The delay-0 test proves the split itself loses nothing, pretend
   loans and re-lending included.
-- **Shares are frozen at today's history** for the whole horizon. They don't drift as pretend loans
-  accumulate. That's simple and explainable; flagged.
-- **One month of lag for returned money** (event order above). Flagged.
+- **Shares and re-lend habits are frozen at today's history** for the whole horizon (owner default).
+- **At least one month of lag** for returned money (event order above): a measured lag of 0 is
+  treated as 1 (owner default).
 - **Realistic line rounding.** `bpsOf` floors each of capital / interest / cut once per arrival, and
   the late part is the exact rest. So no centavo is dropped (reconciliation test). Individual months
   can differ from a "true" expected value by under one centavo per arrival. That's acceptable for an
   estimate and stated in the code.
-- **Late money and unpaid-forever.** The realistic line moves late money later. It never assumes
-  money is *never* paid. With `onTimeBps` counting still-unpaid amounts as not on time, the line is
-  slower, not smaller. Whether to model a share that never comes back is an owner question (Q5).
+- **No allowance for unpaid money (owner, 2026-11-08).** The realistic line only moves late money
+  later. It never assumes money is never paid, because the owner's history has no unpaid loans.
 - **Performance.** At worst 60 months × (50 + re-lent) loans: each month's template is split once
   and multiplied by the count. Scheduling is one `scheduleArrivals` call per funder per month,
   ≤ 52 entries. So roughly 60 × lenders × 52 arrivals per scenario, × 2 scenarios × up to 4 compared
@@ -1283,8 +1566,8 @@ test('reachTarget names the first month the running total gets there, or null', 
 - **New pattern:** none beyond `bpsOf`. Event order and the realistic scenario are new *rules*, and
   they live in one file with tests.
 
-**Issues identified:** the re-lend test needs Admin cash (noted); event-order lag, frozen shares,
-and never-paid modelling are owner questions.
+**Issues identified:** `MIN_RELEND_CENTAVOS` is a judgement call, not measured; everything else
+follows owner decisions.
 
 ### Phase 4: Saved plans — schema and migration
 
@@ -1343,7 +1626,8 @@ model ProjectionPlan {
   borrowerRateBps    Int
   adminCutBps        Int
   interestCollection InterestCollection @default(AT_END)
-  /// True: money that comes back is lent again in whole loans. False: it sits as cash.
+  /// True: returned money is re-lent per lender, following each lender's own history
+  /// (share and lag — lib/money/forecast-history.ts relendHabits). False: it sits as cash.
   relend             Boolean            @default(true)
   horizonMonths      Int                @default(24)
   createdAt          DateTime           @default(now())
@@ -1499,7 +1783,7 @@ COMMIT;
   at the 30-day purge. `server/deleted/purge.ts` deletes the lender row for real, and the cascade
   then removes their planned moves. That's correct: nothing to keep.
 - **Backup / demo seed.** `server/reports/backup.ts` exports owner tables (it includes
-  `pendingLoan`). Whether plans belong in the backup is an owner question. `prisma/seed/demo.ts`
+  `pendingLoan`). Plans are left out of it for now (owner default, 2026-11-08). `prisma/seed/demo.ts`
   would need a `deleteMany` before reseeding *only if* a demo plan is seeded. Not done here; both in
   Follow Ups.
 - **Int ceiling.** `loanAmountCentavos` is `Int` like every money column (₱21.47M max). Validation in
@@ -1531,6 +1815,8 @@ import {
   historyWindowStart,
   lateDelayDays,
   onTimeRate,
+  relendHabits,
+  returnEvents,
 } from '../../lib/money/forecast-history.ts'
 import { type ForecastInput, type Plan, type RealRow } from '../../lib/money/forecast.ts'
 import { calendarDate, storedCalendarDate } from '../../lib/money/weeks.ts'
@@ -1546,8 +1832,9 @@ import { DEFAULT_ADMIN_CUT_BPS, DEFAULT_BORROWER_RATE_BPS } from '../loans/terms
  *             the projection starts from the number on that screen.
  * realRows    every LoanFunding row on an ACTIVE, non-deleted loan; weeks count
  *             as paid only on a LIVE payment (an undone one is archived).
- * history     loans due (or first due) since historyWindowStart, for the split,
- *             the on-time rate and the defaults. See lib/money/forecast-history.ts.
+ * history     loans due, or paid, since historyWindowStart: the split, the on-time
+ *             rate, the defaults and each lender's re-lending habit.
+ *             See lib/money/forecast-history.ts and plan §1.3–1.4.
  */
 export type ProjectionContext = {
   today: Date
@@ -1557,6 +1844,7 @@ export type ProjectionContext = {
   onTime: ReturnType<typeof onTimeRate>
   lateDelayDays: number | null
   defaults: ReturnType<typeof historyDefaults>
+  habits: ReturnType<typeof relendHabits>
 }
 
 export async function projectionContext(userId: string): Promise<ProjectionContext> {
@@ -1587,7 +1875,9 @@ export async function projectionContext(userId: string): Promise<ProjectionConte
       where: {
         userId,
         deletedAt: null,
-        OR: [{ dueOn: { gte: from } }, { extensions: { some: { fromDueOn: { gte: from } } } }],
+        // Due in the window, or paid in it (a loan due earlier but paid late
+        // still handed money back inside the window, which the re-lend habit needs).
+        OR: [{ dueOn: { gte: from } }, { payments: { some: { deletedAt: null, paidOn: { gte: from } } } }],
       },
       select: {
         startOn: true,
@@ -1596,9 +1886,16 @@ export async function projectionContext(userId: string): Promise<ProjectionConte
         interestBasis: true,
         interestCollection: true,
         borrowerRateBps: true,
-        fundings: { select: { lenderId: true, principalCentavos: true, adminCutBps: true, lender: { select: { isSelf: true } } } },
+        fundings: {
+          select: {
+            lenderId: true, principalCentavos: true, earningsCentavos: true, adminCutCentavos: true, adminCutBps: true,
+            lender: { select: { isSelf: true } },
+          },
+        },
         payments: { where: { deletedAt: null }, select: { weekNumber: true, paidOn: true } },
-        extensions: { select: { fromDueOn: true, continuedLoanId: true } },
+        // Only to know whether the loan was CLOSED by an extension. An extension's
+        // dates are not read: on-time uses Loan.dueOn, the extended date (§1.3).
+        extensions: { select: { continuedLoanId: true } },
         continuedFrom: { select: { id: true } },
       },
     }),
@@ -1618,13 +1915,11 @@ export async function projectionContext(userId: string): Promise<ProjectionConte
 
   const records: DueRecord[] = history.flatMap((loan) => {
     const settle = loan.payments.find((p) => p.weekNumber === null)
-    const firstAgreed = loan.extensions.map((e) => storedCalendarDate(e.fromDueOn)).sort((a, b) => a.getTime() - b.getTime())[0]
     return dueRecords({
       interestCollection: loan.interestCollection,
       startOn: storedCalendarDate(loan.startOn),
       dueOn: storedCalendarDate(loan.dueOn),
       termDays: loan.termDays,
-      originalDueOn: firstAgreed ?? null,
       settledOn: settle ? storedCalendarDate(settle.paidOn) : null,
       weekPaidOn: new Map(loan.payments.flatMap((p) => (p.weekNumber === null ? [] : [[p.weekNumber, storedCalendarDate(p.paidOn)] as const]))),
       closedByExtension: loan.extensions.some((e) => e.continuedLoanId !== null),
@@ -1638,6 +1933,29 @@ export async function projectionContext(userId: string): Promise<ProjectionConte
     .flatMap((loan) =>
       loan.fundings.map((f) => ({ lenderId: f.lenderId, principal: centavos(f.principalCentavos), startOn: storedCalendarDate(loan.startOn) })),
     )
+
+  const adminId = lenders.find((l) => l.isSelf)?.id ?? null
+  const returns = history.flatMap((loan) =>
+    returnEvents(
+      {
+        rows: loan.fundings.map((f) => ({
+          lenderId: f.lenderId,
+          interestCollection: loan.interestCollection,
+          startOn: storedCalendarDate(loan.startOn),
+          dueOn: storedCalendarDate(loan.dueOn),
+          termDays: loan.termDays,
+          principal: centavos(f.principalCentavos),
+          earnings: centavos(f.earningsCentavos),
+          adminCut: centavos(f.adminCutCentavos),
+          paidWeeks: new Set<number>(),
+        })),
+        payments: loan.payments.map((p) => ({ weekNumber: p.weekNumber, paidOn: storedCalendarDate(p.paidOn) })),
+        closedByExtension: loan.extensions.some((e) => e.continuedLoanId !== null),
+      },
+      adminId,
+    ),
+  )
+  const lends = shareRows.map((r) => ({ lenderId: r.lenderId, on: r.startOn, principal: r.principal }))
 
   const defaultsLoans = history.map((loan) => ({
     startOn: storedCalendarDate(loan.startOn),
@@ -1663,6 +1981,7 @@ export async function projectionContext(userId: string): Promise<ProjectionConte
       borrowerRateBps: DEFAULT_BORROWER_RATE_BPS as BasisPoints,
       adminCutBps: DEFAULT_ADMIN_CUT_BPS as BasisPoints,
     }),
+    habits: relendHabits(returns, lends, today, lenders.map((l) => l.id)),
   }
 }
 
@@ -1902,9 +2221,12 @@ export async function removeMove(_prev: FormState, form: FormData): Promise<Form
 - **Deleted lenders with money still out.** `listLenders` drops them, so their real arrivals are
   booked and then never shown (the engine only reports lenders it was given). Today's Pot total has
   the same scope, so the two agree. Flagged anyway.
-- **History query width.** `dueOn >= from` plus the extension `OR` covers every due amount in the
-  window: a weekly loan's weeks are all due on or before its `dueOn`. Loans started before the window
-  come back too; `capitalShares` and `historyDefaults` filter on `startOn` themselves.
+- **History query width.** `dueOn >= from` covers every due amount in the window: a weekly loan's
+  weeks are all due on or before its `dueOn`, and an extension moves `dueOn` later, never earlier.
+  The `payments … paidOn >= from` arm adds loans paid late inside the window, for the re-lend habit.
+  Loans started before the window come back too; each history function filters on its own dates.
+- **Weekly loans that are part-collected** still hand money back week by week. `returnEvents` books
+  each live weekly payment on its own `paidOn`, so a lender's returns aren't bunched at the end.
 - **Undo safety:** both payment selects filter `deletedAt: null` (label-truth trap).
 - **`redirect` inside an action** throws by design in Next. It's already used the same way in
   `deleteLender`. These forms are wrapped by `useActionState` only (no closure), so the no-JS
@@ -1933,6 +2255,7 @@ labelled) and the **`dataviz`** skill (chart). All selection is in the URL, as i
 | `lender` | lender id when `view=lender` (default: the Admin pot) |
 | `month` | `YYYY-MM`, the month whose figures are shown (default: this month) |
 | `target` | pesos, for "when do I reach ₱X" |
+| `targetKind` | `interest` (total estimated interest from today, default) · `pot` (pot size: cash + capital out). `pot` isn't offered on the Admin-cut view |
 
 #### Step 6.1: Menu entry
 
@@ -2098,7 +2421,7 @@ export function PlanForm({ planId, values, defaultsNote }: { planId: string | nu
       <Field label="Months ahead"><Input name="horizonMonths" type="number" min={1} max={MAX_HORIZON_MONTHS} defaultValue={values.horizonMonths} /></Field>
       <label className="flex items-center gap-2 text-sm sm:col-span-2">
         <input type="checkbox" name="relend" defaultChecked={values.relend} />
-        Lend returned money out again automatically (off: it stays as cash)
+        Re-lend returned money the way each lender has been doing it (off: it stays as cash)
       </label>
       <p className="text-muted-foreground text-xs sm:col-span-2">{defaultsNote}</p>
       {state.error ? <p role="alert" className="text-status-critical text-sm sm:col-span-2">{state.error}</p> : null}
@@ -2181,6 +2504,7 @@ import {
   type Plan,
   type View,
   forecast,
+  type TargetKind,
   forecastView,
   monthOf,
   reachTarget,
@@ -2222,7 +2546,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
     : { kind: 'pot' }
 
   const runs = plans.map((p) => {
-    const input = { today: ctx.today, plan: p.plan, lenders: ctx.lenders, realRows: ctx.realRows, shares: ctx.shares }
+    const input = { today: ctx.today, plan: p.plan, lenders: ctx.lenders, realRows: ctx.realRows, shares: ctx.shares, habits: ctx.habits }
     const f = forecast(input, { onTimeBps: ctx.onTime.bps, lateDelayDays: ctx.lateDelayDays })
     return { ...p, f, best: forecastView(f.best, view), realistic: f.realistic ? forecastView(f.realistic, view) : null }
   })
@@ -2235,6 +2559,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const realistic = first.realistic ? monthOf(first.realistic, best.key) : null
   const targetParsed = one('target') ? parsePesos(one('target') as string) : null
   const target: Centavos | null = targetParsed?.ok ? targetParsed.value : null
+  const targetKind: TargetKind = one('targetKind') === 'pot' && view.kind !== 'admin-cut' ? 'pot' : 'interest'
 
   const lines: ChartLine[] = runs.flatMap((r, i) => [
     { key: `${r.id}-best`, label: `${r.name} — all pay on time`, color: SERIES[i], dashed: false, points: r.best },
@@ -2280,7 +2605,9 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
       <section className="bg-card space-y-3 rounded-2xl p-4 ring-1 ring-border/70">
         <h2 className="text-base font-semibold">Estimated interest, running total</h2>
-        <ProjectionChart lines={lines} selected={best.key} hrefFor={(key) => href({ month: key })} target={target} flagged={flagged} />
+        {/* The chart's dotted target line is drawn only for an interest target: a pot-size
+            target is on a different scale from the running interest the chart plots. */}
+        <ProjectionChart lines={lines} selected={best.key} hrefFor={(key) => href({ month: key })} target={targetKind === 'interest' ? target : null} flagged={flagged} />
         <ul className="text-muted-foreground space-y-0.5 text-xs">
           {lines.map((l) => <li key={l.key}><span style={{ color: l.color }}>{l.dashed ? '- - -' : '———'}</span> {l.label}</li>)}
         </ul>
@@ -2295,6 +2622,24 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           </p>
         ) : null}
         {first.f.best.refused ? <p role="alert" className="text-sm">{first.f.best.refused}</p> : null}
+        {first.plan.relend ? (
+          <ul className="text-muted-foreground space-y-0.5 text-xs" aria-label="How each lender re-lends">
+            {/* RelendHabit from relendHabits: shareBps is an UPPER BOUND (deposit-funded
+                lending looks like re-lending), so the words say "up to". A default is
+                named as one, per lender, as the owner asked. */}
+            {ctx.lenders.map((l) => {
+              const h = ctx.habits.get(l.id)
+              return (
+                <li key={l.id}>
+                  {l.name}:{' '}
+                  {!h || h.basis === 'default'
+                    ? 'default — not enough history, so all returned money is re-lent the next month'
+                    : `re-lends up to ${pct(h.shareBps)} of returned money, about ${Math.max(1, h.lagMonths)} month${Math.max(1, h.lagMonths) === 1 ? '' : 's'} later (from ${h.returnMonths} months with money back)`}
+                </li>
+              )
+            })}
+          </ul>
+        ) : null}
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2">
@@ -2313,17 +2658,22 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
       </section>
 
       <form method="get" action="/projections" className="flex flex-wrap items-end gap-2">
-        {Object.entries(q).flatMap(([k, v]) => (k !== 'target' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
+        {Object.entries(q).flatMap(([k, v]) => (k !== 'target' && k !== 'targetKind' && typeof v === 'string' ? [<input key={k} type="hidden" name={k} value={v} />] : []))}
         <label className="text-sm">When do I reach ₱ <input name="target" inputMode="decimal" defaultValue={one('target') ?? ''} className="border-border w-32 rounded border px-2" /></label>
+        <select name="targetKind" defaultValue={targetKind} aria-label="Reach it in" className="border-border rounded border px-1 text-sm">
+          <option value="interest">in total interest from today</option>
+          {view.kind !== 'admin-cut' ? <option value="pot">in pot size (cash + capital out)</option> : null}
+        </select>
         <button type="submit" className="text-brand text-sm font-medium">Find the month</button>
       </form>
       {target !== null ? (
         <p className="text-sm">
           {(() => {
-            const b = reachTarget(first.best, target)
-            const r = first.realistic ? reachTarget(first.realistic, target) : null
+            const b = reachTarget(first.best, target, targetKind)
+            const r = first.realistic ? reachTarget(first.realistic, target, targetKind) : null
             const say = (m: typeof b) => (m ? monthName(m.month) : `not within the ${first.best.length} months shown`)
-            return `Estimated: ${say(b)} if everyone pays on time${first.realistic ? `; ${say(r)} on the realistic line` : ''}.`
+            const what = targetKind === 'pot' ? 'Pot size (cash + capital out) estimated to reach it' : 'Total interest from today estimated to reach it'
+            return `${what}: ${say(b)} if everyone pays on time${first.realistic ? `; ${say(r)} on the realistic line` : ''}.`
           })()}
         </p>
       ) : null}
@@ -2424,9 +2774,13 @@ function toFormValues(plan: Plan | null, name: string, d: { borrowerRateBps: num
   without confirmation is worse than not deleting without JS, which is the same trade the
   CONVENTIONS.md wrapped-action trap describes.
 - **Label checks owed (label-truth):** "Estimated interest in {month}", "Estimated total from today
-  to the end of {month}", "Not in either line … already overdue", the on-time sentence. With the
-  database unreachable from this session, the implementer must run the proving queries in Phase 7's
-  issues before shipping.
+  to the end of {month}", "Not in either line … already overdue", the on-time sentence, "Pot size
+  (cash + capital out)" and each lender's "re-lends up to N%". With the database unreachable from
+  this session, the implementer must run the proving queries in Phase 7's issues before shipping.
+- **"Pot size" vs the lender page's "Pot total".** The lender page's donut is labelled Pot total, and
+  its exact definition wasn't read for this plan. If Pot total is not cash + capital out, either
+  match it or keep the words "Pot size (cash + capital out)" so the two can't be confused. Check
+  `lenders/[id]/page.tsx` before choosing.
 
 **Issues identified:** reuse the existing bps formatter; add `loading.tsx`; donut status-colour use
 raised separately.
@@ -2485,7 +2839,7 @@ export function ProjectionPreview({ ctx, plan, planName }: { ctx: ProjectionCont
     collection: 'AT_END', relend: false, moves: [],
   }
   const f = forecast(
-    { today: ctx.today, plan: { ...p, horizonMonths: PREVIEW_MONTHS }, lenders: ctx.lenders, realRows: ctx.realRows, shares: ctx.shares },
+    { today: ctx.today, plan: { ...p, horizonMonths: PREVIEW_MONTHS }, lenders: ctx.lenders, realRows: ctx.realRows, shares: ctx.shares, habits: ctx.habits },
     { onTimeBps: ctx.onTime.bps, lateDelayDays: ctx.lateDelayDays },
   )
   const best = forecastView(f.best, { kind: 'pot' }).at(-1)
@@ -2548,10 +2902,16 @@ since only the first 80 lines of `page.tsx` were read.
      loans with `dueOn >= today`, AT_END only, for the user, must equal the preview's real-loans-only
      total with a horizon long enough to cover the latest `dueOn`.
   2. The on-time count: due amounts in the window vs live `Payment.paidOn`, sampled on an extended
-     loan, an undone payment, and a weekly loan with a gap. Those are the divergent rows the skill
-     names.
-  3. Record the results under `.claude/reconciliation/projections.md` (the `data-truth` agent's
-     place).
+     loan (must be measured against the moved `Loan.dueOn`), an undone payment, and a weekly loan
+     with a gap. Those are the divergent rows the skill names. Confirm the owner's statement that no
+     loan is unpaid past its due date, dated.
+  3. Re-lend habits, for two or three lenders: total returned (live payments × their share) vs
+     principal lent afterwards, by month. Compare with that lender's DEPOSIT rows in the same months
+     to see how far deposit-funded lending inflates the "up to" share.
+  4. The 6-month capital shares: `SUM(principalCentavos)` per lender on non-deleted, non-continuation
+     loans started in the window, against what the page prints.
+  5. Record the results under `.claude/reconciliation/projections.md` (the `data-truth` agent's
+     place), each with the date it was measured.
 
 **Issues identified:** dashboard read cost; label proofs must be run where the database is reachable.
 
@@ -2589,31 +2949,21 @@ Modified: `weeks.ts`, `centavos.ts`, `split.ts`, `projection.ts`, three test fil
 
 ### Questions / Clarifications
 
-Owner decisions. The plan has a default for each, so nothing is blocked, but each changes a number.
+**All answered or defaulted on 2026-11-08** — see §1.2 for the full list. In short:
 
-1. **Extended loans and "on time".** The plan measures against the date first agreed (so an extended
-   loan counts as late), unlike the borrower track record. Keep it, or match the track record?
-2. **Count vs pesos.** The on-time rate counts due amounts, not pesos. Should a ₱100k late loan weigh
-   more than a ₱5k one?
-3. **Re-lend style.** Today: extra *whole shared* loans while every lender in the split can pay their
-   share. So one lender with no cash stops re-lending for all. Alternative: each lender re-lends their
-   own idle cash. Which?
-4. **Returned money lags a month.** Money back in March is first re-lent on 1 April. OK, or should
-   loans be spread through the month?
-5. **Money never paid.** The realistic line makes late money *later*, never *missing*. Should it also
-   assume some share is never repaid (from loans still unpaid long after due)?
-6. **"When do I reach ₱X"** is measured on the running total of interest in the chosen view. Did the
-   owner mean that, or the pot's total size (cash + money out)?
-7. **FIXED_AMOUNT loans** count toward the lender split and the on-time rate, but not the default
-   rate. Agree?
-8. **Pretend loans always use a weekly rate.** Is a fixed-amount pretend loan ever needed?
-9. **Admin-cut view vs the Admin as a lender.** "Admin's own cut" is the cut only. The Admin's
-   earnings on its own money are under "per lender → Admin". Agree, or combine them?
-10. **Shares are frozen** at today's 6-month history for the whole horizon. OK?
-11. **Should saved plans go into the backup export** (`server/reports/backup.ts`) and get a demo plan
-    in `prisma/seed/demo.ts`?
-12. **Manual SQL file:** the recent `assistant_*` migrations have none. Is `prisma/manual/` still the
-    deploy route?
+- "Reach ₱X": both, user picks (interest from today, or pot size).
+- Extended loans: not late; measured against the extended `Loan.dueOn`.
+- No allowance for unpaid money.
+- Re-lending: per lender, from each lender's own share and lag; default 100% / 1 month, labelled.
+- Defaulted: count amounts not pesos; earliest re-lend is next month; FIXED_AMOUNT in split, on-time
+  and habits but not the default rate; pretend loans weekly-rate only; Admin-cut view is the cut only;
+  shares and habits frozen at today's history; no backup or demo-seed change; keep writing the
+  manual SQL file.
+
+Still open (not owner questions, but for whoever implements):
+
+- `MIN_RELEND_CENTAVOS` = ₱1,000 is a judgement call. Change it if the owner prefers.
+- Whether "Pot size" should equal the lender page's "Pot total" (Phase 6 issues).
 
 ### Issues Found
 
@@ -2626,4 +2976,6 @@ Owner decisions. The plan has a default for each, so nothing is blocked, but eac
 | 5 | Lenders deleted while money is still out are left out of the projection (the same scope as Pot total). | Low | Open |
 | 6 | `lenders/[id]/where-the-money-is.tsx` callers colour parts with `--status-good` / `--status-critical`, which looks like it breaks the CONVENTIONS.md "colour means loan state only" rule. Not touched by this plan. | Low | Open |
 | 6 | `loan-export.ts` has a bps formatter; the page's local `pct` should use it. | Low | Open |
-| — | FEATURES.md doesn't describe Projections. Requirements come from the owner's brief (2026-11-08) and should be added as a FEATURES.md section once Q1–Q12 are answered. | Low | Open |
+| — | FEATURES.md doesn't describe Projections. Requirements and the owner's answers (2026-11-08, §1.2) should be added as a FEATURES.md section. | Low | Open |
+| 2 | The re-lend share is an upper bound (deposit-funded lending counts as re-lending). Labelled "up to"; measure it in Phase 7 check 3. | Low | Open |
+| — | Saved plans not in the backup export or demo seed (owner default). Revisit if wanted. | Low | Deferred |
