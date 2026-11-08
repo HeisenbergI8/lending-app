@@ -81,7 +81,7 @@ export function PlanForm({ planId, values, defaultsNote }: { planId: string | nu
           <span>
             <span className="font-medium">Lend returned money out again</span>
             <span className="text-muted-foreground block text-xs">
-              Each lender re-lends the way they have been doing. This can make the numbers grow very fast — the page shows them without it too.
+              Each lender re-lends up to the share they have re-lent before. This can make the estimate grow very fast; the page also shows it without re-lending.
             </span>
           </span>
         </label>

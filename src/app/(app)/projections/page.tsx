@@ -86,8 +86,8 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
   const targetKind: TargetKind = one('targetKind') === 'pot' && view.kind !== 'admin-cut' ? 'pot' : 'interest'
 
   const lines: ChartLine[] = runs.flatMap((r, i) => [
-    { key: `${r.id}-best`, label: `${r.name}: everyone pays on time`, color: SERIES[i], dashed: false, points: r.best },
-    ...(r.realistic ? [{ key: `${r.id}-real`, label: `${r.name}: some pay late`, color: SERIES[i], dashed: true, points: r.realistic }] : []),
+    { key: `${r.id}-best`, label: `${r.name}: everyone pays on time${r.plan.relend ? ', with re-lending' : ''}`, color: SERIES[i], dashed: false, points: r.best },
+    ...(r.realistic ? [{ key: `${r.id}-real`, label: `${r.name}: some pay late${r.plan.relend ? ', with re-lending' : ''}`, color: SERIES[i], dashed: true, points: r.realistic }] : []),
   ])
   const flagged = new Set(first.best.filter((m) => m.warnings.length > 0).map((m) => m.key))
   const href = (patch: Record<string, string | null>) => {
@@ -200,8 +200,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             <span className="text-base font-semibold">{monthName(best.month)}</span>
             <MonthArrow href={next ? href({ month: next.key }) : null} label="Next month"><ChevronRight className="size-5" /></MonthArrow>
           </div>
-          <p className="relative mt-4 text-sm text-white/90">
-            If everyone pays on time, {viewName} would collect about
+          {/* Says ESTIMATE and, when on, RE-LENDING beside the figure itself: re-lending can be most of it. */}
+          <p className="relative mt-4 flex flex-wrap gap-1.5 text-xs font-medium">
+            <span className="rounded-full bg-white/15 px-2 py-0.5">Estimate</span>
+            {first.plan.relend ? <span className="rounded-full bg-white/15 px-2 py-0.5">Includes re-lending</span> : null}
+          </p>
+          <p className="relative mt-2 text-sm text-white/90">
+            If everyone pays on time, {viewName} would collect an estimated
           </p>
           <p className="relative mt-1 text-4xl font-semibold tracking-tight">
             <Money amount={best.interestToDate} variant="display" />
@@ -227,7 +232,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
 
         <div className={view.kind === 'admin-cut' ? '' : 'grid grid-cols-2 gap-2.5 sm:gap-3'}>
           <StatTile
-            label={isThisMonth ? `Still to come in ${monthName(best.month)}` : `Collected in ${monthName(best.month)}`}
+            label={`${isThisMonth ? 'Est. still to come in' : 'Est. collected in'} ${monthName(best.month)}${first.plan.relend ? ', with re-lending' : ''}`}
             value={<Money amount={best.interest} variant="display" />}
             note={
               <>
@@ -238,7 +243,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
           />
           {best.potSize !== null ? (
             <StatTile
-              label={`Pot size, end of ${monthName(best.month)}`}
+              label={`Est. pot size, end of ${monthName(best.month)}${first.plan.relend ? ', with re-lending' : ''}`}
               value={<Money amount={best.potSize} variant="display" />}
               note="Cash plus money out on loan"
             />
@@ -269,7 +274,7 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
         <div>
           <h2 className="text-base font-semibold">How it adds up</h2>
           <p className="text-muted-foreground text-xs">
-            Interest collected from today, month by month{runs.some((r) => r.plan.relend) ? ', with re-lending' : ''}.
+            Running total of estimated interest from today. The key below says which lines include re-lending.
           </p>
         </div>
         {/* The chart's dotted target line is drawn only for an interest target: a pot-size
@@ -304,10 +309,13 @@ export default async function ProjectionsPage({ searchParams }: PageProps<'/proj
             const r = first.realistic ? reachTarget(first.realistic, target, targetKind) : null
             const say = (m: typeof b) => (m ? monthName(m.month) : `Not within ${first.best.length} months`)
             return (
-              <dl className="bg-muted/50 grid gap-1.5 rounded-xl p-3 text-sm">
+              <div className="bg-muted/50 space-y-1.5 rounded-xl p-3 text-sm">
+                <p className="text-muted-foreground text-xs">Estimated month{first.plan.relend ? ', with re-lending' : ''}</p>
+                <dl className="grid gap-1.5">
                 <div className="flex justify-between gap-3"><dt className="text-muted-foreground">If everyone pays on time</dt><dd className="font-semibold">{say(b)}</dd></div>
                 {first.realistic ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">If some pay late</dt><dd className="font-semibold">{say(r)}</dd></div> : null}
-              </dl>
+                </dl>
+              </div>
             )
           })()
         ) : null}
