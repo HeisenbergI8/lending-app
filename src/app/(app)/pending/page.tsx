@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ArrowRight, Inbox } from 'lucide-react'
+import { ArrowRight, CalendarPlus, Inbox } from 'lucide-react'
 
 import { Avatar } from '@/components/avatar.tsx'
 import { ActionForm } from '@/components/forms.tsx'
@@ -19,6 +19,18 @@ import { AddPendingLoan } from './add-pending.tsx'
 export const metadata = { title: 'Pending loans' }
 
 const dateFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
+
+/** createdAt is a moment in time; the Admin reads it as a day in Manila. */
+const addedFormat = new Intl.DateTimeFormat('en-PH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })
+const manilaDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }) // YYYY-MM-DD
+
+/** "Added today", "Added yesterday", "Added 5 days ago" — counted in Manila calendar days. */
+function daysAgo(at: Date): string {
+  const days = Math.round((Date.parse(manilaDay.format(new Date())) - Date.parse(manilaDay.format(at))) / 86_400_000)
+  if (days <= 0) return 'Added today'
+  if (days === 1) return 'Added yesterday'
+  return `Added ${days} days ago`
+}
 
 /** "7%", "7.5%" — basis points as the Admin typed them. 700 is 7. */
 function ratePercent(bps: number): string {
@@ -77,40 +89,45 @@ export default async function PendingLoansPage({ searchParams }: PageProps<'/pen
       ) : (
         <ul className="space-y-2">
           {rows.map((request) => (
-            <li
-              key={request.id}
-              className="bg-card block p-3.5 rounded-2xl ring-1 ring-border/70 shadow-rest"
-            >
-              <div className="flex items-center gap-3">
-                <Avatar name={`${request.firstName} ${request.lastName}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">
-                    {request.firstName} {request.lastName}
-                  </div>
-                  {/* The amount ASKED FOR, which is capital alone. The interest
-                      beside it is capital x rate x weeks, worked out on every
-                      read by the same function that will store it if this
-                      becomes a loan — so a request converted unchanged shows the
-                      same figures afterwards. Nothing here is fixed: correct the
-                      rate and both move. */}
-                  <div className="text-muted-foreground mt-0.5 text-xs">
-                    <Money amount={request.capital} variant="display" /> ·{' '}
-                    {describeTerm(request.termDays)} · {ratePercent(request.rateBps)} a week (
-                    <Money amount={request.interest} variant="display" />)
+            <li key={request.id} className="bg-card shadow-rest rounded-2xl p-4 ring-1 ring-border/70">
+              {/* WHEN IT CAME IN: first, in its own pill, so the queue can be scanned by date. */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={`${request.firstName} ${request.lastName}`} />
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold">
+                      {request.firstName} {request.lastName}
+                    </div>
+                    <div className="text-muted-foreground text-xs">{daysAgo(request.createdAt)}</div>
                   </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  {/* Capital plus that interest: what comes BACK. It said "would
-                      owe" until 2026-09-30, which the Admin read as the amount
-                      borrowed or the amount owed to them — so it now names the
-                      thing itself. Still a projection: nothing is agreed, and
-                      the figure moves if the rate or the length is corrected. */}
-                  <div className="text-muted-foreground text-xs">Total to repay</div>
-                  <Money amount={request.total} variant="display" className="text-sm font-semibold" />
-                </div>
+                <span className="bg-muted text-foreground inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium">
+                  <CalendarPlus className="size-3.5" aria-hidden />
+                  <span className="sr-only">Added </span>
+                  {addedFormat.format(request.createdAt)}
+                </span>
               </div>
 
-              <div className="border-border/70 mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t pt-2.5">
+              {/* The amount ASKED FOR, which is capital alone, then capital plus
+                  interest: what comes BACK. The interest is capital x rate x
+                  weeks, worked out on every read by the same function that will
+                  store it if this becomes a loan. Nothing is fixed: correct the
+                  rate and both move. */}
+              <dl className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <dt className="text-muted-foreground text-xs">Asking for</dt>
+                  <dd><Money amount={request.capital} variant="display" className="text-lg font-semibold" /></dd>
+                </div>
+                <div className="text-right">
+                  <dt className="text-muted-foreground text-xs">Total to repay</dt>
+                  <dd><Money amount={request.total} variant="display" className="text-lg font-semibold" /></dd>
+                </div>
+              </dl>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {describeTerm(request.termDays)} · {ratePercent(request.rateBps)} a week · <Money amount={request.interest} variant="display" /> interest
+              </p>
+
+              <div className="border-border/70 mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
                 <p className="text-muted-foreground text-xs">
                   {request.startOn
                     ? `Wants it from ${dateFormat.format(request.startOn)}`

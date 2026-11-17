@@ -36,6 +36,8 @@ export type PendingLoanRow = {
   total: Centavos
   /** "Remind me every N weeks", carried onto the loan. Null when off. */
   remindEveryWeeks: number | null
+  /** When the request was taken down: a timestamp, shown as a Manila date. */
+  createdAt: Date
 }
 
 export type PendingTotals = {
@@ -81,6 +83,7 @@ function withFigures(row: {
   termDays: number
   startOn: Date | null
   remindEveryWeeks: number | null
+  createdAt: Date
 }): PendingLoanRow {
   return {
     id: row.id,
@@ -90,6 +93,7 @@ function withFigures(row: {
     termDays: row.termDays,
     startOn: row.startOn,
     remindEveryWeeks: row.remindEveryWeeks,
+    createdAt: row.createdAt,
     ...requestFigures(row),
   }
 }
@@ -121,7 +125,8 @@ export async function listPendingLoans(
         borrowerRateBps: true,
         termDays: true,
         startOn: true,
-      remindEveryWeeks: true,
+        remindEveryWeeks: true,
+        createdAt: true,
       },
     }),
     db.pendingLoan.count({ where: { userId } }),
@@ -147,6 +152,7 @@ export async function pendingLoan(userId: string, id: string): Promise<PendingLo
       termDays: true,
       startOn: true,
       remindEveryWeeks: true,
+      createdAt: true,
     },
   })
 
